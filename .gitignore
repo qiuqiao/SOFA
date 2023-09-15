@@ -1,0 +1,13 @@
+# 忽略所有文件夹内内容
+*/
+*/transcriptions.csv
+*/*.wav
+*/*.data
+*/*.idx
+*/*.pth
+*.ipynb
+
+# 取消忽略myfolder文件夹本身
+!/data/
+!/inference/
+!/ckpt/
