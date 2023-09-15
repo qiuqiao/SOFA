@@ -1,0 +1,27 @@
+inference_edge_weight: 2
+model_name: model
+inference_data_path: inference
+random_seed: 114
+valid_length: 300
+label_smoothing: 0.08
+weight_decay: 0.01
+batch_size_sup: 8
+batch_size_usp: 16
+learning_rate: 0.001
+device: cuda
+hidden_dim_scaling: 1
+max_steps: 5001
+val_interval: 50
+test_interval: 500
+save_ckpt_interval: 100
+sample_rate: 48000
+n_fft: 1024
+hop_length: 240
+n_mels: 128
+wavlm:
+  enabled: False
+  path: WavLM/WavLM-Large.pt
+  n_dims: 1024
+special_phonemes:
+  - AP
+  - SP
