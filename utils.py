@@ -139,3 +139,42 @@ class BinaryEMDLoss(torch.nn.Module):
         loss=self.loss(pred.cumsum(dim=-1), target.cumsum(dim=-1))/target.shape[-1]
         loss+=self.loss(pred.flip([-1]).cumsum(dim=-1), target.flip([-1]).cumsum(dim=-1))/target.shape[-1]
         return loss
+
+def confusion_matrix(num_classes,y_true,y_predict):
+    y_true,y_predict=y_true.cpu(),y_predict.cpu()
+    matrix = np.zeros((num_classes,num_classes))
+    for i in range(len(y_true)):
+        matrix[y_true[i],y_predict[i]] += 1
+    return matrix
+
+def cal_accuracy(confusion_matrix):
+    diagonal_sum = confusion_matrix.trace()
+    sum_of_all_elements = confusion_matrix.sum()
+    return diagonal_sum / sum_of_all_elements
+
+def cal_precision(confusion_matrix):
+    precision = np.zeros(confusion_matrix.shape[0])
+    for i in range(confusion_matrix.shape[0]):
+        precision[i] = confusion_matrix[i,i] / (confusion_matrix[:,i].sum()+1e-10)
+    return precision
+
+def cal_recall(confusion_matrix):
+    recall = np.zeros(confusion_matrix.shape[0])
+    for i in range(confusion_matrix.shape[0]):
+        recall[i] = confusion_matrix[i,i] / (confusion_matrix[i,:].sum()+1e-10)
+    return recall
+
+def cal_macro_F1(confusion_matrix):
+    precision = cal_precision(confusion_matrix)
+    recall = cal_recall(confusion_matrix)
+    return 2 * precision * recall / (precision + recall+1e-10)
+
+def plot_confusion_matrix(confusion_matrix):
+    fig, ax = plt.subplots()
+    im = ax.imshow(confusion_matrix)
+    ax.set_xlabel('True')
+    ax.set_ylabel('Predicted')
+    ax.set_title('Confusion Matrix')
+    fig.colorbar(im)
+    
+    return fig

@@ -27,7 +27,7 @@ with open('config.yaml', 'r') as file:
 config=utils.dict_to_namespace(config)
 
 with open('vocab.yaml', 'r') as file:
-    dict = yaml.safe_load(file)
+    vocab = yaml.safe_load(file)
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     usp_scheduler = GaussianRampUpScheduler(config.max_steps,0,config.max_steps)
 
     valid_dataset = FullLabelDataset(name='valid')
-    valid_dataloader = DataLoader(dataset=valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=collate_fn)
+    valid_dataloader = DataLoader(dataset=valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=collate_fn,drop_last=True)
 
     model=FullModel().to(config.device)
     # ema = EMA(model, 0.99)
@@ -89,7 +89,7 @@ if __name__ == '__main__':
         edge_loss=seg_loss_fn(edge,edge_target.squeeze(1))+EMD_loss_fn(is_edge_prob,edge_target)
         loss=edge_loss+seg_loss
 
-        writer.add_scalar('Accuracy/train', (seg.argmax(dim=1)==target).float().mean().item(), i)
+        writer.add_scalar('Loss/train/Accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
         writer.add_scalar('Loss/train/sup/seq', seg_loss.item(), i) 
         writer.add_scalar('Loss/train/sup/edge', edge_loss.item(), i)
 
@@ -132,7 +132,8 @@ if __name__ == '__main__':
             # print('validating...')
             model.eval()
             # ema.apply_shadow()
-            val_acc=[]
+            y_true=[]
+            y_pred=[]
             val_loss_seg=[]
             val_loss_edge=[]
             with torch.no_grad():
@@ -141,18 +142,34 @@ if __name__ == '__main__':
                     h,seg,ctc,edge=model(melspec)
 
                     is_edge_prob=F.softmax(edge,dim=1)[:,0,:]
-                    
-                    val_acc.append((seg.argmax(dim=1)==target).float().mean().item())
+
+                    y_true.append(target.cpu())
+                    y_pred.append(seg.argmax(dim=1).cpu())
+
                     val_loss_seg.append(seg_loss_fn(seg,target).item())
                     val_loss_edge.append(seg_loss_fn(edge,edge_target)+EMD_loss_fn(is_edge_prob,edge_target).item())
             
             # ema.restore()
+            y_true=torch.cat(y_true,dim=-1)
+            y_pred=torch.cat(y_pred,dim=-1)
+            confusion_matrix=utils.confusion_matrix(len(vocab)//2,y_pred,y_true)
+            val_l1=utils.cal_macro_F1(confusion_matrix)
+            val_l1_total=torch.mean(torch.tensor(val_l1))
+            writer.add_scalar('Loss/valid/L1_score', val_l1_total, i)
 
-            val_acc_total=torch.mean(torch.tensor(val_acc))
+            recall_matrix=np.zeros_like(confusion_matrix)
+            for j in range(len(vocab)//2):
+                recall_matrix[j,:]=confusion_matrix[j,:]/(confusion_matrix[j,:].sum()+1e-10)
+            writer.add_figure('recall', utils.plot_confusion_matrix(recall_matrix), i)
+            
+            precision_matrix=np.zeros_like(confusion_matrix)
+            for j in range(len(vocab)//2):
+                precision_matrix[:,j]=confusion_matrix[:,j]/(confusion_matrix[:,j].sum()+1e-10)
+            writer.add_figure('precision', utils.plot_confusion_matrix(precision_matrix), i)
+
             val_loss_seg_total=torch.mean(torch.tensor(val_loss_seg))
-            val_loss_edge_total=torch.mean(torch.tensor(val_loss_edge))
-            writer.add_scalar('Accuracy/valid', val_acc_total, i)
             writer.add_scalar('Loss/valid/seg', val_loss_seg_total, i)
+            val_loss_edge_total=torch.mean(torch.tensor(val_loss_edge))
             writer.add_scalar('Loss/valid/edge', val_loss_edge_total, i)
         
         if i%config.test_interval==0:
