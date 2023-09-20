@@ -75,8 +75,8 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
     with torch.no_grad():
         h,seg,ctc,edge=model(melspec.to(config.device))
         seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
-        # edge=torch.nn.functional.softmax(edge,dim=1)
-        is_edge_prob=edge[0,0,:]
+        edge=torch.nn.functional.softmax(edge,dim=1)
+        is_edge_prob=edge[0,1,:]
         is_edge_prob_log=torch.log(is_edge_prob)
         not_edge_prob=1-is_edge_prob
         not_edge_prob_log=torch.log(not_edge_prob)

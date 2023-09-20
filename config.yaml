@@ -16,7 +16,7 @@ test_interval: 500
 save_ckpt_interval: 100
 sample_rate: 48000
 n_fft: 1024
-hop_length: 240
+hop_length: 480
 n_mels: 128
 wavlm:
   enabled: False

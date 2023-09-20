@@ -1,7 +1,5 @@
 import torch
-import torchaudio
-import torchaudio.functional as F
-import torchaudio.transforms as T
+import torch.nn.functional as F
 import pandas as pd
 import numpy as np
 import utils
@@ -11,7 +9,6 @@ from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
-from itertools import cycle 
 from utils import SinScheduler, GaussianRampUpScheduler
 from tqdm import tqdm, trange
 from inference import infer_once
@@ -43,11 +40,11 @@ if __name__ == '__main__':
 
     full_train_dataset = FullLabelDataset(name='train')
     full_train_dataloader = DataLoader(dataset=full_train_dataset, batch_size=config.batch_size_sup, shuffle=True,collate_fn=collate_fn)
-    full_train_dataiter = cycle(full_train_dataloader)
+    full_train_dataiter = iter(full_train_dataloader)
 
-    usp_dataset = NoLabelDataset(name='train')
-    usp_dataloader = DataLoader(dataset=usp_dataset, batch_size=config.batch_size_usp, shuffle=True,collate_fn=collate_fn)
-    usp_dataloader = cycle(usp_dataloader)
+    # usp_dataset = NoLabelDataset(name='train')
+    # usp_dataloader = DataLoader(dataset=usp_dataset, batch_size=config.batch_size_usp, shuffle=True,collate_fn=collate_fn)
+    # usp_dataiter = iter(usp_dataloader)
 
     usp_scheduler = GaussianRampUpScheduler(config.max_steps,0,config.max_steps)
 
@@ -75,37 +72,48 @@ if __name__ == '__main__':
         optimizer.zero_grad()
 
         # full supervised training
-        melspec,target,edge_target=next(full_train_dataiter)
+        try:
+            melspec,target,edge_target=next(full_train_dataiter)
+        except StopIteration:
+            full_train_dataiter = iter(full_train_dataloader)
+            melspec,target,edge_target=next(full_train_dataiter)
+
         melspec,target,edge_target=\
         torch.tensor(melspec).to(config.device),\
         torch.tensor(target).to(config.device).long().squeeze(1),\
-        torch.tensor(edge_target).to(config.device).float()
+        torch.tensor(edge_target).to(config.device).long()
         h,seg,ctc,edge=model(melspec)
-        # print(seg.shape,target.shape)
+        
+        is_edge_prob=F.softmax(edge,dim=1)[:,0,:]
         seg_loss=seg_loss_fn(seg,target.squeeze(1))
-        edge_loss=BCE_loss_fn(edge,edge_target)+EMD_loss_fn(edge,edge_target)
+        edge_loss=seg_loss_fn(edge,edge_target.squeeze(1))+EMD_loss_fn(is_edge_prob,edge_target)
         loss=edge_loss+seg_loss
 
         writer.add_scalar('Accuracy/train', (seg.argmax(dim=1)==target).float().mean().item(), i)
-        writer.add_scalar('Loss/train/sup/seq', seg_loss.item(), i)
+        writer.add_scalar('Loss/train/sup/seq', seg_loss.item(), i) 
         writer.add_scalar('Loss/train/sup/edge', edge_loss.item(), i)
 
         # semi supervised training
         if usp_scheduler()>0:
-            # pass
-            feature, feature_weak_aug, feature_strong_aug=next(usp_dataloader)
-            feature, feature_weak_aug, feature_strong_aug=feature.to(config.device), feature_weak_aug.to(config.device), feature_strong_aug.to(config.device)
-            h,seg,ctc,edge=model(feature)
-            h_weak,seg_weak,ctc_weak,edge_weak=model(feature_weak_aug)
-            h_strong,seg_strong,ctc_strong,edge_strong=model(feature_strong_aug)
-            consistence_loss=(
-                MSE_loss_fn(seg_weak,seg)+MSE_loss_fn(seg_strong,seg)+MSE_loss_fn(seg_strong,seg_weak)+\
-                MSE_loss_fn(edge_weak,edge)+MSE_loss_fn(edge_strong,edge)+MSE_loss_fn(edge_strong,edge_weak)
-            )
+            pass
+            # try:
+            #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
+            # except StopIteration:
+            #     usp_dataiter = iter(usp_dataloader)
+            #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
 
-            writer.add_scalar('Loss/train/consistence', consistence_loss.item(), i)
+            # feature, feature_weak_aug, feature_strong_aug=feature.to(config.device), feature_weak_aug.to(config.device), feature_strong_aug.to(config.device)
+            # h,seg,ctc,edge=model(feature)
+            # h_weak,seg_weak,ctc_weak,edge_weak=model(feature_weak_aug)
+            # h_strong,seg_strong,ctc_strong,edge_strong=model(feature_strong_aug)
+            # consistence_loss=(
+            #     MSE_loss_fn(seg_weak,seg)+MSE_loss_fn(seg_strong,seg)+MSE_loss_fn(seg_strong,seg_weak)+\
+            #     MSE_loss_fn(edge_weak,edge)+MSE_loss_fn(edge_strong,edge)+MSE_loss_fn(edge_strong,edge_weak)
+            # )
 
-            loss+=usp_scheduler()*consistence_loss
+            # writer.add_scalar('Loss/train/consistence', consistence_loss.item(), i)
+
+            # loss+=usp_scheduler()*consistence_loss
 
         loss.backward()
         optimizer.step()
@@ -129,12 +137,14 @@ if __name__ == '__main__':
             val_loss_edge=[]
             with torch.no_grad():
                 for melspec,target,edge_target in valid_dataloader:
-                    melspec,target,edge_target=melspec.to(config.device),target.to(config.device).squeeze(1),edge_target.to(config.device)
+                    melspec,target,edge_target=melspec.to(config.device),target.to(config.device).squeeze(1),edge_target.to(config.device).squeeze(1).long()
                     h,seg,ctc,edge=model(melspec)
+
+                    is_edge_prob=F.softmax(edge,dim=1)[:,0,:]
                     
                     val_acc.append((seg.argmax(dim=1)==target).float().mean().item())
                     val_loss_seg.append(seg_loss_fn(seg,target).item())
-                    val_loss_edge.append(BCE_loss_fn(edge,edge_target)+EMD_loss_fn(edge,edge_target).item())
+                    val_loss_edge.append(seg_loss_fn(edge,edge_target)+EMD_loss_fn(is_edge_prob,edge_target).item())
             
             # ema.restore()
 

@@ -243,4 +243,4 @@ if __name__=='__main__':
     full_label_binarize(valid_list,'valid')
     full_label_binarize(train_list,'train')
 
-    # no_label_binarize('train')
+    no_label_binarize('train')

@@ -220,8 +220,7 @@ class FullModel(nn.Module):
         self.seg_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=len(dictionary)//2)
         self.ctc_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=len(dictionary)//2)
         self.edge_decoder=nn.Sequential(
-            Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=1),
-            nn.Sigmoid(),
+            Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=2),
         )
 
         self.apply(self.init_weights)
