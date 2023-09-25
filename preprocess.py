@@ -195,10 +195,7 @@ def no_label_binarize(name='train'):
             pass
         else:
             input_feature=melspec
-        
-        if input_feature.shape[-1]>18*100:
-            print(f'有显存刺客，长度为{input_feature.shape[-1]}跳过',file_path_list[index])
-            continue
+
 
         meta_data['input_feature']={}
         wirte_ndarray_to_bin(data_file,meta_data['input_feature'],input_feature)

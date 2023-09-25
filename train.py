@@ -54,10 +54,12 @@ if __name__ == '__main__':
     model=FullModel().to(config.device)
     # ema = EMA(model, 0.99)
     # ema.register()
-    seg_loss_fn=nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
+    # CE_loss_fn=nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
     EMD_loss_fn=utils.BinaryEMDLoss()
-    BCE_loss_fn=nn.BCELoss()
+    # BCE_loss_fn=nn.BCELoss()
     MSE_loss_fn=nn.MSELoss()
+    seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.label_smoothing)
+    edge_GHM_loss_fn=utils.GHMLoss(2,num_prob_bins=5,alpha=0.99999,label_smoothing=config.label_smoothing)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate,weight_decay=config.weight_decay)
     scheduler = OneCycleLR(optimizer, max_lr=config.learning_rate, total_steps=config.max_steps)
@@ -85,8 +87,8 @@ if __name__ == '__main__':
         h,seg,ctc,edge=model(melspec)
         
         is_edge_prob=F.softmax(edge,dim=1)[:,0,:]
-        seg_loss=seg_loss_fn(seg,target.squeeze(1))
-        edge_loss=seg_loss_fn(edge,edge_target.squeeze(1))+EMD_loss_fn(is_edge_prob,edge_target)
+        seg_loss=seg_GHM_loss_fn(seg,target.squeeze(1))
+        edge_loss=edge_GHM_loss_fn(edge,edge_target.squeeze(1))+EMD_loss_fn(is_edge_prob,edge_target)
         loss=edge_loss+seg_loss
 
         writer.add_scalar('Loss/train/Accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
@@ -146,24 +148,24 @@ if __name__ == '__main__':
                     y_true.append(target.cpu())
                     y_pred.append(seg.argmax(dim=1).cpu())
 
-                    val_loss_seg.append(seg_loss_fn(seg,target).item())
-                    val_loss_edge.append(seg_loss_fn(edge,edge_target)+EMD_loss_fn(is_edge_prob,edge_target).item())
+                    val_loss_seg.append(seg_GHM_loss_fn(seg,target).item())
+                    val_loss_edge.append(edge_GHM_loss_fn(edge,edge_target)+EMD_loss_fn(is_edge_prob,edge_target).item())
             
             # ema.restore()
             y_true=torch.cat(y_true,dim=-1)
             y_pred=torch.cat(y_pred,dim=-1)
-            confusion_matrix=utils.confusion_matrix(len(vocab)//2,y_pred,y_true)
+            confusion_matrix=utils.confusion_matrix(vocab['<vocab_size>'],y_pred,y_true)
             val_l1=utils.cal_macro_F1(confusion_matrix)
             val_l1_total=torch.mean(torch.tensor(val_l1))
             writer.add_scalar('Loss/valid/L1_score', val_l1_total, i)
 
             recall_matrix=np.zeros_like(confusion_matrix)
-            for j in range(len(vocab)//2):
+            for j in range(vocab['<vocab_size>']):
                 recall_matrix[j,:]=confusion_matrix[j,:]/(confusion_matrix[j,:].sum()+1e-10)
             writer.add_figure('recall', utils.plot_confusion_matrix(recall_matrix), i)
             
             precision_matrix=np.zeros_like(confusion_matrix)
-            for j in range(len(vocab)//2):
+            for j in range(vocab['<vocab_size>']):
                 precision_matrix[:,j]=confusion_matrix[:,j]/(confusion_matrix[:,j].sum()+1e-10)
             writer.add_figure('precision', utils.plot_confusion_matrix(precision_matrix), i)
 

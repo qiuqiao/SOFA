@@ -8,6 +8,7 @@ import torchaudio.functional as F
 import numpy as np
 import pickle
 from argparse import Namespace
+import torch.nn as nn
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
@@ -139,6 +140,41 @@ class BinaryEMDLoss(torch.nn.Module):
         loss=self.loss(pred.cumsum(dim=-1), target.cumsum(dim=-1))/target.shape[-1]
         loss+=self.loss(pred.flip([-1]).cumsum(dim=-1), target.flip([-1]).cumsum(dim=-1))/target.shape[-1]
         return loss
+
+class GHMLoss(torch.nn.Module):
+    def __init__(self, num_classes,num_prob_bins=10,alpha=0.99,label_smoothing=0.1):
+        super().__init__()
+        self.num_classes=num_classes
+        self.num_prob_bins=num_prob_bins
+        self.classes_ema=torch.ones(num_classes).to(config['device'])
+        self.prob_bins_ema=torch.ones(num_prob_bins).to(config['device'])
+        self.alpha=alpha
+        self.loss_fn=nn.CrossEntropyLoss(reduction='none',label_smoothing=label_smoothing)
+    
+    def forward(self, pred, target):
+
+        pred_prob=torch.softmax(pred,dim=1)
+        target_prob=torch.zeros_like(pred_prob).scatter_(1,target.unsqueeze(1),1).to(config['device'])
+        pred_prob=(pred_prob*target_prob).sum(dim=1)
+
+        loss=self.loss_fn(pred,target)
+        loss_classes=target.long()
+        loss_weighted=loss/torch.sqrt((self.classes_ema[loss_classes]*self.prob_bins_ema[torch.floor(pred_prob*self.num_prob_bins).long()]+1e-10))
+
+        loss=torch.mean(loss_weighted)
+
+        prob_bins=torch.histc(pred_prob,bins=self.num_prob_bins,min=0,max=1).to(config['device'])
+        prob_bins=prob_bins/(torch.sum(prob_bins)+1e-10)*self.num_prob_bins
+        self.prob_bins_ema=self.prob_bins_ema*self.alpha+(1-self.alpha)*prob_bins
+        self.prob_bins_ema=self.prob_bins_ema/(torch.sum(self.prob_bins_ema)+1e-10)*self.num_prob_bins
+
+        classes=torch.histc(target.float(),bins=self.num_classes,min=0,max=self.num_classes-1).to(config['device'])
+        classes=classes/(torch.sum(classes)+1e-10)*self.num_classes
+        self.classes_ema=self.classes_ema*self.alpha+(1-self.alpha)*classes
+        self.classes_ema=self.classes_ema/(torch.sum(self.classes_ema)+1e-10)*self.num_classes
+
+        return loss
+
 
 def confusion_matrix(num_classes,y_true,y_predict):
     y_true,y_predict=y_true.cpu(),y_predict.cpu()

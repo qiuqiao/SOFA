@@ -112,11 +112,11 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
     for i in range(len(ph_time_pred)-1):
         conf_curr=0.5*(seg_prob[vocab[ph_seq_pred[i]]][ph_time_pred[i]:ph_time_pred[i+1]].cpu().numpy().mean())
         conf_curr+=0.25*(not_edge_prob[ph_time_pred[i]+1:ph_time_pred[i+1]].cpu().numpy().mean())
-        if ph_time_pred[i]==0:
+        if ph_time_pred[i+1]>=is_edge_prob.shape[-1]:
+            conf_curr+=0.25*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
+        elif ph_time_pred[i]==0:
             # print(i,ph_time_pred,ph_time_pred[i],ph_seq_pred)
             conf_curr+=0.25*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
-        elif ph_time_pred[i+1]>=is_edge_prob.shape[-1]:
-            conf_curr+=0.25*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
         else:
             conf_curr+=0.125*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
             conf_curr+=0.125*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
@@ -130,7 +130,7 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
     else:
         return ph_seq_pred,ph_dur_pred.numpy(),np.mean(ph_confidence),\
                 utils.plot_spectrogram_and_phonemes(melspec[0],target_pred=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred.numpy()),\
-                utils.plot_spectrogram_and_phonemes(seg_prob.cpu(),target_pred=target,target_gt=is_edge_prob.cpu().numpy()*(len(vocab)//2))
+                utils.plot_spectrogram_and_phonemes(seg_prob.cpu(),target_pred=target,target_gt=is_edge_prob.cpu().numpy()*vocab['<vocab_size>'])
 
 if __name__ == '__main__':
     # load model
