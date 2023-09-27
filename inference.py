@@ -23,7 +23,7 @@ config=dict_to_namespace(config)
 with open('vocab.yaml', 'r') as file:
     vocab = yaml.safe_load(file)
 
-def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log,inference_edge_weight=config.inference_edge_weight):
+def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
     prob_log=np.array(prob_log.cpu())
     is_edge_prob_log=np.array(is_edge_prob_log.cpu())
     not_edge_prob_log=np.array(not_edge_prob_log.cpu())
@@ -33,12 +33,12 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log,infe
     backtrack_j=np.zeros_like(dp)-1
     for i in range(1,dp.shape[-1]):
         # [j,i-1]->[j,i]
-        prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]*inference_edge_weight
+        prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]
         # [j-1,i-1]->[j,i]
-        prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]*inference_edge_weight
+        prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]
         prob2=np.concatenate([np.array([-np.inf]),prob2])
         # [j-2,i-1]->[j,i]
-        prob3=dp[:-2,i-1]+prob_log[ph_seq_num[2:],i]+is_edge_prob_log[i]*inference_edge_weight
+        prob3=dp[:-2,i-1]+prob_log[ph_seq_num[2:],i]+is_edge_prob_log[i]
         prob3=np.concatenate([np.array([-np.inf,-np.inf]),prob3])
         prob3[::2]=-np.inf
 
@@ -74,10 +74,23 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
     # inference
     with torch.no_grad():
         h,seg,ctc,edge=model(melspec.to(config.device))
+
         seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
+
         edge=torch.nn.functional.softmax(edge,dim=1)
-        is_edge_prob=edge[0,1,:]
-        is_edge_prob_log=torch.log(is_edge_prob)
+
+        edge_pred=edge[0,0,:].clone()
+
+        edge_diff=edge_pred.clone()
+        edge_diff[1:]-=edge_diff[:-1].clone()
+        edge_diff=edge_diff/2
+
+        is_edge_prob=edge_pred
+        is_edge_prob[1:]+=is_edge_prob[:-1].clone()
+        is_edge_prob=(is_edge_prob/2)**config.inference_edge_weight
+
+        is_edge_prob_log=torch.log(is_edge_prob.clamp(1e-10,1-1e-10))
+
         not_edge_prob=1-is_edge_prob
         not_edge_prob_log=torch.log(not_edge_prob)
     
@@ -100,29 +113,30 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
         else:
             if ph_num!=target[idx-1]:
                 ph_seq_pred.append(vocab[int(ph_num)])
-                ph_time_pred.append(idx)
+                ph_time_pred.append(idx+(edge_diff[idx]*config.inference_edge_weight).clamp(-0.5,0.5))
                 ph_dur_pred.append(ph_time_pred[-1]-ph_time_pred[-2])
     ph_dur_pred.append(len(target)-ph_time_pred[-1])
-    ph_dur_pred=((torch.tensor(ph_dur_pred))*config.hop_length/config.sample_rate)
+    ph_dur_pred=(torch.tensor(ph_dur_pred))*torch.tensor(config.hop_length/config.sample_rate)
 
     # calculating confidence
     ph_time_pred.append(seg_prob.shape[-1])
+    ph_time_pred=torch.tensor(ph_time_pred)
     frame_confidence=np.zeros([seg_prob.shape[-1]])
     ph_confidence=[]
-    for i in range(len(ph_time_pred)-1):
-        conf_curr=0.5*(seg_prob[vocab[ph_seq_pred[i]]][ph_time_pred[i]:ph_time_pred[i+1]].cpu().numpy().mean())
-        conf_curr+=0.25*(not_edge_prob[ph_time_pred[i]+1:ph_time_pred[i+1]].cpu().numpy().mean())
-        if ph_time_pred[i+1]>=is_edge_prob.shape[-1]:
-            conf_curr+=0.25*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
-        elif ph_time_pred[i]==0:
-            # print(i,ph_time_pred,ph_time_pred[i],ph_seq_pred)
-            conf_curr+=0.25*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
-        else:
-            conf_curr+=0.125*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
-            conf_curr+=0.125*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
+    # for i in range(len(ph_time_pred)-1):
+    #     conf_curr=0.5*(seg_prob[vocab[ph_seq_pred[i]]][ph_time_pred[i]:ph_time_pred[i+1]].cpu().numpy().mean())
+    #     conf_curr+=0.25*(not_edge_prob[ph_time_pred[i]+1:ph_time_pred[i+1]].cpu().numpy().mean())
+    #     if ph_time_pred[i+1]>=is_edge_prob.shape[-1]:
+    #         conf_curr+=0.25*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
+    #     elif ph_time_pred[i]==0:
+    #         # print(i,ph_time_pred,ph_time_pred[i],ph_seq_pred)
+    #         conf_curr+=0.25*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
+    #     else:
+    #         conf_curr+=0.125*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
+    #         conf_curr+=0.125*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
 
-        frame_confidence[ph_time_pred[i]:ph_time_pred[i+1]]=conf_curr
-        ph_confidence.append(conf_curr)
+    #     frame_confidence[ph_time_pred[i]:ph_time_pred[i+1]]=conf_curr
+    #     ph_confidence.append(conf_curr)
     
     if not return_plot:
         return ph_seq_pred,ph_dur_pred.numpy(),np.mean(ph_confidence)
@@ -130,7 +144,7 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
     else:
         return ph_seq_pred,ph_dur_pred.numpy(),np.mean(ph_confidence),\
                 utils.plot_spectrogram_and_phonemes(melspec[0],target_pred=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred.numpy()),\
-                utils.plot_spectrogram_and_phonemes(seg_prob.cpu(),target_pred=target,target_gt=is_edge_prob.cpu().numpy()*vocab['<vocab_size>'])
+                utils.plot_spectrogram_and_phonemes(seg_prob.cpu(),target_pred=target,target_gt=edge_pred.cpu().numpy()*vocab['<vocab_size>'])
 
 if __name__ == '__main__':
     # load model

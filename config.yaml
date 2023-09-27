@@ -25,3 +25,6 @@ wavlm:
 special_phonemes:
   - AP
   - SP
+  - <AP>
+  - <SP>
+  - ''

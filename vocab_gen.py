@@ -18,6 +18,9 @@ for path,folders,files in os.walk('data'):
         df = pd.read_csv(os.path.join(path,'transcriptions.csv'))
         ph=sorted(set(' '.join(df['ph_seq']).split(' ')))
         phonemes.extend(ph)
+        if 'iou' in ph:
+            print(os.path.join(path,'transcriptions.csv'))
+
 phonemes=set(phonemes)
 for p in config.special_phonemes:
     if p in phonemes:

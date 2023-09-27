@@ -56,10 +56,10 @@ if __name__ == '__main__':
     # ema.register()
     # CE_loss_fn=nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
     EMD_loss_fn=utils.BinaryEMDLoss()
-    # BCE_loss_fn=nn.BCELoss()
+    BCE_loss_fn=nn.BCELoss()
     MSE_loss_fn=nn.MSELoss()
     seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.label_smoothing)
-    edge_GHM_loss_fn=utils.GHMLoss(2,num_prob_bins=5,alpha=0.99999,label_smoothing=config.label_smoothing)
+    edge_GHM_loss_fn=utils.GHMLoss(2,num_prob_bins=5,alpha=0.999999,label_smoothing=0.0,enable_prob_input=True)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate,weight_decay=config.weight_decay)
     scheduler = OneCycleLR(optimizer, max_lr=config.learning_rate, total_steps=config.max_steps)
@@ -83,12 +83,15 @@ if __name__ == '__main__':
         melspec,target,edge_target=\
         torch.tensor(melspec).to(config.device),\
         torch.tensor(target).to(config.device).long().squeeze(1),\
-        torch.tensor(edge_target).to(config.device).long()
+        torch.tensor(edge_target).to(config.device).float()
         h,seg,ctc,edge=model(melspec)
         
         is_edge_prob=F.softmax(edge,dim=1)[:,0,:]
         seg_loss=seg_GHM_loss_fn(seg,target.squeeze(1))
-        edge_loss=edge_GHM_loss_fn(edge,edge_target.squeeze(1))+EMD_loss_fn(is_edge_prob,edge_target)
+        edge_diff_loss=MSE_loss_fn(torch.diff(is_edge_prob,dim=-1),torch.diff(edge_target[:,0,:],dim=-1))
+        edge_GHM_loss=edge_GHM_loss_fn(edge,edge_target)
+        edge_EMD_loss=EMD_loss_fn(is_edge_prob,edge_target[:,0,:])
+        edge_loss=edge_GHM_loss+edge_EMD_loss+edge_diff_loss.mean()
         loss=edge_loss+seg_loss
 
         writer.add_scalar('Loss/train/Accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
@@ -136,8 +139,8 @@ if __name__ == '__main__':
             # ema.apply_shadow()
             y_true=[]
             y_pred=[]
-            val_loss_seg=[]
-            val_loss_edge=[]
+            # val_loss_seg=[]
+            # val_loss_edge=[]
             with torch.no_grad():
                 for melspec,target,edge_target in valid_dataloader:
                     melspec,target,edge_target=melspec.to(config.device),target.to(config.device).squeeze(1),edge_target.to(config.device).squeeze(1).long()
@@ -148,8 +151,8 @@ if __name__ == '__main__':
                     y_true.append(target.cpu())
                     y_pred.append(seg.argmax(dim=1).cpu())
 
-                    val_loss_seg.append(seg_GHM_loss_fn(seg,target).item())
-                    val_loss_edge.append(edge_GHM_loss_fn(edge,edge_target)+EMD_loss_fn(is_edge_prob,edge_target).item())
+                    # val_loss_seg.append(seg_GHM_loss_fn(seg,target).item())
+                    # val_loss_edge.append(edge_GHM_loss_fn(edge,edge_target)+EMD_loss_fn(is_edge_prob,edge_target).item())
             
             # ema.restore()
             y_true=torch.cat(y_true,dim=-1)
@@ -169,10 +172,10 @@ if __name__ == '__main__':
                 precision_matrix[:,j]=confusion_matrix[:,j]/(confusion_matrix[:,j].sum()+1e-10)
             writer.add_figure('precision', utils.plot_confusion_matrix(precision_matrix), i)
 
-            val_loss_seg_total=torch.mean(torch.tensor(val_loss_seg))
-            writer.add_scalar('Loss/valid/seg', val_loss_seg_total, i)
-            val_loss_edge_total=torch.mean(torch.tensor(val_loss_edge))
-            writer.add_scalar('Loss/valid/edge', val_loss_edge_total, i)
+            # val_loss_seg_total=torch.mean(torch.tensor(val_loss_seg))
+            # writer.add_scalar('Loss/valid/seg', val_loss_seg_total, i)
+            # val_loss_edge_total=torch.mean(torch.tensor(val_loss_edge))
+            # writer.add_scalar('Loss/valid/edge', val_loss_edge_total, i)
         
         if i%config.test_interval==0:
             # pass

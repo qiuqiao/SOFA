@@ -9,7 +9,7 @@ with open('config.yaml', 'r') as file:
 config=utils.dict_to_namespace(config)
 
 with open('vocab.yaml', 'r') as file:
-    dictionary = yaml.safe_load(file)
+    vocab = yaml.safe_load(file)
 
 class Residual(nn.Module):
     def __init__(self, dim_x, dim_out):
@@ -217,8 +217,8 @@ class FullModel(nn.Module):
         if config.wavlm.enabled:
             input_channels+=config.wavlm.n_dims
         self.encoder=UNetEncoder(in_channels=input_channels, out_channels=128*config.hidden_dim_scaling,hidden_dim_scaling=config.hidden_dim_scaling)
-        self.seg_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=len(dictionary)//2)
-        self.ctc_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=len(dictionary)//2)
+        self.seg_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=vocab['<vocab_size>'])
+        self.ctc_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=vocab['<vocab_size>'])
         self.edge_decoder=nn.Sequential(
             Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=2),
         )

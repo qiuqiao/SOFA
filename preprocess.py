@@ -131,35 +131,35 @@ def full_label_binarize(data_list,name='train'):
         if (len(ph_dur)!=len(ph_seq_num)):
             print(data_list.iloc[index]['path'],len(ph_dur),len(ph_seq_num))
         assert(len(ph_dur)==len(ph_seq_num))
-        ph_time=ph_dur.cumsum(dim=0)
-        ph_time_int=(ph_time*config.sample_rate/config.hop_length).round().int()
+        ph_time=ph_dur.cumsum(dim=0)*config.sample_rate/config.hop_length
+        ph_time_int=(ph_time).round().int()
+        ph_time_diff_with_int=ph_time-ph_time_int
         ph_time_int=torch.cat([torch.tensor([0]),ph_time_int])
         target=torch.zeros(T)
         for i in range(len(ph_seq_num)):
             target[ph_time_int[i]:ph_time_int[i+1]]=ph_seq_num[i]
+        
         seg_target=target.numpy().astype('int32')
         seg_target=np.expand_dims(seg_target,0)
-        assert(len(seg_target.shape)==2)
 
         meta_data['seg_target']={}
         wirte_ndarray_to_bin(data_file,meta_data['seg_target'],seg_target)
 
 
         # edge_target
-        edge_target=np.zeros_like(seg_target[0])
-        for i in range(len(ph_seq_num)):
-            if i==0 or i==len(ph_seq_num)-1:
-                edge_target[ph_time_int[i+1]]=1
-            elif ph_seq_num[i]==0 and ph_seq_num[i+1]==0:
-                edge_target[ph_time_int[i+1]]=0
-            else:
-                edge_target[ph_time_int[i+1]]=1
+        edge_target=np.zeros_like(seg_target[0])+config.label_smoothing/(1-config.label_smoothing)
+        for i in range(len(ph_seq_num)-1):
+            if not(ph_seq_num[i]==0 and ph_seq_num[i+1]==0):
+                if ph_time_int[i+1]==0 or ph_time_int[i+1]==len(ph_seq_num)-1:
+                    edge_target[ph_time_int[i+1]]=1
+                else:
+                    edge_target[ph_time_int[i+1]]=0.5-ph_time_diff_with_int[i]
+                    edge_target[ph_time_int[i+1]-1]=0.5+ph_time_diff_with_int[i]
 
-        edge_target=edge_target.astype('int32')
-        edge_target=np.expand_dims(edge_target,0)
-        assert(len(edge_target.shape)==2)
+        edge_target=edge_target.astype('float32')*(1-config.label_smoothing)
+        edge_target=np.array([edge_target,1-edge_target])
 
-        meta_data['edge_target']={}    
+        meta_data['edge_target']={}
         wirte_ndarray_to_bin(data_file,meta_data['edge_target'],edge_target)
 
 
@@ -240,4 +240,4 @@ if __name__=='__main__':
     full_label_binarize(valid_list,'valid')
     full_label_binarize(train_list,'train')
 
-    no_label_binarize('train')
+    # no_label_binarize('train')
