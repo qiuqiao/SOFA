@@ -11,7 +11,7 @@ learning_rate: 0.001
 device: cuda
 hidden_dim_scaling: 1
 max_steps: 5001
-val_interval: 50
+val_interval: 100
 test_interval: 500
 save_ckpt_interval: 100
 sample_rate: 48000

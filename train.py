@@ -15,9 +15,10 @@ from inference import infer_once
 import random
 import torch
 import numpy as np
-from dataset import FullLabelDataset, collate_fn, NoLabelDataset
+from dataset import FullLabelDataset, collate_fn, NoLabelDataset, WeakLabelDataset, weak_label_collate_fn
 from model import FullModel, EMA
 from dataloader import BinaryDataLoader
+from einops import rearrange
 
 import yaml
 from argparse import Namespace
@@ -38,94 +39,136 @@ random.seed(config.random_seed)
 
 if __name__ == '__main__':
 
+    # dataset
     full_train_dataset = FullLabelDataset(name='train')
-    full_train_dataloader = DataLoader(dataset=full_train_dataset, batch_size=config.batch_size_sup, shuffle=True,collate_fn=collate_fn)
+    full_train_dataloader = DataLoader(dataset=full_train_dataset, batch_size=config.batch_size_sup, shuffle=True, collate_fn=collate_fn)
     full_train_dataiter = iter(full_train_dataloader)
+
+    full_valid_dataset = FullLabelDataset(name='valid')
+    full_valid_dataloader = DataLoader(dataset=full_valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=collate_fn,drop_last=True)
+
+    # weak_train_dataset = WeakLabelDataset(name='train')
+    # weak_train_dataloader = DataLoader(dataset=weak_train_dataset, batch_size=config.batch_size_sup, shuffle=True, collate_fn=weak_label_collate_fn)
+    # weak_train_dataiter = iter(weak_train_dataloader)
+
+    # weak_valid_dataset = WeakLabelDataset(name='valid')
+    # weak_valid_dataloader = DataLoader(dataset=weak_valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=weak_label_collate_fn,drop_last=True)
 
     # usp_dataset = NoLabelDataset(name='train')
     # usp_dataloader = DataLoader(dataset=usp_dataset, batch_size=config.batch_size_usp, shuffle=True,collate_fn=collate_fn)
     # usp_dataiter = iter(usp_dataloader)
 
-    usp_scheduler = GaussianRampUpScheduler(config.max_steps,0,config.max_steps)
-
-    valid_dataset = FullLabelDataset(name='valid')
-    valid_dataloader = DataLoader(dataset=valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=collate_fn,drop_last=True)
-
+    # model
     model=FullModel().to(config.device)
-    # ema = EMA(model, 0.99)
-    # ema.register()
-    # CE_loss_fn=nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
-    EMD_loss_fn=utils.BinaryEMDLoss()
-    BCE_loss_fn=nn.BCELoss()
-    MSE_loss_fn=nn.MSELoss()
+
+    # loss function
     seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.label_smoothing)
     edge_GHM_loss_fn=utils.GHMLoss(2,num_prob_bins=5,alpha=0.999999,label_smoothing=0.0,enable_prob_input=True)
+    EMD_loss_fn=utils.BinaryEMDLoss()
+    # CE_loss_fn=nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
+    # BCE_loss_fn=nn.BCELoss()
+    MSE_loss_fn=nn.MSELoss()
+    CTC_loss_fn = nn.CTCLoss()
 
+    # optimizer and scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate,weight_decay=config.weight_decay)
     scheduler = OneCycleLR(optimizer, max_lr=config.learning_rate, total_steps=config.max_steps)
+    usp_scheduler = GaussianRampUpScheduler(config.max_steps,0,config.max_steps)
 
-    progress_bar = tqdm(total=config.max_steps, ncols=80, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
 
+    # start training
     model_name='model'
+    progress_bar = tqdm(total=config.max_steps, ncols=80, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
     writer = SummaryWriter()
     print('start training')
     for i in range(config.max_steps):
         model.train()
         optimizer.zero_grad()
 
-        # full supervised training
+        # full supervised
+        # get data
         try:
             melspec,target,edge_target=next(full_train_dataiter)
         except StopIteration:
             full_train_dataiter = iter(full_train_dataloader)
             melspec,target,edge_target=next(full_train_dataiter)
 
-        melspec,target,edge_target=\
-        torch.tensor(melspec).to(config.device),\
-        torch.tensor(target).to(config.device).long().squeeze(1),\
-        torch.tensor(edge_target).to(config.device).float()
-        h,seg,ctc,edge=model(melspec)
+        melspec=torch.tensor(melspec).to(config.device)
+        target=torch.tensor(target).to(config.device).long().squeeze(1)
+        edge_target=torch.tensor(edge_target).to(config.device).float()
         
+        # forward
+        h,seg,ctc,edge=model(melspec)
+
+        # calculate loss
         is_edge_prob=F.softmax(edge,dim=1)[:,0,:]
         seg_loss=seg_GHM_loss_fn(seg,target.squeeze(1))
         edge_diff_loss=MSE_loss_fn(torch.diff(is_edge_prob,dim=-1),torch.diff(edge_target[:,0,:],dim=-1))
         edge_GHM_loss=edge_GHM_loss_fn(edge,edge_target)
         edge_EMD_loss=EMD_loss_fn(is_edge_prob,edge_target[:,0,:])
         edge_loss=edge_GHM_loss+edge_EMD_loss+edge_diff_loss.mean()
-        loss=edge_loss+seg_loss
 
-        writer.add_scalar('Accuracy/train/accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
-        writer.add_scalar('Loss/train/sup/seq', seg_loss.item(), i) 
-        writer.add_scalar('Loss/train/sup/edge', edge_loss.item(), i)
+        fsp_loss=edge_loss+seg_loss
 
-        # semi supervised training
-        if usp_scheduler()>0:
-            pass
-            # try:
-            #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
-            # except StopIteration:
-            #     usp_dataiter = iter(usp_dataloader)
-            #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
+        # log
+        writer.add_scalar('Accuracy/train/fsp/accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
+        writer.add_scalar('Loss/train/fsp/seq', seg_loss.item(), i) 
+        writer.add_scalar('Loss/train/fsp/edge', edge_loss.item(), i)
 
-            # feature, feature_weak_aug, feature_strong_aug=feature.to(config.device), feature_weak_aug.to(config.device), feature_strong_aug.to(config.device)
-            # h,seg,ctc,edge=model(feature)
-            # h_weak,seg_weak,ctc_weak,edge_weak=model(feature_weak_aug)
-            # h_strong,seg_strong,ctc_strong,edge_strong=model(feature_strong_aug)
-            # consistence_loss=(
-            #     MSE_loss_fn(seg_weak,seg)+MSE_loss_fn(seg_strong,seg)+MSE_loss_fn(seg_strong,seg_weak)+\
-            #     MSE_loss_fn(edge_weak,edge)+MSE_loss_fn(edge_strong,edge)+MSE_loss_fn(edge_strong,edge_weak)
-            # )
 
-            # writer.add_scalar('Loss/train/consistence', consistence_loss.item(), i)
+        # # weak supervised
+        # # get data
+        # try:
+        #     input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
+        # except StopIteration:
+        #     weak_train_dataloader = iter(weak_train_dataloader)
+        #     input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataloader)
 
-            # loss+=usp_scheduler()*consistence_loss
+        # input_feature=torch.tensor(input_feature).to(config.device)
+        # ctc_target=torch.tensor(ctc_target).to(config.device).long()
+        # ctc_target_lengths=torch.tensor(ctc_target_lengths).to(config.device).long()
 
+        # # forward
+        # h,seg,ctc,edge=model(input_feature)
+
+        # # calculate loss
+        # ctc=rearrange(ctc,'n c t -> t n c')
+        # wsp_loss=CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths)
+
+        # # log
+        # writer.add_scalar('Loss/train/wsp/ctc', wsp_loss.item(), i) 
+
+        # unsupervised training
+        # try:
+        #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
+        # except StopIteration:
+        #     usp_dataiter = iter(usp_dataloader)
+        #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
+
+        # feature, feature_weak_aug, feature_strong_aug=feature.to(config.device), feature_weak_aug.to(config.device), feature_strong_aug.to(config.device)
+        # h,seg,ctc,edge=model(feature)
+        # h_weak,seg_weak,ctc_weak,edge_weak=model(feature_weak_aug)
+        # h_strong,seg_strong,ctc_strong,edge_strong=model(feature_strong_aug)
+        # consistence_loss=(
+        #     MSE_loss_fn(seg_weak,seg)+MSE_loss_fn(seg_strong,seg)+MSE_loss_fn(seg_strong,seg_weak)+\
+        #     MSE_loss_fn(edge_weak,edge)+MSE_loss_fn(edge_strong,edge)+MSE_loss_fn(edge_strong,edge_weak)
+        # )
+
+        # writer.add_scalar('Loss/train/consistence', consistence_loss.item(), i)
+
+        # loss+=usp_scheduler()*consistence_loss
+
+
+        # sum up losses
+        loss=fsp_loss#+wsp_loss
+
+        # backward and update
         loss.backward()
         optimizer.step()
         scheduler.step()
         usp_scheduler.step()
-        # ema.update()
 
+        # log
         writer.add_scalar('Loss/train/total', loss.item(), i)
         writer.add_scalar('learning_rate/total', optimizer.param_groups[0]['lr'], i)
         writer.add_scalar('learning_rate/usp', usp_scheduler(), i)
@@ -134,15 +177,15 @@ if __name__ == '__main__':
 
         if i%config.val_interval==0:
             # pass
-            # print('validating...')
+            print('validating...')
             model.eval()
-            # ema.apply_shadow()
+
+            # full supervised
+            # forward
             y_true=[]
             y_pred=[]
-            # val_loss_seg=[]
-            # val_loss_edge=[]
             with torch.no_grad():
-                for melspec,target,edge_target in valid_dataloader:
+                for melspec,target,edge_target in full_valid_dataloader:
                     melspec,target,edge_target=melspec.to(config.device),target.to(config.device).squeeze(1),edge_target.to(config.device).squeeze(1).long()
                     h,seg,ctc,edge=model(melspec)
 
@@ -150,17 +193,14 @@ if __name__ == '__main__':
 
                     y_true.append(target.cpu())
                     y_pred.append(seg.argmax(dim=1).cpu())
-
-                    # val_loss_seg.append(seg_GHM_loss_fn(seg,target).item())
-                    # val_loss_edge.append(edge_GHM_loss_fn(edge,edge_target)+EMD_loss_fn(is_edge_prob,edge_target).item())
             
-            # ema.restore()
+            # log
             y_true=torch.cat(y_true,dim=-1)
             y_pred=torch.cat(y_pred,dim=-1)
             confusion_matrix=utils.confusion_matrix(vocab['<vocab_size>'],y_pred,y_true)
-            val_l1=utils.cal_macro_F1(confusion_matrix)
-            val_l1_total=torch.mean(torch.tensor(val_l1))
-            writer.add_scalar('Accuracy/valid/L1_score', val_l1_total, i)
+            val_F1=utils.cal_macro_F1(confusion_matrix)
+            val_F1_total=torch.mean(torch.tensor(val_F1))
+            writer.add_scalar('Accuracy/valid/F1_score', val_F1_total, i)
 
             recall_matrix=np.zeros_like(confusion_matrix)
             for j in range(vocab['<vocab_size>']):
@@ -172,10 +212,21 @@ if __name__ == '__main__':
                 precision_matrix[:,j]=confusion_matrix[:,j]/(confusion_matrix[:,j].sum()+1e-10)
             writer.add_figure('precision', utils.plot_confusion_matrix(precision_matrix), i)
 
-            # val_loss_seg_total=torch.mean(torch.tensor(val_loss_seg))
-            # writer.add_scalar('Loss/valid/seg', val_loss_seg_total, i)
-            # val_loss_edge_total=torch.mean(torch.tensor(val_loss_edge))
-            # writer.add_scalar('Loss/valid/edge', val_loss_edge_total, i)
+
+            # # weak supervised
+            # # forward
+            # ctc_losses=[]
+            # with torch.no_grad():
+            #     for input_feature,ctc_target,ctc_target_lengths in weak_valid_dataloader:
+            #         input_feature=input_feature.to(config.device)
+            #         ctc_target=ctc_target.to(config.device).long()
+            #         ctc_target_lengths=ctc_target_lengths.to(config.device).long()
+
+            #         h,seg,ctc,edge=model(input_feature)
+            #         ctc=rearrange(ctc,'n c t -> t n c')
+            #         ctc_losses.append(CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths))
+            # ctc_loss_total=np.array(ctc_losses).mean()
+            # writer.add_scalar('Loss/valid/ctc', ctc_loss_total, i)
         
         if i%config.test_interval==0:
             # pass
@@ -206,9 +257,7 @@ if __name__ == '__main__':
                         
         
         if i%config.save_ckpt_interval==0 and i != 0:
-            # ema.apply_shadow()
             torch.save(model.state_dict(), f'ckpt/{model_name}_{i}.pth')
-            # ema.restore()
             print(f'saved model at {i} steps, path: ckpt/{model_name}_{i}.pth')
 
     progress_bar.close()
