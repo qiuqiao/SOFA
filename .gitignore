@@ -6,6 +6,7 @@
 */*.idx
 */*.pth
 *.ipynb
+*.csv
 
 # 取消忽略myfolder文件夹本身
 !/data/

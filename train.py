@@ -94,7 +94,7 @@ if __name__ == '__main__':
         edge_loss=edge_GHM_loss+edge_EMD_loss+edge_diff_loss.mean()
         loss=edge_loss+seg_loss
 
-        writer.add_scalar('Loss/train/Accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
+        writer.add_scalar('Accuracy/train/accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
         writer.add_scalar('Loss/train/sup/seq', seg_loss.item(), i) 
         writer.add_scalar('Loss/train/sup/edge', edge_loss.item(), i)
 
@@ -160,7 +160,7 @@ if __name__ == '__main__':
             confusion_matrix=utils.confusion_matrix(vocab['<vocab_size>'],y_pred,y_true)
             val_l1=utils.cal_macro_F1(confusion_matrix)
             val_l1_total=torch.mean(torch.tensor(val_l1))
-            writer.add_scalar('Loss/valid/L1_score', val_l1_total, i)
+            writer.add_scalar('Accuracy/valid/L1_score', val_l1_total, i)
 
             recall_matrix=np.zeros_like(confusion_matrix)
             for j in range(vocab['<vocab_size>']):
@@ -202,7 +202,7 @@ if __name__ == '__main__':
                             id+=1
 
                             ph_confidence_total.append(ph_confidence)
-                        writer.add_scalar('Accuracy/test_confidence', np.mean(ph_confidence_total), i)
+                        writer.add_scalar('Accuracy/test/confidence', np.mean(ph_confidence_total), i)
                         
         
         if i%config.save_ckpt_interval==0 and i != 0:

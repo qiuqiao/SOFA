@@ -27,9 +27,11 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
     prob_log=np.array(prob_log.cpu())
     is_edge_prob_log=np.array(is_edge_prob_log.cpu())
     not_edge_prob_log=np.array(not_edge_prob_log.cpu())
+
     dp=np.zeros([len(ph_seq_num),prob_log.shape[-1]])-np.inf
-    for j in range(len(ph_seq_num)):
-        dp[j,0]=prob_log[ph_seq_num[j],0]
+    #只能从<EMPTY>开始或者从第一个音素开始
+    dp[0,0]=prob_log[ph_seq_num[0],0]
+    dp[1,0]=prob_log[ph_seq_num[1],0]
     backtrack_j=np.zeros_like(dp)-1
     for i in range(1,dp.shape[-1]):
         # [j,i-1]->[j,i]
@@ -40,14 +42,18 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
         # [j-2,i-1]->[j,i]
         prob3=dp[:-2,i-1]+prob_log[ph_seq_num[2:],i]+is_edge_prob_log[i]
         prob3=np.concatenate([np.array([-np.inf,-np.inf]),prob3])
-        prob3[::2]=-np.inf
+        prob3[::2]=-np.inf# 不能跳过音素，可以跳过<EMPTY>
 
         backtrack_j[:,i]=np.arange(len(prob1))-np.argmax(np.stack([prob1,prob2,prob3],axis=0),axis=0)
         dp[:,i]=np.max(np.stack([prob1,prob2,prob3],axis=0),axis=0)
 
     backtrack_j=backtrack_j.astype(np.int32)
     target=[]
-    j=int(len(ph_seq_num)-1)
+    #只能从最后一个音素或者<EMPTY>结束
+    if dp[-1,-1]>=dp[-2,-1]:
+        j=int(len(ph_seq_num)-1)
+    else:
+        j=int(len(ph_seq_num)-2)
     i=int(dp.shape[-1]-1)
     while j>=0:
         target.append(int(ph_seq_num[j]))
@@ -104,6 +110,7 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
     dp,backtrack_j,target=alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
 
     ph_seq_pred=[]
+    ph_time_pred_int=[]
     ph_time_pred=[]
     ph_dur_pred=[]
     for idx, ph_num in enumerate(target):
@@ -113,31 +120,37 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
         else:
             if ph_num!=target[idx-1]:
                 ph_seq_pred.append(vocab[int(ph_num)])
+                ph_time_pred_int.append(idx)
                 ph_time_pred.append(idx+(edge_diff[idx]*config.inference_edge_weight).clamp(-0.5,0.5))
                 ph_dur_pred.append(ph_time_pred[-1]-ph_time_pred[-2])
     ph_dur_pred.append(len(target)-ph_time_pred[-1])
     ph_dur_pred=(torch.tensor(ph_dur_pred))*torch.tensor(config.hop_length/config.sample_rate)
 
     # calculating confidence
-    ph_time_pred.append(seg_prob.shape[-1])
-    ph_time_pred=torch.tensor(ph_time_pred)
-    frame_confidence=np.zeros([seg_prob.shape[-1]])
-    ph_confidence=[]
-    # for i in range(len(ph_time_pred)-1):
-    #     conf_curr=0.5*(seg_prob[vocab[ph_seq_pred[i]]][ph_time_pred[i]:ph_time_pred[i+1]].cpu().numpy().mean())
-    #     conf_curr+=0.25*(not_edge_prob[ph_time_pred[i]+1:ph_time_pred[i+1]].cpu().numpy().mean())
-    #     if ph_time_pred[i+1]>=is_edge_prob.shape[-1]:
-    #         conf_curr+=0.25*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
-    #     elif ph_time_pred[i]==0:
-    #         # print(i,ph_time_pred,ph_time_pred[i],ph_seq_pred)
-    #         conf_curr+=0.25*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
-    #     else:
-    #         conf_curr+=0.125*(is_edge_prob[ph_time_pred[i+1]].cpu().numpy().mean())
-    #         conf_curr+=0.125*(is_edge_prob[ph_time_pred[i]].cpu().numpy().mean())
+    ph_time_pred=torch.cat((torch.tensor([0.]),torch.tensor(ph_time_pred),torch.tensor([seg_prob.shape[-1]]).float()),dim=0)
+    ph_time_pred_int=torch.cat((torch.tensor([0]),torch.tensor(ph_time_pred_int),torch.tensor([seg_prob.shape[-1]])),dim=0).round().int()
 
-    #     frame_confidence[ph_time_pred[i]:ph_time_pred[i+1]]=conf_curr
-    #     ph_confidence.append(conf_curr)
-    
+    ph_confidence=[]
+    frame_confidence=np.zeros([seg_prob.shape[-1]])
+    for i in range(len(ph_seq_pred)):
+        conf_seg=seg_prob[vocab[ph_seq_pred[i]]][ph_time_pred_int[i]:ph_time_pred_int[i+1]].cpu().numpy().mean()
+        if ph_time_pred_int[i+1]-ph_time_pred_int[i]>2:
+            conf_edge=0.5*(not_edge_prob[ph_time_pred_int[i]+1:ph_time_pred_int[i+1]-1].cpu().numpy().mean())
+            conf_edge+=0.5*(is_edge_prob[ph_time_pred_int[i]].cpu().numpy()+is_edge_prob[ph_time_pred_int[i+1]-1].cpu().numpy())/2
+        else:
+            conf_edge=(is_edge_prob[ph_time_pred_int[i]].cpu().numpy()+is_edge_prob[ph_time_pred_int[i+1]-1].cpu().numpy())
+        conf_curr=np.sqrt(conf_seg*conf_edge)
+        # if ph_time_pred_int[i+1]-ph_time_pred_int[i]>2:
+        #     conf_curr+=0.25*(not_edge_prob[ph_time_pred_int[i]+1:ph_time_pred_int[i+1]-1].cpu().numpy().mean())
+        #     conf_curr+=0.25*(is_edge_prob[ph_time_pred_int[i]].cpu().numpy()+is_edge_prob[ph_time_pred_int[i+1]-1].cpu().numpy())
+        # else:
+        #     conf_curr+=0.5*(is_edge_prob[ph_time_pred_int[i]].cpu().numpy()+is_edge_prob[ph_time_pred_int[i+1]-1].cpu().numpy())
+
+        if not conf_curr>0: #出现nan时改为0
+            conf_curr=0
+        frame_confidence[ph_time_pred_int[i]:ph_time_pred_int[i+1]]=conf_curr
+        ph_confidence.append(conf_curr)
+
     if not return_plot:
         return ph_seq_pred,ph_dur_pred.numpy(),np.mean(ph_confidence)
     
