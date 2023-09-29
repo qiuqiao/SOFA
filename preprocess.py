@@ -230,14 +230,64 @@ def no_label_binarize(name='train'):
     idx_data=pd.DataFrame(idx_data)
     idx_data.to_pickle(os.path.join('data','no_label',name+'.idx'))
 
+def weak_label_binarize(data_list,name='train'):
+    idx_data=[]
+    data_file=open(os.path.join('data','weak_label',name+'.data'), 'wb')
+    
+    for index in trange(len(data_list)):
+        meta_data={}
+        # return: input_feature, ctc_target
+        # melspec
+        audio, sample_rate = torchaudio.load(data_list.iloc[index]['path'])
+        audio=audio[0].unsqueeze(0)
+        if sample_rate!=config.sample_rate:
+            audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
+        melspec=utils.extract_normed_mel(audio)
+
+        padding_len=32-melspec.shape[-1]%32
+        if padding_len==0:
+            padding_len=32
+        melspec=torch.nn.functional.pad(melspec,(0,padding_len))
+        if len(melspec.shape)>3:
+            melspec=melspec.squeeze(0)
+        melspec=melspec.squeeze(0).numpy().astype('float32')
+
+        T=melspec.shape[-1]
+
+        input_feature=melspec
+        meta_data['input_feature']={}
+        wirte_ndarray_to_bin(data_file,meta_data['input_feature'],input_feature)
+
+        # ctc_target
+        ph_seq=[i for i in data_list.iloc[index]['ph_seq'].split(' ') if i !='']
+        ph_seq_num=[vocab[ph] for ph in ph_seq if vocab[ph]!=0]
+        ctc_target=np.array(ph_seq_num)
+        ctc_target=ctc_target.astype('int32')
+
+        meta_data['ctc_target']={}
+        wirte_ndarray_to_bin(data_file,meta_data['ctc_target'],ctc_target)
+
+        idx_data.append(meta_data)
+
+    data_file.close()
+    idx_data=pd.DataFrame(idx_data)
+    idx_data.to_pickle(os.path.join('data','weak_label',name+'.idx'))
 
 if __name__=='__main__':
-    data_list=get_data_list('full_label')
+    # data_list=get_data_list('full_label')
+    # valid_list_length=int(config.valid_length)
+    # valid_list=data_list.sample(valid_list_length)
+    # train_list=data_list.drop(valid_list.index)
+
+    # full_label_binarize(valid_list,'valid')
+    # full_label_binarize(train_list,'train')
+
+    data_list=pd.concat([get_data_list('full_label'),get_data_list('weak_label')])
+    data_list.reset_index(drop=True,inplace=True)
     valid_list_length=int(config.valid_length)
     valid_list=data_list.sample(valid_list_length)
     train_list=data_list.drop(valid_list.index)
-
-    full_label_binarize(valid_list,'valid')
-    full_label_binarize(train_list,'train')
+    weak_label_binarize(valid_list,'valid')
+    weak_label_binarize(train_list,'train')
 
     # no_label_binarize('train')

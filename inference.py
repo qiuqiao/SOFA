@@ -77,7 +77,7 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
         padding_len=32
     melspec=torch.nn.functional.pad(melspec,(0,padding_len))
 
-    # inference
+    # forward
     with torch.no_grad():
         h,seg,ctc,edge=model(melspec.to(config.device))
 
@@ -126,6 +126,16 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
     ph_dur_pred.append(len(target)-ph_time_pred[-1])
     ph_dur_pred=(torch.tensor(ph_dur_pred))*torch.tensor(config.hop_length/config.sample_rate)
 
+    # ctc decoding
+    ctc_pred=torch.nn.functional.softmax(ctc[0],dim=0)
+    ctc_pred=ctc_pred.cpu().numpy()
+    ctc_pred=np.argmax(ctc_pred,axis=0)
+    ctc_seq=[]
+    for idx in range(len(ctc_pred)-1):
+        if ctc_pred[idx]!=ctc_pred[idx+1]:
+            ctc_seq.append(ctc_pred[idx])
+    ctc_ph_seq=[vocab[i] for i in ctc_seq if i != 0]
+
     # calculating confidence
     ph_time_pred=torch.cat((torch.tensor([0.]),torch.tensor(ph_time_pred),torch.tensor([seg_prob.shape[-1]]).float()),dim=0)
     ph_time_pred_int=torch.cat((torch.tensor([0]),torch.tensor(ph_time_pred_int),torch.tensor([seg_prob.shape[-1]])),dim=0).round().int()
@@ -152,10 +162,10 @@ def infer_once(audio_path,ph_seq,model,return_plot=False):
         ph_confidence.append(conf_curr)
 
     if not return_plot:
-        return ph_seq_pred,ph_dur_pred.numpy(),np.mean(ph_confidence)
+        return ph_seq_pred,ph_dur_pred.numpy(),ctc_ph_seq,np.mean(ph_confidence)
     
     else:
-        return ph_seq_pred,ph_dur_pred.numpy(),np.mean(ph_confidence),\
+        return ph_seq_pred,ph_dur_pred.numpy(),ctc_ph_seq,np.mean(ph_confidence),\
                 utils.plot_spectrogram_and_phonemes(melspec[0],target_pred=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred.numpy()),\
                 utils.plot_spectrogram_and_phonemes(seg_prob.cpu(),target_pred=target,target_gt=edge_pred.cpu().numpy()*vocab['<vocab_size>'])
 
@@ -179,15 +189,18 @@ if __name__ == '__main__':
 
                 ph_seqs=[]
                 ph_durs=[]
+                ctc_ph_seqs=[]
                 ph_confidences=[]
                 for idx in trange(len(trans)):
-                    ph_seq_pred,ph_dur_pred,ph_confidence=infer_once(trans.loc[idx,'path'],trans.loc[idx,'ph_seq'].split(' '),model)
+                    ph_seq_pred,ph_dur_pred,ctc_ph_seq,ph_confidence=infer_once(trans.loc[idx,'path'],trans.loc[idx,'ph_seq'].split(' '),model)
                     ph_seqs.append(' '.join(ph_seq_pred))
                     ph_durs.append(' '.join([str(i) for i in ph_dur_pred]))
+                    ctc_ph_seqs.append(' '.join(ctc_ph_seq))
                     ph_confidences.append(ph_confidence)
                 
                 trans['ph_seq']=ph_seqs
                 trans['ph_dur']=ph_durs
+                trans['ctc_ph_seq']=ctc_ph_seqs
                 trans['confidence']=ph_confidences
 
                 trans.to_csv(os.path.join(path,'transcriptions.csv'),index=False)

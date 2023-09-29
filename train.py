@@ -47,12 +47,12 @@ if __name__ == '__main__':
     full_valid_dataset = FullLabelDataset(name='valid')
     full_valid_dataloader = DataLoader(dataset=full_valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=collate_fn,drop_last=True)
 
-    # weak_train_dataset = WeakLabelDataset(name='train')
-    # weak_train_dataloader = DataLoader(dataset=weak_train_dataset, batch_size=config.batch_size_sup, shuffle=True, collate_fn=weak_label_collate_fn)
-    # weak_train_dataiter = iter(weak_train_dataloader)
+    weak_train_dataset = WeakLabelDataset(name='train')
+    weak_train_dataloader = DataLoader(dataset=weak_train_dataset, batch_size=config.batch_size_sup, shuffle=True, collate_fn=weak_label_collate_fn)
+    weak_train_dataiter = iter(weak_train_dataloader)
 
-    # weak_valid_dataset = WeakLabelDataset(name='valid')
-    # weak_valid_dataloader = DataLoader(dataset=weak_valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=weak_label_collate_fn,drop_last=True)
+    weak_valid_dataset = WeakLabelDataset(name='valid')
+    weak_valid_dataloader = DataLoader(dataset=weak_valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=weak_label_collate_fn,drop_last=True)
 
     # usp_dataset = NoLabelDataset(name='train')
     # usp_dataloader = DataLoader(dataset=usp_dataset, batch_size=config.batch_size_usp, shuffle=True,collate_fn=collate_fn)
@@ -116,27 +116,28 @@ if __name__ == '__main__':
         writer.add_scalar('Loss/train/fsp/edge', edge_loss.item(), i)
 
 
-        # # weak supervised
-        # # get data
-        # try:
-        #     input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
-        # except StopIteration:
-        #     weak_train_dataloader = iter(weak_train_dataloader)
-        #     input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataloader)
+        # weak supervised
+        # get data
+        try:
+            input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
+        except StopIteration:
+            weak_train_dataiter = iter(weak_train_dataloader)
+            input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
 
-        # input_feature=torch.tensor(input_feature).to(config.device)
-        # ctc_target=torch.tensor(ctc_target).to(config.device).long()
-        # ctc_target_lengths=torch.tensor(ctc_target_lengths).to(config.device).long()
+        input_feature=torch.tensor(input_feature).to(config.device)
+        ctc_target=torch.tensor(ctc_target).to(config.device).long()
+        ctc_target_lengths=torch.tensor(ctc_target_lengths).to(config.device).long()
 
-        # # forward
-        # h,seg,ctc,edge=model(input_feature)
+        # forward
+        h,seg,ctc,edge=model(input_feature)
 
-        # # calculate loss
-        # ctc=rearrange(ctc,'n c t -> t n c')
-        # wsp_loss=CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths)
+        # calculate loss
+        ctc=F.log_softmax(ctc,dim=1)
+        ctc=rearrange(ctc,'n c t -> t n c')
+        wsp_loss=CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths)
 
-        # # log
-        # writer.add_scalar('Loss/train/wsp/ctc', wsp_loss.item(), i) 
+        # log
+        writer.add_scalar('Loss/train/wsp/ctc', wsp_loss.item(), i) 
 
         # unsupervised training
         # try:
@@ -160,7 +161,7 @@ if __name__ == '__main__':
 
 
         # sum up losses
-        loss=fsp_loss#+wsp_loss
+        loss=fsp_loss+wsp_loss
 
         # backward and update
         loss.backward()
@@ -213,20 +214,21 @@ if __name__ == '__main__':
             writer.add_figure('precision', utils.plot_confusion_matrix(precision_matrix), i)
 
 
-            # # weak supervised
-            # # forward
-            # ctc_losses=[]
-            # with torch.no_grad():
-            #     for input_feature,ctc_target,ctc_target_lengths in weak_valid_dataloader:
-            #         input_feature=input_feature.to(config.device)
-            #         ctc_target=ctc_target.to(config.device).long()
-            #         ctc_target_lengths=ctc_target_lengths.to(config.device).long()
+            # weak supervised
+            # forward
+            ctc_losses=[]
+            with torch.no_grad():
+                for input_feature,ctc_target,ctc_target_lengths in weak_valid_dataloader:
+                    input_feature=input_feature.to(config.device)
+                    ctc_target=ctc_target.to(config.device).long()
+                    ctc_target_lengths=ctc_target_lengths.to(config.device).long()
 
-            #         h,seg,ctc,edge=model(input_feature)
-            #         ctc=rearrange(ctc,'n c t -> t n c')
-            #         ctc_losses.append(CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths))
-            # ctc_loss_total=np.array(ctc_losses).mean()
-            # writer.add_scalar('Loss/valid/ctc', ctc_loss_total, i)
+                    h,seg,ctc,edge=model(input_feature)
+                    ctc=F.log_softmax(ctc,dim=1)
+                    ctc=rearrange(ctc,'n c t -> t n c')
+                    ctc_losses.append(CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths).cpu().item())
+            ctc_loss_total=np.array(ctc_losses).mean()
+            writer.add_scalar('Loss/valid/ctc', ctc_loss_total, i)
         
         if i%config.test_interval==0:
             # pass
@@ -242,7 +244,7 @@ if __name__ == '__main__':
                         
                         ph_confidence_total=[]
                         for idx in trange(len(trans)):
-                            ph_seq_pred,ph_dur_pred,ph_confidence,plot1,plot2=infer_once(
+                            ph_seq_pred,ph_dur_pred,ctc_ph_seq,ph_confidence,plot1,plot2=infer_once(
                                 trans.loc[idx,'path'],
                                 trans.loc[idx,'ph_seq'].split(' '),
                                 model,
@@ -250,6 +252,7 @@ if __name__ == '__main__':
                             
                             writer.add_figure(f'{id}/melseg', plot1, i)
                             writer.add_figure(f'{id}/probvec', plot2, i)
+                            writer.add_text(f'{id}/ctc_ph_seq', ' '.join(ctc_ph_seq), i)
                             id+=1
 
                             ph_confidence_total.append(ph_confidence)
