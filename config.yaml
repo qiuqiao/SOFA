@@ -1,4 +1,5 @@
 inference_edge_weight: 2
+inference_empty_punish: 50
 model_name: model
 inference_data_path: inference
 random_seed: 114
@@ -28,3 +29,4 @@ special_phonemes:
   - <AP>
   - <SP>
   - ''
+  - pau

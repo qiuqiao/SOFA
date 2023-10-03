@@ -137,9 +137,9 @@ class BinaryEMDLoss(torch.nn.Module):
     
     def forward(self, pred, target):
         # pred, target: [B,T]
-        loss=self.loss(pred.cumsum(dim=-1), target.cumsum(dim=-1))/target.shape[-1]
-        loss+=self.loss(pred.flip([-1]).cumsum(dim=-1), target.flip([-1]).cumsum(dim=-1))/target.shape[-1]
-        return loss
+        loss=self.loss(pred.cumsum(dim=-1), target.cumsum(dim=-1))
+        loss+=self.loss(pred.flip([-1]).cumsum(dim=-1), target.flip([-1]).cumsum(dim=-1))
+        return loss/2
 
 class GHMLoss(torch.nn.Module):
     def __init__(self, num_classes,num_prob_bins=10,alpha=0.99,label_smoothing=0.0,enable_prob_input=False):
@@ -160,12 +160,13 @@ class GHMLoss(torch.nn.Module):
             target_prob=torch.zeros_like(pred_prob).scatter_(1,target.unsqueeze(1),1).to(config['device'])
         else:
             target_prob=target
-        pred_prob=(pred_prob*target_prob).sum(dim=1)
+        pred_prob=(pred_prob*target_prob).sum(dim=1).clamp(1e-6,1-1e-6)
 
         loss=self.loss_fn(pred,target)
         if not self.enable_prob_input:
             loss_classes=target.long()
-            loss_weighted=loss/torch.sqrt((self.classes_ema[loss_classes]*self.prob_bins_ema[torch.floor(pred_prob*self.num_prob_bins).long()]+1e-10))
+            # print(len(self.classes_ema),loss_classes.min().cpu().numpy(),loss_classes.max().cpu().numpy(),len(self.prob_bins_ema),torch.floor(pred_prob*self.num_prob_bins).long().min().cpu().numpy(),torch.floor(pred_prob*self.num_prob_bins-1e-10).long().max().cpu().numpy())
+            loss_weighted=loss/torch.sqrt((self.classes_ema[loss_classes]*self.prob_bins_ema[torch.floor(pred_prob*self.num_prob_bins-1e-6).long()]+1e-10))
         else:
             loss_weighted=loss/(self.prob_bins_ema[torch.floor(pred_prob*self.num_prob_bins).long()]+1e-10)
         loss=torch.mean(loss_weighted)

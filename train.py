@@ -81,7 +81,7 @@ if __name__ == '__main__':
     progress_bar = tqdm(total=config.max_steps, ncols=80, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
     writer = SummaryWriter()
     print('start training')
-    for i in range(config.max_steps):
+    for step in range(config.max_steps):
         model.train()
         optimizer.zero_grad()
 
@@ -98,22 +98,22 @@ if __name__ == '__main__':
         edge_target=torch.tensor(edge_target).to(config.device).float()
         
         # forward
-        h,seg,ctc,edge=model(melspec)
+        h,seg,ctc,edge=model(melspec) 
 
         # calculate loss
         is_edge_prob=F.softmax(edge,dim=1)[:,0,:]
         seg_loss=seg_GHM_loss_fn(seg,target.squeeze(1))
         edge_diff_loss=MSE_loss_fn(torch.diff(is_edge_prob,dim=-1),torch.diff(edge_target[:,0,:],dim=-1))
         edge_GHM_loss=edge_GHM_loss_fn(edge,edge_target)
-        edge_EMD_loss=EMD_loss_fn(is_edge_prob,edge_target[:,0,:])
+        edge_EMD_loss=0.01*EMD_loss_fn(is_edge_prob,edge_target[:,0,:])
         edge_loss=edge_GHM_loss+edge_EMD_loss+edge_diff_loss.mean()
 
         fsp_loss=edge_loss+seg_loss
 
         # log
-        writer.add_scalar('Accuracy/train/fsp/accuracy', (seg.argmax(dim=1)==target).float().mean().item(), i)
-        writer.add_scalar('Loss/train/fsp/seq', seg_loss.item(), i) 
-        writer.add_scalar('Loss/train/fsp/edge', edge_loss.item(), i)
+        writer.add_scalar('Accuracy/train/fsp/accuracy', (seg.argmax(dim=1)==target).float().mean().item(), step)
+        writer.add_scalar('Loss/train/fsp/seq', seg_loss.item(), step) 
+        writer.add_scalar('Loss/train/fsp/edge', edge_loss.item(), step)
 
 
         # weak supervised
@@ -137,7 +137,7 @@ if __name__ == '__main__':
         wsp_loss=CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths)
 
         # log
-        writer.add_scalar('Loss/train/wsp/ctc', wsp_loss.item(), i) 
+        writer.add_scalar('Loss/train/wsp/ctc', wsp_loss.item(), step) 
 
         # unsupervised training
         # try:
@@ -155,13 +155,13 @@ if __name__ == '__main__':
         #     MSE_loss_fn(edge_weak,edge)+MSE_loss_fn(edge_strong,edge)+MSE_loss_fn(edge_strong,edge_weak)
         # )
 
-        # writer.add_scalar('Loss/train/consistence', consistence_loss.item(), i)
+        # writer.add_scalar('Loss/train/consistence', consistence_loss.item(), step)
 
         # loss+=usp_scheduler()*consistence_loss
 
 
         # sum up losses
-        loss=fsp_loss+wsp_loss
+        loss=fsp_loss+usp_scheduler()*wsp_loss
 
         # backward and update
         loss.backward()
@@ -170,13 +170,13 @@ if __name__ == '__main__':
         usp_scheduler.step()
 
         # log
-        writer.add_scalar('Loss/train/total', loss.item(), i)
-        writer.add_scalar('learning_rate/total', optimizer.param_groups[0]['lr'], i)
-        writer.add_scalar('learning_rate/usp', usp_scheduler(), i)
+        writer.add_scalar('Loss/train/total', loss.item(), step)
+        writer.add_scalar('learning_rate/total', optimizer.param_groups[0]['lr'], step)
+        writer.add_scalar('learning_rate/usp', usp_scheduler(), step)
         progress_bar.set_description(f'tr_loss: {loss.item():.3f}')
         progress_bar.update()
 
-        if i%config.val_interval==0:
+        if step%config.val_interval==0:
             # pass
             print('validating...')
             model.eval()
@@ -201,17 +201,17 @@ if __name__ == '__main__':
             confusion_matrix=utils.confusion_matrix(vocab['<vocab_size>'],y_pred,y_true)
             val_F1=utils.cal_macro_F1(confusion_matrix)
             val_F1_total=torch.mean(torch.tensor(val_F1))
-            writer.add_scalar('Accuracy/valid/F1_score', val_F1_total, i)
+            writer.add_scalar('Accuracy/valid/F1_score', val_F1_total, step)
 
             recall_matrix=np.zeros_like(confusion_matrix)
             for j in range(vocab['<vocab_size>']):
                 recall_matrix[j,:]=confusion_matrix[j,:]/(confusion_matrix[j,:].sum()+1e-10)
-            writer.add_figure('recall', utils.plot_confusion_matrix(recall_matrix), i)
+            writer.add_figure('recall', utils.plot_confusion_matrix(recall_matrix), step)
             
             precision_matrix=np.zeros_like(confusion_matrix)
             for j in range(vocab['<vocab_size>']):
                 precision_matrix[:,j]=confusion_matrix[:,j]/(confusion_matrix[:,j].sum()+1e-10)
-            writer.add_figure('precision', utils.plot_confusion_matrix(precision_matrix), i)
+            writer.add_figure('precision', utils.plot_confusion_matrix(precision_matrix), step)
 
 
             # weak supervised
@@ -226,11 +226,11 @@ if __name__ == '__main__':
                     h,seg,ctc,edge=model(input_feature)
                     ctc=F.log_softmax(ctc,dim=1)
                     ctc=rearrange(ctc,'n c t -> t n c')
-                    ctc_losses.append(CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths).cpu().item())
+                    ctc_losses.append(0.01*CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths).cpu().item())
             ctc_loss_total=np.array(ctc_losses).mean()
-            writer.add_scalar('Loss/valid/ctc', ctc_loss_total, i)
+            writer.add_scalar('Loss/valid/ctc', ctc_loss_total, step)
         
-        if i%config.test_interval==0:
+        if step%config.test_interval==0:
             # pass
             print('testing...')
             model.eval()
@@ -250,17 +250,17 @@ if __name__ == '__main__':
                                 model,
                                 return_plot=True)
                             
-                            writer.add_figure(f'{id}/melseg', plot1, i)
-                            writer.add_figure(f'{id}/probvec', plot2, i)
-                            writer.add_text(f'{id}/ctc_ph_seq', ' '.join(ctc_ph_seq), i)
+                            writer.add_figure(f'{id}/melseg', plot1, step)
+                            writer.add_figure(f'{id}/probvec', plot2, step)
+                            writer.add_text(f'{id}/ctc_ph_seq', ' '.join(ctc_ph_seq), step)
                             id+=1
 
                             ph_confidence_total.append(ph_confidence)
-                        writer.add_scalar('Accuracy/test/confidence', np.mean(ph_confidence_total), i)
+                        writer.add_scalar('Accuracy/test/confidence', np.mean(ph_confidence_total), step)
                         
         
-        if i%config.save_ckpt_interval==0 and i != 0:
-            torch.save(model.state_dict(), f'ckpt/{model_name}_{i}.pth')
-            print(f'saved model at {i} steps, path: ckpt/{model_name}_{i}.pth')
+        if step%config.save_ckpt_interval==0 and step != 0:
+            torch.save(model.state_dict(), f'ckpt/{model_name}_{step}.pth')
+            print(f'saved model at {step} steps, path: ckpt/{model_name}_{step}.pth')
 
     progress_bar.close()

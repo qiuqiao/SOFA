@@ -27,7 +27,7 @@ class Residual(nn.Module):
 
 
 class UNetEncoder(nn.Module):
-    def __init__(self, in_channels=128, out_channels=128,hidden_dim_scaling=1):
+    def __init__(self, in_channels=128, out_channels=128,hidden_dim_scaling=1,init_type='xavier_normal'):
         super(UNetEncoder, self).__init__()
 
         # Encoder
@@ -146,6 +146,17 @@ class UNetEncoder(nn.Module):
         )
         self.residual_d5=Residual(int((1024+2048)*hidden_dim_scaling+0.5),int(1024*hidden_dim_scaling+0.5))
 
+        self.init_type=init_type
+        self.apply(self.init_weights)
+
+    def init_weights(self, m):
+        init_type=self.init_type
+        if isinstance(m, nn.Conv1d):
+            if init_type=='xavier_normal':
+                nn.init.xavier_normal_(m.weight)
+            elif init_type=='xavier_uniform':
+                nn.init.xavier_uniform_(m.weight)
+            nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
 
@@ -196,7 +207,7 @@ class UNetEncoder(nn.Module):
     
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels=128, out_channels=128):
+    def __init__(self, in_channels=128, out_channels=128,init_type='xavier_normal'):
         super(Decoder, self).__init__()
         self.layer = nn.Sequential(
                     nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=1, padding=1,dilation=1),
@@ -204,6 +215,17 @@ class Decoder(nn.Module):
                     nn.ReLU(),
                     nn.Conv1d(out_channels, out_channels, kernel_size=1, stride=1, padding=0,dilation=1),
                 )
+        self.init_type=init_type
+        self.apply(self.init_weights)
+
+    def init_weights(self, m):
+        init_type=self.init_type
+        if isinstance(m, nn.Conv1d):
+            if init_type=='xavier_normal':
+                nn.init.xavier_normal_(m.weight)
+            elif init_type=='xavier_uniform':
+                nn.init.xavier_uniform_(m.weight)
+            nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         return self.layer(x)
@@ -218,7 +240,6 @@ class FullModel(nn.Module):
             input_channels+=config.wavlm.n_dims
         self.encoder=UNetEncoder(in_channels=input_channels, out_channels=128*config.hidden_dim_scaling,hidden_dim_scaling=config.hidden_dim_scaling)
         self.seg_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=vocab['<vocab_size>'])
-        self.ctc_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=vocab['<vocab_size>'])
         self.edge_decoder=nn.Sequential(
             Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=2),
         )
@@ -237,8 +258,8 @@ class FullModel(nn.Module):
     def forward(self, x):
         h=self.encoder(x)
         seg=self.seg_decoder(h)
-        ctc=self.ctc_decoder(h)
         edge=self.edge_decoder(h)
+        ctc=torch.cat((edge[:,[1],:],seg[:,1:,:]),dim=1)
         return h,seg,ctc,edge
 
 class EMA():

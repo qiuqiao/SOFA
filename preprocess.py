@@ -274,13 +274,13 @@ def weak_label_binarize(data_list,name='train'):
     idx_data.to_pickle(os.path.join('data','weak_label',name+'.idx'))
 
 if __name__=='__main__':
-    # data_list=get_data_list('full_label')
-    # valid_list_length=int(config.valid_length)
-    # valid_list=data_list.sample(valid_list_length)
-    # train_list=data_list.drop(valid_list.index)
+    data_list=get_data_list('full_label')
+    valid_list_length=int(config.valid_length)
+    valid_list=data_list.sample(valid_list_length)
+    train_list=data_list.drop(valid_list.index)
 
-    # full_label_binarize(valid_list,'valid')
-    # full_label_binarize(train_list,'train')
+    full_label_binarize(valid_list,'valid')
+    full_label_binarize(train_list,'train')
 
     data_list=pd.concat([get_data_list('full_label'),get_data_list('weak_label')])
     data_list.reset_index(drop=True,inplace=True)

@@ -37,7 +37,7 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
         # [j,i-1]->[j,i]
         prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]
         # [j-1,i-1]->[j,i]
-        prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]
+        prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]-config.inference_empty_punish
         prob2=np.concatenate([np.array([-np.inf]),prob2])
         # [j-2,i-1]->[j,i]
         prob3=dp[:-2,i-1]+prob_log[ph_seq_num[2:],i]+is_edge_prob_log[i]
