@@ -260,7 +260,11 @@ def weak_label_binarize(data_list,name='train'):
 
         # ctc_target
         ph_seq=[i for i in data_list.iloc[index]['ph_seq'].split(' ') if i !='']
-        ph_seq_num=[vocab[ph] for ph in ph_seq if vocab[ph]!=0]
+        ph_seq_num=[]
+        for ph in ph_seq:
+            assert ph in vocab,f'"{ph}" from {data_list.iloc[index]["path"][:-4]} is not in vocab. please check your dataset or rerun "vocab_gen.py".'
+            if vocab[ph]!=0:
+                ph_seq_num.append(vocab[ph])
         ctc_target=np.array(ph_seq_num)
         ctc_target=ctc_target.astype('int32')
 
