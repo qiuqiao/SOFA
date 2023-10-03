@@ -22,7 +22,7 @@ for path,folders,files in os.walk('data'):
             print(os.path.join(path,'transcriptions.csv'))
 
 phonemes=set(phonemes)
-for p in config.special_phonemes:
+for p in config.ignore_phonemes:
     if p in phonemes:
         phonemes.remove(p)
 phonemes=sorted(phonemes)
@@ -30,7 +30,7 @@ phonemes=['<EMPTY>',*phonemes]
 
 vocab={phonemes[i]:i for i in range(len(phonemes))}
 vocab.update({i:phonemes[i] for i in range(len(phonemes))})
-vocab.update({p:0 for p in config.special_phonemes})
+vocab.update({p:0 for p in config.ignore_phonemes})
 vocab.update({'<vocab_size>':len(phonemes)})
 
 with open('vocab.yaml', 'w') as file:

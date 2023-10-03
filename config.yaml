@@ -23,7 +23,7 @@ wavlm:
   enabled: False
   path: WavLM/WavLM-Large.pt
   n_dims: 1024
-special_phonemes:
+ignore_phonemes:
   - AP
   - SP
   - <AP>
