@@ -7,14 +7,15 @@ random_seed: 114
 valid_length: 300
 label_smoothing: 0.08
 weight_decay: 0.01
-batch_size_sup: 8
+batch_size_sup: 12
 batch_size_usp: 16
 learning_rate: 0.001
 device: cuda
 hidden_dim_scaling: 1
-max_steps: 15001
+max_steps: 10001
 val_interval: 100
 test_interval: 500
+save_ckpt_start: 8000
 save_ckpt_interval: 200
 sample_rate: 48000
 n_fft: 1024

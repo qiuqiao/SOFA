@@ -255,7 +255,7 @@ if __name__ == '__main__':
                         writer.add_scalar('Accuracy/test/confidence', np.mean(ph_confidence_total), step)
                         
         
-        if step%config.save_ckpt_interval==0 and step != 0:
+        if step%config.save_ckpt_interval==0 and step >= config.save_ckpt_start:
             torch.save(model.state_dict(), f'ckpt/{model_name}_{step}.pth')
             print(f'saved model at {step} steps, path: ckpt/{model_name}_{step}.pth')
 
