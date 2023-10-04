@@ -73,9 +73,10 @@ def full_label_binarize(data_list,name='train'):
         melspec=get_padded_melspec(audio, sample_rate)
         T=melspec.shape[-1]
 
-        if T>3000:
-            warnings.warn(f'melspec of {data_list.iloc[index]["path"][:-4]} has a length of {T}, which is longer than {config.melspec_maxlength}. please check your dataset or modify your config.melspec_maxlength.')
-        
+        if T>config.melspec_maxlength:
+            warnings.warn(f'Melspec of {data_list.iloc[index]["path"][:-4]} has a length of {T}, which is longer than {config.melspec_maxlength}. Ignored.')
+            continue
+
         input_feature=melspec
         assert(len(input_feature.shape)==2)
         
@@ -155,7 +156,10 @@ def no_label_binarize(name='train'):
         melspec=get_padded_melspec(audio, sample_rate)
 
         input_feature=melspec
-
+        T=melspec.shape[-1]
+        if T>config.melspec_maxlength:
+            warnings.warn(f'Melspec of {data_list.iloc[index]["path"][:-4]} has a length of {T}, which is longer than {config.melspec_maxlength}. Ignored.')
+            continue
 
         meta_data['input_feature']={}
         wirte_ndarray_to_bin(data_file,meta_data['input_feature'],input_feature)
@@ -196,6 +200,9 @@ def weak_label_binarize(data_list,name='train'):
         melspec=get_padded_melspec(audio, sample_rate)
 
         T=melspec.shape[-1]
+        if T>config.melspec_maxlength:
+            warnings.warn(f'Melspec of {data_list.iloc[index]["path"][:-4]} has a length of {T}, which is longer than {config.melspec_maxlength}. Ignored.')
+            continue
 
         input_feature=melspec
         meta_data['input_feature']={}

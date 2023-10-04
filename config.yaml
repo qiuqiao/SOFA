@@ -1,3 +1,4 @@
+melspec_maxlength: 3000
 inference_edge_weight: 2
 inference_empty_punish: 50
 model_name: model
@@ -19,10 +20,6 @@ sample_rate: 48000
 n_fft: 1024
 hop_length: 480
 n_mels: 128
-wavlm:
-  enabled: False
-  path: WavLM/WavLM-Large.pt
-  n_dims: 1024
 ignore_phonemes:
   - AP
   - SP
