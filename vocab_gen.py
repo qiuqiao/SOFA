@@ -2,7 +2,6 @@ import os
 import pandas as pd
 import yaml
 import utils
-from argparse import Namespace
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
