@@ -1,11 +1,8 @@
 import torch
-import torchaudio
 import pandas as pd
 import utils
 import os
 import yaml
-import numpy as np
-from einops import rearrange
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)

@@ -12,10 +12,10 @@ batch_size_usp: 16
 learning_rate: 0.001
 device: cuda
 hidden_dim_scaling: 1
-max_steps: 10001
+max_steps: 15001
 val_interval: 100
 test_interval: 500
-save_ckpt_interval: 100
+save_ckpt_interval: 200
 sample_rate: 48000
 n_fft: 1024
 hop_length: 480

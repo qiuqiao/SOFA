@@ -5,23 +5,19 @@ import numpy as np
 import utils
 import torch.nn as nn
 import os
-from torch.utils.data import DataLoader, Dataset
-import torch.optim as optim
+from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
-from utils import SinScheduler, GaussianRampUpScheduler
+from utils import GaussianRampUpScheduler
 from tqdm import tqdm, trange
 from inference import infer_once
 import random
 import torch
 import numpy as np
-from dataset import FullLabelDataset, collate_fn, NoLabelDataset, WeakLabelDataset, weak_label_collate_fn
-from model import FullModel, EMA
-from dataloader import BinaryDataLoader
+from dataset import FullLabelDataset, collate_fn, WeakLabelDataset, weak_label_collate_fn
+from model import FullModel
 from einops import rearrange
-
 import yaml
-from argparse import Namespace
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)

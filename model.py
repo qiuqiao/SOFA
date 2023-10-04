@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from einops import rearrange, repeat, reduce
+from einops import rearrange
 import yaml
 import utils
 
@@ -236,8 +236,6 @@ class FullModel(nn.Module):
         super(FullModel, self).__init__()
         self.init_type=init_type
         input_channels=config.n_mels
-        if config.wavlm.enabled:
-            input_channels+=config.wavlm.n_dims
         self.encoder=UNetEncoder(in_channels=input_channels, out_channels=128*config.hidden_dim_scaling,hidden_dim_scaling=config.hidden_dim_scaling)
         self.seg_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=vocab['<vocab_size>'])
         self.edge_decoder=nn.Sequential(
