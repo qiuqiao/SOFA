@@ -3,16 +3,15 @@ import torchaudio
 import pandas as pd
 import numpy as np
 import utils
-from utils import load_dict,save_dict,read_ndarray_from_bin,wirte_ndarray_to_bin
+from utils import wirte_ndarray_to_bin
 import os
-import pickle
 import yaml
 from argparse import Namespace
 from tqdm import tqdm,trange
 import os
-from einops import rearrange, reduce, repeat
-from WavLM.WavLM import WavLM, WavLMConfig
+from einops import repeat
 from data_augmentation import AudioAugmentation
+import warnings
 
 def dict_to_namespace(d):
     namespace = Namespace()
@@ -65,53 +64,19 @@ def get_padded_melspec(audio, sample_rate):
 def full_label_binarize(data_list,name='train'):
     idx_data=[]
     data_file=open(os.path.join('data','full_label',name+'.data'), 'wb')
-
-    if config.wavlm.enabled:
-        checkpoint = torch.load(config.wavlm.path)
-        cfg = WavLMConfig(checkpoint['cfg'])
-        model = WavLM(cfg)
-        model.load_state_dict(checkpoint['model'])
-        model=model.to(config.device)
-        model.eval()
     
     for index in trange(len(data_list)):
         meta_data={}
         # return: input_feature, seg_target
         # melspec
         audio, sample_rate = torchaudio.load(data_list.iloc[index]['path'])
-        audio=audio[0].unsqueeze(0)
-
-        if sample_rate!=config.sample_rate:
-            audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
-        melspec=utils.extract_normed_mel(audio)
-
-        padding_len=32-melspec.shape[-1]%32
-        if padding_len==0:
-            padding_len=32
-        melspec=torch.nn.functional.pad(melspec,(0,padding_len))
-        if len(melspec.shape)>3:
-            melspec=melspec.squeeze(0)
-        melspec=melspec.squeeze(0).numpy().astype('float32')
-
+        melspec=get_padded_melspec(audio, sample_rate)
         T=melspec.shape[-1]
 
-        if config.wavlm.enabled:
-            # extract the representation of last layer
-            wav_input_16khz = torchaudio.transforms.Resample(config.sample_rate,16000)(audio)
-            wav_input_16khz = torch.nn.functional.pad(wav_input_16khz,(0,80))
-            if cfg.normalize:
-                wav_input_16khz = torch.nn.functional.layer_norm(wav_input_16khz , wav_input_16khz.shape)
-            rep = model.extract_features(wav_input_16khz.to(config.device))[0]
-            rep = repeat(rep,'B T C -> B C (T T2)',T2=2)
-            if rep.shape[-1]>melspec.shape[-1]:
-                rep=rep[:,:,:melspec.shape[-1]]
-            elif rep.shape[-1]<melspec.shape[-1]:
-                rep=torch.nn.functional.pad(rep,(0,melspec.shape[-1]-rep.shape[-1]))
-            rep=rep.squeeze(0).detach().cpu().numpy().astype('float32')
-
-            input_feature=np.concatenate([melspec,rep],axis=0)
-        else:
-            input_feature=melspec
+        if T>3000:
+            warnings.warn(f'melspec of {data_list.iloc[index]["path"][:-4]} has a length of {T}, which is longer than {config.melspec_maxlength}. please check your dataset or modify your config.melspec_maxlength.')
+        
+        input_feature=melspec
         assert(len(input_feature.shape)==2)
         
         meta_data['input_feature']={}
@@ -185,16 +150,11 @@ def no_label_binarize(name='train'):
         # return: input_feature, input_feature_weak_aug, input_feature_strong_aug
 
         meta_data={}
-        if config.wavlm.enabled:
-            pass
         
         audio, sample_rate = torchaudio.load(file_path_list[index])
         melspec=get_padded_melspec(audio, sample_rate)
 
-        if config.wavlm.enabled:
-            pass
-        else:
-            input_feature=melspec
+        input_feature=melspec
 
 
         meta_data['input_feature']={}
@@ -204,10 +164,7 @@ def no_label_binarize(name='train'):
         audio_weak_aug,audio_strong_aug=audio_aug(audio)
         melspec_weak_aug=get_padded_melspec(audio_weak_aug, sample_rate)
 
-        if config.wavlm.enabled:
-            pass
-        else:
-            input_feature_weak_aug=melspec_weak_aug
+        input_feature_weak_aug=melspec_weak_aug
 
         meta_data['input_feature_weak_aug']={}
         wirte_ndarray_to_bin(data_file,meta_data['input_feature_weak_aug'],input_feature_weak_aug)
@@ -215,10 +172,7 @@ def no_label_binarize(name='train'):
 
         melspec_strong_aug=get_padded_melspec(audio_strong_aug, sample_rate)
 
-        if config.wavlm.enabled:
-            pass
-        else:
-            input_feature_strong_aug=melspec_strong_aug
+        input_feature_strong_aug=melspec_strong_aug
 
         meta_data['input_feature_strong_aug']={}
         wirte_ndarray_to_bin(data_file,meta_data['input_feature_strong_aug'],input_feature_strong_aug)
@@ -239,18 +193,7 @@ def weak_label_binarize(data_list,name='train'):
         # return: input_feature, ctc_target
         # melspec
         audio, sample_rate = torchaudio.load(data_list.iloc[index]['path'])
-        audio=audio[0].unsqueeze(0)
-        if sample_rate!=config.sample_rate:
-            audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
-        melspec=utils.extract_normed_mel(audio)
-
-        padding_len=32-melspec.shape[-1]%32
-        if padding_len==0:
-            padding_len=32
-        melspec=torch.nn.functional.pad(melspec,(0,padding_len))
-        if len(melspec.shape)>3:
-            melspec=melspec.squeeze(0)
-        melspec=melspec.squeeze(0).numpy().astype('float32')
+        melspec=get_padded_melspec(audio, sample_rate)
 
         T=melspec.shape[-1]
 
