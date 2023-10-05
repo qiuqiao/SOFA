@@ -69,7 +69,7 @@ if __name__ == '__main__':
     # optimizer and scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate,weight_decay=config.weight_decay)
     scheduler = OneCycleLR(optimizer, max_lr=config.learning_rate, total_steps=config.max_steps)
-    usp_scheduler = GaussianRampUpScheduler(config.max_steps,0,config.max_steps)
+    wsp_scheduler = GaussianRampUpScheduler(config.max_steps,0,config.max_steps)
 
 
     # start training
@@ -157,18 +157,18 @@ if __name__ == '__main__':
 
 
         # sum up losses
-        loss=fsp_loss+usp_scheduler()*wsp_loss
+        loss=fsp_loss+wsp_scheduler()*wsp_loss
 
         # backward and update
         loss.backward()
         optimizer.step()
         scheduler.step()
-        usp_scheduler.step()
+        wsp_scheduler.step()
 
         # log
         writer.add_scalar('Loss/train/total', loss.item(), step)
         writer.add_scalar('learning_rate/total', optimizer.param_groups[0]['lr'], step)
-        writer.add_scalar('learning_rate/usp', usp_scheduler(), step)
+        writer.add_scalar('learning_rate/wsp', wsp_scheduler(), step)
         progress_bar.set_description(f'tr_loss: {loss.item():.3f}')
         progress_bar.update()
 
