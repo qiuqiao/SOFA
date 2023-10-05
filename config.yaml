@@ -7,7 +7,7 @@ random_seed: 114
 valid_length: 300
 label_smoothing: 0.08
 weight_decay: 0.01
-batch_size_sup: 12
+batch_size_sup: 16
 batch_size_usp: 16
 learning_rate: 0.001
 device: cuda
