@@ -20,12 +20,14 @@ with open('vocab.yaml', 'r') as file:
 
 def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
     prob_log=np.array(prob_log)
-    prob_log[0,:]+=prob_log[0,:]
-    prob_log[1:,:]+=1/prob_log[[0],:]
     is_edge_prob_log=np.array(is_edge_prob_log)
     not_edge_prob_log=np.array(not_edge_prob_log)
     ph_seq_num=np.array(ph_seq_num)
+    # 乘上is_phoneme正确分类的概率
+    prob_log[0,:]+=prob_log[0,:]
+    prob_log[1:,:]+=1/prob_log[[0],:]
 
+    # forward
     dp=np.zeros([len(ph_seq_num),prob_log.shape[-1]])-np.inf
     #只能从<EMPTY>开始或者从第一个音素开始
     dp[0,0]=prob_log[ph_seq_num[0],0]
@@ -48,17 +50,22 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
 
         backtrack_j[:,i]=np.arange(len(prob1))-np.argmax(np.stack([prob1,prob2,prob3],axis=0),axis=0)
         dp[:,i]=np.max(np.stack([prob1,prob2,prob3],axis=0),axis=0)
-
     backtrack_j=backtrack_j.astype(np.int32)
+
+    # backward
     ph_seq_num_pred=[]
     ph_time_int=[]
+    frame_confidence=[]
     #只能从最后一个音素或者<EMPTY>结束
     if ph_seq_num[-1]==0 and dp[-1,-1]<dp[-2,-1]:
+        # confidence=dp[-2,-1]
         j=int(len(ph_seq_num)-2)
     else:
+        # confidence=dp[-1,-1]
         j=int(len(ph_seq_num)-1)
     i=int(dp.shape[-1]-1)
     while j>=0:
+        frame_confidence.append(dp[j,i])
         if j!=backtrack_j[j][i]:
             ph_seq_num_pred.append(int(ph_seq_num[j]))
             ph_time_int.append(i)
@@ -66,8 +73,10 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
         i-=1
     ph_seq_num_pred.reverse()
     ph_time_int.reverse()
-    
-    return np.array(ph_seq_num_pred),np.array(ph_time_int)
+    frame_confidence.reverse()
+    frame_confidence=np.exp(np.diff(frame_confidence,1))
+
+    return np.array(ph_seq_num_pred),np.array(ph_time_int),np.array(frame_confidence)
 
 def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False,return_ctc_pred=False,return_plot=False):
     # extract melspec
@@ -91,7 +100,7 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
     
     seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
-    seg_prob[0,:]*=0.5
+    seg_prob[0,:]*=0.3
     seg_prob/=seg_prob.sum(dim=0)
 
     prob_log=seg_prob.log().cpu().numpy()
@@ -117,7 +126,7 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     ph_seq_num=[vocab[i] for i in ph_seq]
 
     # dynamic programming decoding
-    ph_seq_num_pred,ph_time_pred_int=alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
+    ph_seq_num_pred,ph_time_pred_int,frame_confidence=alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
 
     # calculating time
     ph_time_pred=ph_time_pred_int.astype('float64')
@@ -139,39 +148,18 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
         ctc_ph_seq=[vocab[i] for i in ctc_seq if i != 0]
 
     # calculating confidence
-    if return_confidence or return_plot:
-
-        ph_time_pred_int=torch.cat((torch.tensor([0]),torch.tensor(ph_time_pred_int),torch.tensor([seg_prob.shape[-1]])),dim=0).round().int()
-
-        ph_confidence=[]
-        frame_confidence=np.zeros([seg_prob.shape[-1]])
-        frame_target=np.zeros([seg_prob.shape[-1]])
-        for i in range(len(ph_seq_num_pred)):
-            conf_seg=seg_prob[ph_seq_num_pred[i]][ph_time_pred_int[i]:ph_time_pred_int[i+1]].mean()
-            if ph_time_pred_int[i+1]-ph_time_pred_int[i]>2:
-                conf_edge=0.5*(not_edge_prob[ph_time_pred_int[i]+1:ph_time_pred_int[i+1]-1].mean())
-                conf_edge+=0.5*(is_edge_prob[ph_time_pred_int[i]]+is_edge_prob[ph_time_pred_int[i+1]-1])/2
-            else:
-                conf_edge=(is_edge_prob[ph_time_pred_int[i]]+is_edge_prob[ph_time_pred_int[i+1]-1])
-            conf_curr=np.sqrt(conf_seg*conf_edge)
-
-            if not conf_curr>0: #出现nan时改为0
-                conf_curr=0
-            frame_confidence[ph_time_pred_int[i]:ph_time_pred_int[i+1]]=conf_curr
-            frame_target[ph_time_pred_int[i]:ph_time_pred_int[i+1]]=ph_seq_num_pred[i]
-            ph_confidence.append(conf_curr)
 
     ph_seq_pred=np.array([vocab[i] for i in ph_seq_num_pred])
     res=[ph_seq_pred,ph_dur_pred]
     if return_time:
         res.append(ph_time_pred)
     if return_confidence:
-        res.append(np.mean(ph_confidence))
+        res.append(frame_confidence.mean())
     if return_ctc_pred:
         res.append(ctc_ph_seq)
     if return_plot:
         plot1=utils.plot_spectrogram_and_phonemes(melspec[0],target_pred=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred)
-        plot2=utils.plot_spectrogram_and_phonemes(seg_prob,target_pred=frame_target,target_gt=edge_pred*vocab['<vocab_size>'])
+        plot2=utils.plot_spectrogram_and_phonemes(seg_prob,target_gt=edge_pred*vocab['<vocab_size>'])#target_pred=frame_target,
         res.extend([plot1,plot2])
     return res
                                 
