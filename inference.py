@@ -20,6 +20,8 @@ with open('vocab.yaml', 'r') as file:
 
 def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
     prob_log=np.array(prob_log)
+    prob_log[0,:]+=prob_log[0,:]
+    prob_log[1:,:]+=1/prob_log[[0],:]
     is_edge_prob_log=np.array(is_edge_prob_log)
     not_edge_prob_log=np.array(not_edge_prob_log)
     ph_seq_num=np.array(ph_seq_num)
@@ -84,26 +86,33 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     # forward
     with torch.no_grad():
         h,seg,ctc,edge=model(melspec.to(config.device))
-        
-        seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
-        prob_log=seg_prob.log().cpu().numpy()
-        seg_prob=seg_prob.cpu().numpy()
-        edge=torch.nn.functional.softmax(edge,dim=1)
 
-        edge_pred=edge[0,0,:].clone().cpu().numpy()
+    # postprocess output
+    seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
+    
+    seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
+    seg_prob[0,:]*=0.5
+    seg_prob/=seg_prob.sum(dim=0)
 
-        edge_diff=np.concatenate(([0],edge_pred,[1]))
-        edge_diff=np.diff(edge_diff,1)
-        edge_diff=edge_diff/2
+    prob_log=seg_prob.log().cpu().numpy()
 
-        is_edge_prob=edge_pred
-        is_edge_prob[1:]+=is_edge_prob[:-1]
-        is_edge_prob=(is_edge_prob/2)**config.inference_edge_weight
+    seg_prob=seg_prob.cpu().numpy()
 
-        is_edge_prob_log=np.log(is_edge_prob.clip(1e-10,1-1e-10))
+    edge=torch.nn.functional.softmax(edge,dim=1)
+    edge_pred=edge[0,0,:].clone().cpu().numpy()
 
-        not_edge_prob=1-is_edge_prob
-        not_edge_prob_log=np.log(not_edge_prob)
+    edge_diff=np.concatenate(([0],edge_pred,[1]))
+    edge_diff=np.diff(edge_diff,1)
+    edge_diff=edge_diff/2
+
+    is_edge_prob=edge_pred
+    is_edge_prob[1:]+=is_edge_prob[:-1]
+    is_edge_prob=(is_edge_prob/2)**config.inference_edge_weight
+
+    is_edge_prob_log=np.log(is_edge_prob.clip(1e-10,1-1e-10))
+
+    not_edge_prob=1-is_edge_prob
+    not_edge_prob_log=np.log(not_edge_prob)
 
     ph_seq_num=[vocab[i] for i in ph_seq]
 
@@ -255,6 +264,8 @@ if __name__ == '__main__':
                     for i in range(len(ph_seq_pred)):
                         if i>0 and phones[-1].xmax!=ph_interval_pred[i,0]:
                             phones.append(tg.Interval('',phones[-1].xmax,ph_interval_pred[i,0])) 
+                        if ph_interval_pred[i,0]>ph_interval_pred[i,1]:
+                            print(ph_interval_pred[i,0],ph_interval_pred[i,1],i,ph_seq_pred)
                         phones.append(tg.Interval(ph_seq_pred[i],ph_interval_pred[i,0],ph_interval_pred[i,1]))
                     for i in range(len(ph_location)-1):
                         if i>0 and words[-1].xmax!=ph_interval_pred[ph_location[i],0]:
