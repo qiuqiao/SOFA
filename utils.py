@@ -44,27 +44,32 @@ def dict_to_namespace(d):
 
 def plot_spectrogram_and_phonemes(specgram, ph_seq=None, ph_dur=None, target_gt=None, target_pred=None, title=None, ylabel="freq_bin"):
     fig, axs = plt.subplots(1, 1)
-    axs.set_title(title or "Spectrogram (db)")
+    axs.set_title(title or " ")
     axs.set_ylabel(ylabel)
     axs.set_xlabel("frame")
     im = axs.imshow((specgram), origin="lower", aspect="auto")
     fig.colorbar(im, ax=axs)
 
     if ph_seq is not None and ph_dur is not None:
-        line_locations=np.cumsum(np.array(ph_dur))*config['sample_rate']/config['hop_length']
-        for i in line_locations:
-            plt.axvline(i,color='r')
-        for i in range(len(ph_seq)):
+        ph_time=np.cumsum(np.array(ph_dur))*config['sample_rate']/config['hop_length']
+        ph_time=np.insert(ph_time, 0, 0)
+        for i in ph_time:
+            plt.axvline(i,color='r',linewidth=1)
+        for i in range(0,len(ph_seq),2):
             if ph_seq[i]!='<EMPTY>':
-                plt.text(line_locations[i]-ph_dur[i]*config['sample_rate']/config['hop_length']/2,0,ph_seq[i],fontsize=12)
+                plt.text(ph_time[i]-ph_dur[i],len(specgram),ph_seq[i],fontsize=11)
+        for i in range(1,len(ph_seq),2):
+            if ph_seq[i]!='<EMPTY>':
+                plt.text(ph_time[i],len(specgram)-5,ph_seq[i],fontsize=11,color='white')
 
     if target_pred is not None:
         target_pred_locations = np.arange(len(target_pred))
-        plt.plot(target_pred_locations, target_pred, color='r', linewidth=2)
+        plt.plot(target_pred_locations, target_pred, color='r', linewidth=0.5)
     
     if target_gt is not None:
         target_gt_locations = np.arange(len(target_gt))
-        plt.plot(target_gt_locations, target_gt, color='black', linewidth=2)
+        plt.plot(target_gt_locations, target_gt, color='black', linewidth=1, alpha=0.6)
+        plt.fill_between(target_gt_locations, target_gt, color='black', alpha=0.3)
 
     fig.set_size_inches(15,5)
 

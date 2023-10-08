@@ -40,8 +40,6 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
         # [j-1,i-1]->[j,i]
         prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]
         prob2=np.concatenate([np.array([-np.inf]),prob2])
-        prob2-=config.inference_empty_punish*(ph_seq_num==0)
-        prob2[1:]-=config.inference_empty_punish*(ph_seq_num[:-1]==0)
         # [j-2,i-1]->[j,i]
         # 不能跳过音素，可以跳过<EMPTY>
         prob3=dp[:-2,i-1]+prob_log[ph_seq_num[2:],i]+is_edge_prob_log[i]
@@ -100,7 +98,7 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
     
     seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
-    seg_prob[0,:]*=0.3
+    seg_prob[0,:]*=config.inference_empty_coefficient
     seg_prob/=seg_prob.sum(dim=0)
 
     prob_log=seg_prob.log().cpu().numpy()
@@ -158,7 +156,7 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     if return_ctc_pred:
         res.append(ctc_ph_seq)
     if return_plot:
-        plot1=utils.plot_spectrogram_and_phonemes(melspec[0],target_pred=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred)
+        plot1=utils.plot_spectrogram_and_phonemes(melspec[0],target_gt=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred)
         plot2=utils.plot_spectrogram_and_phonemes(seg_prob,target_gt=edge_pred*vocab['<vocab_size>'])#target_pred=frame_target,
         res.extend([plot1,plot2])
     return res
