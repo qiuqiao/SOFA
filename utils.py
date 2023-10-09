@@ -33,6 +33,14 @@ def extract_normed_mel(waveform):
         melspec=melspec.squeeze(0)
     return melspec.float()
 
+def pad_to_divisible_length(input_tensor, factor=32):
+    padding_len=factor-input_tensor.shape[-1]%factor
+    if padding_len==0:
+        padding_len=factor
+    padded_tensor=torch.nn.functional.pad(input_tensor,(0,padding_len))
+
+    return padded_tensor
+
 def dict_to_namespace(d):
     namespace = Namespace()
     for key, value in d.items():

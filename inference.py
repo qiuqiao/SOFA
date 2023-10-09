@@ -187,16 +187,11 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
 def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False,return_ctc_pred=False,return_plot=False):
     # extract melspec
     audio, sample_rate = torchaudio.load(audio_path)
-    audio_peak=torch.max(torch.abs(audio))
-    audio=audio/audio_peak*0.08
     if sample_rate!=config.sample_rate:
         audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
     melspec=utils.extract_normed_mel(audio)
     T=melspec.shape[-1]
-    padding_len=32-melspec.shape[-1]%32
-    if padding_len==0:
-        padding_len=32
-    melspec=torch.nn.functional.pad(melspec,(0,padding_len))
+    melspec=utils.pad_to_divisible_length(melspec,32)
 
     # forward
     with torch.no_grad():
