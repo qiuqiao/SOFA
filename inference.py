@@ -313,6 +313,26 @@ def load_dictionary(dictionary_path:str):
 
     return dictionary
 
+
+def word_seq_to_ph_seq(word_seq,dictionary=None):
+    ph_seq=[vocab[0]]
+    for word in word_seq:
+        if dictionary is None:
+            ph_seq.append(word)
+        else:
+            if word in dictionary:
+                ph_seq.extend(dictionary[word])
+            else:
+                raise Exception(f'{word} not in dictionary!')
+        ph_seq.append(vocab[0])
+    
+    return ph_seq
+
+def read_lab(lab_path):
+    with open(lab_path,'r') as f:
+        lab_seq=f.readlines()[0].strip().split(' ')
+    return lab_seq
+
 if __name__ == '__main__':
     # input: config.yaml, wavs, labs, dictionary, phoneme_mode
     # ouput: textgrids
@@ -322,70 +342,56 @@ if __name__ == '__main__':
 
     if not args.phoneme_mode:
         dictionary=load_dictionary(args.dictionary_path)
+    else:
+        dictionary=None
 
     # inference all data
     for path, subdirs, files in os.walk(args.segments_path):
-        if subdirs==[]:
-            labs=[]
-            wavs=[]
-            for f in files:
-                if f.endswith('.lab'):
-                    labs.append(f)
-                elif f.endswith('.wav'):
-                    wavs.append(f)
+        if len(subdirs)==0:
+            print(f'processing {path}...')
 
-            for lab in tqdm(labs):
-                file_name=lab[:-4]
-                if file_name+'.wav' not in wavs:
-                    raise Exception(f'{os.path.join(path,file_name)}.wav not found!')
-                else:
-                    # if word mode, 根据词典生成音素序列
-                    # 否则在lab文件中直接读取音素序列
-                    # 同时在序列中加入<EMPTY>
-                    with open(os.path.join(path,lab),'r') as f:
-                        word_seq=f.readlines()[0].strip().split(' ')
-                    ph_seq_input=[vocab[0]]
-                    ph_num=[]
-                    for word in word_seq:
-                        if args.phoneme_mode:
-                            ph_seq_input.append(word)
-                        else:
-                            if word in dictionary:
-                                ph_seq_input.extend(dictionary[word])
-                                ph_num.append(len(dictionary[word]))
-                            else:
-                                raise Exception(f'{word} not in dictionary!')
-                        ph_seq_input.append(vocab[0])
+            file_names=list(
+                set(map(lambda x:x[:-4],filter(lambda x:x.endswith('.lab'),files))) & 
+                set(map(lambda x:x[:-4],filter(lambda x:x.endswith('.wav'),files)))
+                )
 
-                    ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(os.path.join(path,file_name+'.wav'),ph_seq_input,model,return_time=True)
-                    ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
+            for file_name in tqdm(file_names):
+                # if word mode, 根据词典生成音素序列
+                # 否则在lab文件中直接读取音素序列
+                # 同时在序列中加入<EMPTY>
+                word_seq=read_lab(os.path.join(path,file_name+'.lab'))
+                ph_seq_input=word_seq_to_ph_seq(word_seq,dictionary)
+                ph_num=list(map(lambda x:len(dictionary[x]),word_seq))
 
-                    ap_interval=detect_AP(os.path.join(path,file_name+'.wav'),ph_seq_pred,ph_interval_pred)
-                    # 去除<EMPTY>及其对应的ph_dur、ph_time
-                    indexes_to_remove = np.where(ph_seq_pred==vocab[0])
-                    ph_seq_pred = np.delete(ph_seq_pred, indexes_to_remove)
-                    ph_interval_pred = np.delete(ph_interval_pred, indexes_to_remove,axis=0)
+                ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(os.path.join(path,file_name+'.wav'),ph_seq_input,model,return_time=True)
+                ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
 
-                    # convert to textgrid
-                    textgrid=tg.TextGrid()
-                    words=[]
-                    phones=[]
-                    ph_location=np.cumsum([0,*ph_num])
-                    for i in range(len(ph_seq_pred)):
-                        if i>0 and phones[-1].xmax!=ph_interval_pred[i,0]:
-                            phones.append(tg.Interval('',phones[-1].xmax,ph_interval_pred[i,0])) 
-                        if ph_interval_pred[i,0]>ph_interval_pred[i,1]:
-                            print(ph_interval_pred[i,0],ph_interval_pred[i,1],i,ph_seq_pred)
-                        phones.append(tg.Interval(ph_seq_pred[i],ph_interval_pred[i,0],ph_interval_pred[i,1]))
-                    for i in range(len(ph_location)-1):
-                        if i>0 and words[-1].xmax!=ph_interval_pred[ph_location[i],0]:
-                            words.append(tg.Interval('',words[-1].xmax,ph_interval_pred[ph_location[i],0]))
-                        words.append(tg.Interval(word_seq[i],ph_interval_pred[ph_location[i],0],ph_interval_pred[ph_location[i+1]-1,1]))
-                    
-                    textgrid['words']=tg.Tier(words)
-                    textgrid['phones']=tg.Tier(phones)
+                ap_interval=detect_AP(os.path.join(path,file_name+'.wav'),ph_seq_pred,ph_interval_pred)
+                # 去除<EMPTY>及其对应的ph_dur、ph_time
+                indexes_to_remove = np.where(ph_seq_pred==vocab[0])
+                ph_seq_pred = np.delete(ph_seq_pred, indexes_to_remove)
+                ph_interval_pred = np.delete(ph_interval_pred, indexes_to_remove,axis=0)
 
-                    textgrid.write(os.path.join(path,file_name+'.TextGrid'))
+                # convert to textgrid
+                textgrid=tg.TextGrid()
+                words=[]
+                phones=[]
+                ph_location=np.cumsum([0,*ph_num])
+                for i in range(len(ph_seq_pred)):
+                    if i>0 and phones[-1].xmax!=ph_interval_pred[i,0]:
+                        phones.append(tg.Interval('',phones[-1].xmax,ph_interval_pred[i,0])) 
+                    if ph_interval_pred[i,0]>ph_interval_pred[i,1]:
+                        print(ph_interval_pred[i,0],ph_interval_pred[i,1],i,ph_seq_pred)
+                    phones.append(tg.Interval(ph_seq_pred[i],ph_interval_pred[i,0],ph_interval_pred[i,1]))
+                for i in range(len(ph_location)-1):
+                    if i>0 and words[-1].xmax!=ph_interval_pred[ph_location[i],0]:
+                        words.append(tg.Interval('',words[-1].xmax,ph_interval_pred[ph_location[i],0]))
+                    words.append(tg.Interval(word_seq[i],ph_interval_pred[ph_location[i],0],ph_interval_pred[ph_location[i+1]-1,1]))
+                
+                textgrid['words']=tg.Tier(words)
+                textgrid['phones']=tg.Tier(phones)
 
-                    # with open(os.path.join(path,file_name+'.TextGrid'),'w') as f:
-                    #     f.write(' '.join(ph_seq_pred)+'\n'+' '.join([str(i) for i in ph_dur_pred]))
+                textgrid.write(os.path.join(path,file_name+'.TextGrid'))
+
+                # with open(os.path.join(path,file_name+'.TextGrid'),'w') as f:
+                #     f.write(' '.join(ph_seq_pred)+'\n'+' '.join([str(i) for i in ph_dur_pred]))
