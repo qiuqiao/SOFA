@@ -126,11 +126,7 @@ def detect_AP(audio_path,ph_seq,ph_interval):
     return output_interval
 
 
-def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
-    prob_log=np.array(prob_log)
-    is_edge_prob_log=np.array(is_edge_prob_log)
-    not_edge_prob_log=np.array(not_edge_prob_log)
-    ph_seq_num=np.array(ph_seq_num)
+def decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
     # 乘上is_phoneme正确分类的概率
     prob_log[0,:]+=prob_log[0,:]
     prob_log[1:,:]+=1/prob_log[[0],:]
@@ -184,6 +180,17 @@ def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
 
     return np.array(ph_seq_num_pred),np.array(ph_time_int),np.array(frame_confidence)
 
+def decode_ctc(ctc_pred):
+    ctc_pred=ctc_pred.cpu().numpy()
+    ctc_pred=np.argmax(ctc_pred,axis=0)
+    ctc_seq=[]
+    for idx in range(len(ctc_pred)-1):
+        if ctc_pred[idx]!=ctc_pred[idx+1]:
+            ctc_seq.append(ctc_pred[idx])
+    ctc_ph_seq=[vocab[i] for i in ctc_seq if i != 0]
+
+    return ctc_ph_seq
+
 def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False,return_ctc_pred=False,return_plot=False):
     # extract melspec
     audio, sample_rate = torchaudio.load(audio_path)
@@ -196,10 +203,9 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     # forward
     with torch.no_grad():
         h,seg,ctc,edge=model(melspec.to(config.device))
+        seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
 
     # postprocess output
-    seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
-    
     seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
     seg_prob[0,:]*=config.inference_empty_coefficient
     # seg_prob[0,:]*=torch.tensor(1-get_vowel_frame(audio.squeeze(0).cpu().numpy())).to(config.device)
@@ -225,31 +231,22 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     not_edge_prob=1-is_edge_prob
     not_edge_prob_log=np.log(not_edge_prob)
 
-    ph_seq_num=[vocab[i] for i in ph_seq]
+    ph_seq_num=np.array([vocab[i] for i in ph_seq])
 
     # dynamic programming decoding
-    ph_seq_num_pred,ph_time_pred_int,frame_confidence=alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
+    ph_seq_num_pred,ph_time_pred_int,frame_confidence=decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
 
-    # calculating time
-    ph_time_pred=ph_time_pred_int.astype('float64')
-    ph_time_pred+=(edge_diff[ph_time_pred_int]*config.inference_edge_weight).clip(-0.5,0.5)
+    # calculat time
+    ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]*config.inference_edge_weight).clip(-0.5,0.5)
     ph_time_pred=np.concatenate((ph_time_pred,[T+1]))*(config.hop_length/config.sample_rate)
     ph_time_pred[0]=0
 
     ph_dur_pred=np.diff(ph_time_pred,1)
 
-    # ctc decoding
+    # ctc seq decode
     if return_ctc_pred:
         ctc_pred=torch.nn.functional.softmax(ctc[0],dim=0)
-        ctc_pred=ctc_pred.cpu().numpy()
-        ctc_pred=np.argmax(ctc_pred,axis=0)
-        ctc_seq=[]
-        for idx in range(len(ctc_pred)-1):
-            if ctc_pred[idx]!=ctc_pred[idx+1]:
-                ctc_seq.append(ctc_pred[idx])
-        ctc_ph_seq=[vocab[i] for i in ctc_seq if i != 0]
-
-    # calculating confidence
+        ctc_ph_seq=decode_ctc(ctc_pred)
 
     ph_seq_pred=np.array([vocab[i] for i in ph_seq_num_pred])
     res=[ph_seq_pred,ph_dur_pred]
