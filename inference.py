@@ -333,6 +333,34 @@ def read_lab(lab_path):
         lab_seq=f.readlines()[0].strip().split(' ')
     return lab_seq
 
+def intervals_to_tg(intervals,ph_seq):
+    # ap_interval=detect_AP(os.path.join(path,file_name+'.wav'),ph_seq,intervals)
+    # 去除<EMPTY>及其对应的ph_dur、ph_time
+    indexes_to_remove = np.where(ph_seq==vocab[0])
+    ph_seq = np.delete(ph_seq, indexes_to_remove)
+    intervals = np.delete(intervals, indexes_to_remove,axis=0)
+
+    # convert to textgrid
+    textgrid=tg.TextGrid()
+    words=[]
+    phones=[]
+    ph_location=np.cumsum([0,*ph_num])
+    for i in range(len(ph_seq)):
+        if i>0 and phones[-1].xmax!=intervals[i,0]:
+            phones.append(tg.Interval('',phones[-1].xmax,intervals[i,0])) 
+        if intervals[i,0]>intervals[i,1]:
+            print(intervals[i,0],intervals[i,1],i,ph_seq)
+        phones.append(tg.Interval(ph_seq[i],intervals[i,0],intervals[i,1]))
+    for i in range(len(ph_location)-1):
+        if i>0 and words[-1].xmax!=intervals[ph_location[i],0]:
+            words.append(tg.Interval('',words[-1].xmax,intervals[ph_location[i],0]))
+        words.append(tg.Interval(word_seq[i],intervals[ph_location[i],0],intervals[ph_location[i+1]-1,1]))
+
+    textgrid['words']=tg.Tier(words)
+    textgrid['phones']=tg.Tier(phones)
+
+    return textgrid
+
 if __name__ == '__main__':
     # input: config.yaml, wavs, labs, dictionary, phoneme_mode
     # ouput: textgrids
@@ -345,7 +373,6 @@ if __name__ == '__main__':
     else:
         dictionary=None
 
-    # inference all data
     for path, subdirs, files in os.walk(args.segments_path):
         if len(subdirs)==0:
             print(f'processing {path}...')
@@ -366,30 +393,7 @@ if __name__ == '__main__':
                 ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(os.path.join(path,file_name+'.wav'),ph_seq_input,model,return_time=True)
                 ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
 
-                ap_interval=detect_AP(os.path.join(path,file_name+'.wav'),ph_seq_pred,ph_interval_pred)
-                # 去除<EMPTY>及其对应的ph_dur、ph_time
-                indexes_to_remove = np.where(ph_seq_pred==vocab[0])
-                ph_seq_pred = np.delete(ph_seq_pred, indexes_to_remove)
-                ph_interval_pred = np.delete(ph_interval_pred, indexes_to_remove,axis=0)
-
-                # convert to textgrid
-                textgrid=tg.TextGrid()
-                words=[]
-                phones=[]
-                ph_location=np.cumsum([0,*ph_num])
-                for i in range(len(ph_seq_pred)):
-                    if i>0 and phones[-1].xmax!=ph_interval_pred[i,0]:
-                        phones.append(tg.Interval('',phones[-1].xmax,ph_interval_pred[i,0])) 
-                    if ph_interval_pred[i,0]>ph_interval_pred[i,1]:
-                        print(ph_interval_pred[i,0],ph_interval_pred[i,1],i,ph_seq_pred)
-                    phones.append(tg.Interval(ph_seq_pred[i],ph_interval_pred[i,0],ph_interval_pred[i,1]))
-                for i in range(len(ph_location)-1):
-                    if i>0 and words[-1].xmax!=ph_interval_pred[ph_location[i],0]:
-                        words.append(tg.Interval('',words[-1].xmax,ph_interval_pred[ph_location[i],0]))
-                    words.append(tg.Interval(word_seq[i],ph_interval_pred[ph_location[i],0],ph_interval_pred[ph_location[i+1]-1,1]))
-                
-                textgrid['words']=tg.Tier(words)
-                textgrid['phones']=tg.Tier(phones)
+                textgrid=intervals_to_tg(ph_interval_pred,ph_seq_pred)
 
                 textgrid.write(os.path.join(path,file_name+'.TextGrid'))
 
