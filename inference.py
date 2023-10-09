@@ -10,6 +10,7 @@ import yaml
 from tqdm import trange,tqdm
 import argparse
 import textgrids as tg
+import librosa
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
@@ -17,6 +18,113 @@ config=dict_to_namespace(config)
 
 with open('vocab.yaml', 'r') as file:
     vocab = yaml.safe_load(file)
+
+
+def get_ap_interval(audio_path):
+    audio,sample_rate=torchaudio.load(audio_path)
+    audio_peak=torch.max(torch.abs(audio))
+    audio=audio/audio_peak*0.08
+    if sample_rate!=config.sample_rate:
+        audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
+    audio=audio.squeeze(0).cpu().numpy()
+
+    spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=config.sample_rate, n_fft=2048, hop_length=config.hop_length).squeeze(0)
+    not_LFNoise=spectral_centroid>config.postprocess.br_centroid
+
+    rms_db=20*np.log10(librosa.feature.rms(y=audio,hop_length=config.hop_length)[0]/2e-5)
+    not_space=rms_db>config.postprocess.br_db
+
+    chromagram = librosa.feature.chroma_stft(y=audio, sr=config.sample_rate, hop_length=config.hop_length)
+    chromagram=chromagram/np.sum(chromagram,axis=0)
+    chromagram_entropy=-np.sum(chromagram*np.log(chromagram),axis=0)
+    not_vowel=chromagram_entropy>config.postprocess.chromagram_entropy_thresh
+
+
+    is_ap=1*not_LFNoise*not_vowel*not_space
+    is_ap_diff=np.diff(is_ap,1)
+    ap_interval=[]
+    left_idx=-1
+    for idx,is_interval_edge in enumerate(is_ap_diff):
+        if is_interval_edge==1:
+            left_idx=idx
+        elif is_interval_edge==-1:
+            if (idx-left_idx)*(config.hop_length/config.sample_rate)<config.postprocess.min_interval_dur:
+                left_idx=-1
+            else:
+                if left_idx>=0:
+                    ap_interval.append([left_idx,idx])
+    ap_interval=np.array(ap_interval)
+
+    return ap_interval*config.hop_length/config.sample_rate
+
+def interval_intersection(intervals_a=[[1,3],[6,8]],intervals_b=[[2,6]]):
+    idx_a=0
+    idx_b=0
+    intersection=[]
+    interval_idx=[]
+    while idx_a<len(intervals_a) and idx_b<len(intervals_b):
+        if intervals_a[idx_a][0]>intervals_b[idx_b][1]:
+            idx_b+=1
+        elif intervals_a[idx_a][1]<intervals_b[idx_b][0]:
+            idx_a+=1
+        else:
+            intersection.append([max(intervals_a[idx_a][0],intervals_b[idx_b][0]),min(intervals_a[idx_a][1],intervals_b[idx_b][1])])
+            interval_idx.append([idx_a,idx_b])
+            if intervals_a[idx_a][1]<intervals_b[idx_b][1]:
+                idx_a+=1
+            else:
+                idx_b+=1
+    
+    return np.array(intersection),np.array(interval_idx)
+
+def get_vowel_frame(audio):
+    y=audio
+    rms_db=20*np.log10(librosa.feature.rms(y=y,hop_length=config.hop_length)[0]/2e-5)
+    not_space=rms_db>config.postprocess.vowel_db
+
+    chromagram = librosa.feature.chroma_stft(y=y, sr=config.sample_rate, hop_length=config.hop_length)
+    chromagram=chromagram/np.sum(chromagram,axis=0)
+    chromagram_entropy=-np.sum(chromagram*np.log(chromagram),axis=0)
+    not_ap=chromagram_entropy<config.postprocess.chromagram_entropy_thresh
+
+    is_vowel=1*not_ap*not_space
+    is_vowel_diff=np.diff(is_vowel,1)
+    left_idx=-1
+    for idx,is_interval_edge in enumerate(is_vowel_diff):
+        if is_interval_edge==1:
+            left_idx=idx
+        elif is_interval_edge==-1:
+            if (idx-left_idx)*(config.hop_length/config.sample_rate)<config.postprocess.min_interval_dur:
+                is_vowel[left_idx+1:idx+1]=0
+                left_idx=-1
+
+    return is_vowel
+
+def detect_AP(audio_path,ph_seq,ph_interval):
+    # empty_pos=np.argwhere(ph_seq==vocab[0]).T[0]
+    empty_interval=ph_interval[ph_seq==vocab[0],:]
+    output_interval,interval_idx=interval_intersection(empty_interval,get_ap_interval(audio_path))
+    if len(interval_idx)<1:
+        return []
+    
+    output_interval=np.array([i for i in output_interval if i[1]-i[0]>config.postprocess.min_interval_dur])
+    
+    # print(interval_idx)
+    # idxes_e=interval_idx[:,0]
+    # idxes_v=range(len(idxes_e))
+
+    # for idx_e,idx_v in zip(idxes_e,idxes_v):
+    #     if to_be_extended_interval[idx_v,0]-empty_interval[idx_e,0]<1e-6:
+    #         ph_interval[empty_pos[idx_e],0]=to_be_extended_interval[idx_v,1]
+    #         if empty_pos[idx_e]>0:
+    #             ph_interval[empty_pos[idx_e]-1,1]=to_be_extended_interval[idx_v,1]
+    #     elif empty_interval[idx_e,1]-to_be_extended_interval[idx_v,1]<1e-6:
+    #         ph_interval[empty_pos[idx_e],1]=to_be_extended_interval[idx_v,0]
+    #         if empty_pos[idx_e]<len(ph_seq)-1:
+    #             ph_interval[empty_pos[idx_e]+1,0]=to_be_extended_interval[idx_v,0]
+
+    return output_interval
+
 
 def alignment_decode(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
     prob_log=np.array(prob_log)
@@ -99,6 +207,7 @@ def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False
     
     seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
     seg_prob[0,:]*=config.inference_empty_coefficient
+    # seg_prob[0,:]*=torch.tensor(1-get_vowel_frame(audio.squeeze(0).cpu().numpy())).to(config.device)
     seg_prob/=seg_prob.sum(dim=0)
 
     prob_log=seg_prob.log().cpu().numpy()
@@ -174,14 +283,12 @@ def parse_args():
     parser.add_argument('-p','--phoneme_mode',action='store_true',help='phoneme mode. If this argument is set, the dictionary path will be ignored and the phoneme mode will be used.')
 
     return parser.parse_args()
-    
 
-if __name__ == '__main__':
-    args=parse_args()
-
-    # load model
+def load_model(model_path='ckpt'):
+    # input: str:model_path
+    # output: FullModel:model
     model=FullModel().to(config.device).eval()
-    model_path=args.model_folder_path
+    model_path=model_path
     pth_list=os.listdir(model_path)
     pth_list=[i for i in pth_list if i.endswith('.pth')]
     if len(pth_list)==0:
@@ -193,12 +300,28 @@ if __name__ == '__main__':
     print(f'loading {pth_name}...')
     model.load_state_dict(torch.load(os.path.join(model_path,pth_name)))
 
-    # if word mode, load dictionary
+    return model
+
+
+def load_dictionary(dictionary_path:str):
+    # input: str:dictionary_path
+    # output: dict:dictionary
+    assert os.path.exists(dictionary_path),f'{dictionary_path} not found!'
+    with open(dictionary_path,'r') as f:
+        dictionary=f.readlines()
+    dictionary={i.split('\t')[0].strip():i.split('\t')[1].strip().split(' ') for i in dictionary}
+
+    return dictionary
+
+if __name__ == '__main__':
+    # input: config.yaml, wavs, labs, dictionary, phoneme_mode
+    # ouput: textgrids
+    args=parse_args()
+
+    model=load_model(args.model_folder_path)
+
     if not args.phoneme_mode:
-        assert os.path.exists(args.dictionary_path),f'{args.dictionary_path} not found!'
-        with open(args.dictionary_path,'r') as f:
-            dictionary=f.readlines()
-        dictionary={i.split('\t')[0].strip():i.split('\t')[1].strip().split(' ') for i in dictionary}
+        dictionary=load_dictionary(args.dictionary_path)
 
     # inference all data
     for path, subdirs, files in os.walk(args.segments_path):
@@ -237,6 +360,7 @@ if __name__ == '__main__':
                     ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(os.path.join(path,file_name+'.wav'),ph_seq_input,model,return_time=True)
                     ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
 
+                    ap_interval=detect_AP(os.path.join(path,file_name+'.wav'),ph_seq_pred,ph_interval_pred)
                     # 去除<EMPTY>及其对应的ph_dur、ph_time
                     indexes_to_remove = np.where(ph_seq_pred==vocab[0])
                     ph_seq_pred = np.delete(ph_seq_pred, indexes_to_remove)
