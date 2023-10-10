@@ -1,3 +1,4 @@
+from typing import Any
 import torch
 import torchaudio
 import numpy as np
@@ -11,6 +12,7 @@ from tqdm import trange,tqdm
 import argparse
 import textgrids as tg
 import librosa
+from abc import ABCMeta, abstractmethod
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
@@ -18,6 +20,59 @@ config=dict_to_namespace(config)
 
 with open('vocab.yaml', 'r') as file:
     vocab = yaml.safe_load(file)
+
+
+# 词典抽象类
+
+class Dictionary(metaclass=ABCMeta):
+    @abstractmethod
+    def __init__(self)->None:
+        pass
+
+    @abstractmethod
+    def load(self, file_path:str)->None:
+        pass
+
+    @abstractmethod
+    def __call__(self, word:str)->list:
+        pass
+
+    @abstractmethod
+    def __contains__(self, item)->bool:
+        pass
+
+
+class WordDictionary(Dictionary):
+    def __init__(self):
+        self.dict={}
+    
+    def load(self, file_path:str):
+        assert os.path.exists(file_path),f'{file_path} not found!'
+        with open(file_path,'r') as f:
+            dictionary=f.readlines()
+        self.dict={i.split('\t')[0].strip():i.split('\t')[1].strip().split(' ') for i in dictionary}
+    
+    def __call__(self, word:str):
+        if word in self.dict:
+            return self.dict[word]
+        else:
+            raise Exception(f'{word} not in dictionary!')
+
+    def __contains__(self, item):
+        return item in self.dict
+
+class PhonemeDictionary(Dictionary):
+    def __init__(self):
+        pass
+    
+    def load(self, file_path:str):
+        Warning('PhonemeDictionary do not need to load file!')
+    
+    def __call__(self, word:str):
+        return [word]
+    
+    def __contains__(self, item):
+        return True
 
 
 def get_ap_interval(audio_path):
@@ -295,28 +350,11 @@ def load_model(model_path='ckpt'):
     return model
 
 
-def load_dictionary(dictionary_path:str):
-    # input: str:dictionary_path
-    # output: dict:dictionary
-    assert os.path.exists(dictionary_path),f'{dictionary_path} not found!'
-    with open(dictionary_path,'r') as f:
-        dictionary=f.readlines()
-    dictionary={i.split('\t')[0].strip():i.split('\t')[1].strip().split(' ') for i in dictionary}
-
-    return dictionary
-
-
-def word_seq_to_ph_seq(word_seq,dictionary=None):
+def word_seq_to_ph_seq(word_seq,dictionary:Dictionary):
     ph_seq=[vocab[0]]
     for word in word_seq:
-        if dictionary is None:
-            ph_seq.append(word)
-        else:
-            if word in dictionary:
-                ph_seq.extend(dictionary[word])
-            else:
-                raise Exception(f'{word} not in dictionary!')
-        ph_seq.append(vocab[0])
+        ph_seq.extend(dictionary(word))
+    ph_seq.append(vocab[0])
     
     return ph_seq
 
@@ -360,10 +398,11 @@ if __name__ == '__main__':
 
     model=load_model(args.model_folder_path)
 
-    if not args.phoneme_mode:
-        dictionary=load_dictionary(args.dictionary_path)
+    if args.phoneme_mode:
+        dictionary=PhonemeDictionary()
     else:
-        dictionary=None
+        dictionary=WordDictionary()
+        dictionary.load(args.dictionary_path)
 
     for path, subdirs, files in os.walk(args.segments_path):
         if len(subdirs)==0:
@@ -378,14 +417,13 @@ if __name__ == '__main__':
 
                 word_seq=read_lab(os.path.join(path,file_name+'.lab'))
                 ph_seq_input=word_seq_to_ph_seq(word_seq,dictionary)
-                ph_num=list(map(lambda x:len(dictionary[x]),word_seq))
+                ph_num=list(map(lambda x:len(dictionary(x)),word_seq))
 
                 ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(os.path.join(path,file_name+'.wav'),ph_seq_input,model,return_time=True)
                 ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
 
                 textgrid=intervals_to_tg(ph_interval_pred,ph_seq_pred)
 
-                textgrid.write(os.path.join(path,file_name+'.TextGrid'))
-
-                # with open(os.path.join(path,file_name+'.TextGrid'),'w') as f:
-                #     f.write(' '.join(ph_seq_pred)+'\n'+' '.join([str(i) for i in ph_dur_pred]))
+                if not os.path.exists(os.path.join(path,'TextGrid')):
+                    os.mkdir(os.path.join(path,'TextGrid'))
+                textgrid.write(os.path.join(path,'TextGrid',file_name+'.TextGrid'))
