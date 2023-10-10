@@ -375,9 +375,7 @@ if __name__ == '__main__':
                 )
 
             for file_name in tqdm(file_names):
-                # if word mode, 根据词典生成音素序列
-                # 否则在lab文件中直接读取音素序列
-                # 同时在序列中加入<EMPTY>
+
                 word_seq=read_lab(os.path.join(path,file_name+'.lab'))
                 ph_seq_input=word_seq_to_ph_seq(word_seq,dictionary)
                 ph_num=list(map(lambda x:len(dictionary[x]),word_seq))

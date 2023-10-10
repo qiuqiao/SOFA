@@ -55,7 +55,19 @@ if __name__ == '__main__':
     # usp_dataiter = iter(usp_dataloader)
 
     # model
+    # model=FullModel().to(config.device)
     model=FullModel().to(config.device)
+    # model_path='ckpt'
+    # pth_list=os.listdir(model_path)
+    # pth_list=[i for i in pth_list if i.endswith('.pth')]
+    # if len(pth_list)==0:
+    #     raise Exception('No .pth file in model folder!')
+    # elif len(pth_list)>1:
+    #     raise Exception('More than one .pth file in model folder!')
+    # else:
+    #     pth_name=pth_list[0]
+    # print(f'loading {pth_name}...')
+    # model.load_state_dict(torch.load(os.path.join(model_path,pth_name)))
 
     # loss function
     seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.label_smoothing)
@@ -240,10 +252,16 @@ if __name__ == '__main__':
                         
                         ph_confidence_total=[]
                         for idx in trange(len(trans)):
-                            ph_seq_pred,ph_dur_pred,ctc_ph_seq,ph_confidence,plot1,plot2=infer_once(
+                            ph_seq_input=trans.loc[idx,'ph_seq'].split(' ')
+                            new_lst = [vocab[0]] * (len(ph_seq_input) * 2 +1)  # 创建一个新列表，长度是原列表的2倍减1。
+                            new_lst[1::2] = ph_seq_input  # 将原列表的元素插入到新列表的偶数位置。
+                            ph_seq_input=new_lst
+                            ph_seq_pred,ph_dur_pred,ph_confidence,ctc_ph_seq,plot1,plot2=infer_once(
                                 trans.loc[idx,'path'],
-                                trans.loc[idx,'ph_seq'].split(' '),
+                                ph_seq_input,
                                 model,
+                                return_confidence=True,
+                                return_ctc_pred=True,
                                 return_plot=True)
                             
                             writer.add_figure(f'{id}/melseg', plot1, step)
