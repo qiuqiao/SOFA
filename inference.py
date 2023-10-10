@@ -22,8 +22,6 @@ with open('vocab.yaml', 'r') as file:
     vocab = yaml.safe_load(file)
 
 
-# 词典抽象类
-
 class Dictionary(metaclass=ABCMeta):
     @abstractmethod
     def __init__(self)->None:
@@ -76,11 +74,7 @@ class PhonemeDictionary(Dictionary):
 
 
 def get_ap_interval(audio_path):
-    audio,sample_rate=torchaudio.load(audio_path)
-    audio_peak=torch.max(torch.abs(audio))
-    audio=audio/audio_peak*0.08
-    if sample_rate!=config.sample_rate:
-        audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
+    audio=utils.load_resampled_audio(audio_path)
     audio=audio.squeeze(0).cpu().numpy()
 
     spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=config.sample_rate, n_fft=2048, hop_length=config.hop_length).squeeze(0)
@@ -248,9 +242,7 @@ def decode_ctc(ctc_pred):
 
 def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False,return_ctc_pred=False,return_plot=False):
     # extract melspec
-    audio, sample_rate = torchaudio.load(audio_path)
-    if sample_rate!=config.sample_rate:
-        audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
+    audio=utils.load_resampled_audio(audio_path)
     melspec=utils.extract_normed_mel(audio)
     T=melspec.shape[-1]
     melspec=utils.pad_to_divisible_length(melspec,32)
@@ -363,7 +355,7 @@ def read_lab(lab_path):
         lab_seq=f.readlines()[0].strip().split(' ')
     return lab_seq
 
-def intervals_to_tg(intervals,ph_seq):
+def intervals_to_tg(intervals,ph_seq,word_seq,ph_num):
     # ap_interval=detect_AP(os.path.join(path,file_name+'.wav'),ph_seq,intervals)
     # 去除<EMPTY>及其对应的ph_dur、ph_time
     indexes_to_remove = np.where(ph_seq==vocab[0])
@@ -391,6 +383,32 @@ def intervals_to_tg(intervals,ph_seq):
 
     return textgrid
 
+class DataItemWordLab:
+    def __init__(self,file_path,dictionary:Dictionary) -> None:
+        super().__init__()
+        self.name=os.path.basename(file_path)
+        self.path=file_path
+        self.input_audio,_=torchaudio.load(file_path+'.wav')
+        self.word_seq=self.read_lab(file_path+'.lab')
+        self.input_seq,self.ph_num=self.word_to_ph(self.word_seq,dictionary)
+
+    def read_lab(self,lab_path:str)->list:
+        with open(lab_path,'r') as f:
+            lab_seq=f.readlines()[0].strip().split(' ')
+        return np.array(lab_seq)
+    
+    def word_to_ph(self,word_seq,dictionary:Dictionary):
+        ph_seq=[vocab[0]]
+        ph_num=[]
+        for word in word_seq:
+            ph_seq.extend(dictionary(word))
+            ph_num.append(len(dictionary(word)))
+        ph_seq.append(vocab[0])
+        return np.array(ph_seq),np.array(ph_num)
+
+    def postprocess_tg(self):
+        pass
+
 if __name__ == '__main__':
     # input: config.yaml, wavs, labs, dictionary, phoneme_mode
     # ouput: textgrids
@@ -415,15 +433,10 @@ if __name__ == '__main__':
 
             for file_name in tqdm(file_names):
 
-                word_seq=read_lab(os.path.join(path,file_name+'.lab'))
-                ph_seq_input=word_seq_to_ph_seq(word_seq,dictionary)
-                ph_num=list(map(lambda x:len(dictionary(x)),word_seq))
+                item=DataItemWordLab(os.path.join(path,file_name),dictionary)
 
-                ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(os.path.join(path,file_name+'.wav'),ph_seq_input,model,return_time=True)
+                ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(item.path+'.wav',item.input_seq,model,return_time=True)
                 ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
+                textgrid=intervals_to_tg(ph_interval_pred,ph_seq_pred,item.word_seq,item.ph_num)
 
-                textgrid=intervals_to_tg(ph_interval_pred,ph_seq_pred)
-
-                if not os.path.exists(os.path.join(path,'TextGrid')):
-                    os.mkdir(os.path.join(path,'TextGrid'))
-                textgrid.write(os.path.join(path,'TextGrid',file_name+'.TextGrid'))
+                textgrid.write(os.path.join(path,file_name+'.TextGrid'))
