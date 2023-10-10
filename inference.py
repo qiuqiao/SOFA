@@ -72,6 +72,9 @@ class PhonemeDictionary(Dictionary):
     def __contains__(self, item):
         return True
 
+    def g2p(self, words: list) -> list:
+        return words
+
 
 def get_ap_interval(audio_path):
     audio=utils.load_resampled_audio(audio_path)
@@ -240,75 +243,80 @@ def decode_ctc(ctc_pred):
 
     return ctc_ph_seq
 
-def infer_once(audio_path,ph_seq,model,return_time=False,return_confidence=False,return_ctc_pred=False,return_plot=False):
-    # extract melspec
-    audio=utils.load_resampled_audio(audio_path)
-    melspec=utils.extract_normed_mel(audio)
-    T=melspec.shape[-1]
-    melspec=utils.pad_to_divisible_length(melspec,32)
+class Aligner:
+    def __init__(self,model) -> None:
+        self.model=model
 
-    # forward
-    with torch.no_grad():
-        h,seg,ctc,edge=model(melspec.to(config.device))
-        seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
+    def __call__(self,audio_path,ph_seq,return_confidence=False,return_ctc_pred=False,return_plot=False):
+        # extract melspec
+        audio=utils.load_resampled_audio(audio_path)
+        melspec=utils.extract_normed_mel(audio)
+        T=melspec.shape[-1]
+        melspec=utils.pad_to_divisible_length(melspec,32)
 
-    # postprocess output
-    seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
-    seg_prob[0,:]*=config.inference_empty_coefficient
-    # seg_prob[0,:]*=torch.tensor(1-get_vowel_frame(audio.squeeze(0).cpu().numpy())).to(config.device)
-    seg_prob/=seg_prob.sum(dim=0)
+        # forward
+        with torch.no_grad():
+            h,seg,ctc,edge=self.model(melspec.to(config.device))
+            seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
 
-    prob_log=seg_prob.log().cpu().numpy()
+        # postprocess output
+        seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
+        seg_prob[0,:]*=config.inference_empty_coefficient
+        # seg_prob[0,:]*=torch.tensor(1-get_vowel_frame(audio.squeeze(0).cpu().numpy())).to(config.device)
+        seg_prob/=seg_prob.sum(dim=0)
 
-    seg_prob=seg_prob.cpu().numpy()
+        prob_log=seg_prob.log().cpu().numpy()
 
-    edge=torch.nn.functional.softmax(edge,dim=1)
-    edge_pred=edge[0,0,:].clone().cpu().numpy()
+        seg_prob=seg_prob.cpu().numpy()
 
-    edge_diff=np.concatenate(([0],edge_pred,[1]))
-    edge_diff=np.diff(edge_diff,1)
-    edge_diff=edge_diff/2
+        edge=torch.nn.functional.softmax(edge,dim=1)
+        edge_pred=edge[0,0,:].clone().cpu().numpy()
 
-    is_edge_prob=edge_pred
-    is_edge_prob[1:]+=is_edge_prob[:-1]
-    is_edge_prob=(is_edge_prob/2)**config.inference_edge_weight
+        edge_diff=np.concatenate(([0],edge_pred,[1]))
+        edge_diff=np.diff(edge_diff,1)
+        edge_diff=edge_diff/2
 
-    is_edge_prob_log=np.log(is_edge_prob.clip(1e-10,1-1e-10))
+        is_edge_prob=edge_pred
+        is_edge_prob[1:]+=is_edge_prob[:-1]
+        is_edge_prob=(is_edge_prob/2)**config.inference_edge_weight
 
-    not_edge_prob=1-is_edge_prob
-    not_edge_prob_log=np.log(not_edge_prob)
+        is_edge_prob_log=np.log(is_edge_prob.clip(1e-10,1-1e-10))
 
-    ph_seq_num=np.array([vocab[i] for i in ph_seq])
+        not_edge_prob=1-is_edge_prob
+        not_edge_prob_log=np.log(not_edge_prob)
 
-    # dynamic programming decoding
-    ph_seq_num_pred,ph_time_pred_int,frame_confidence=decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
+        ph_seq_num=np.array([vocab[i] for i in ph_seq])
 
-    # calculat time
-    ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]*config.inference_edge_weight).clip(-0.5,0.5)
-    ph_time_pred=np.concatenate((ph_time_pred,[T+1]))*(config.hop_length/config.sample_rate)
-    ph_time_pred[0]=0
+        # dynamic programming decoding
+        ph_seq_num_pred,ph_time_pred_int,frame_confidence=decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
 
-    ph_dur_pred=np.diff(ph_time_pred,1)
+        # calculat time
+        ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]*config.inference_edge_weight).clip(-0.5,0.5)
+        ph_time_pred=np.concatenate((ph_time_pred,[T+1]))*(config.hop_length/config.sample_rate)
+        ph_time_pred[0]=0
 
-    # ctc seq decode
-    if return_ctc_pred:
-        ctc_pred=torch.nn.functional.softmax(ctc[0],dim=0)
-        ctc_ph_seq=decode_ctc(ctc_pred)
+        ph_dur_pred=np.diff(ph_time_pred,1)
 
-    ph_seq_pred=np.array([vocab[i] for i in ph_seq_num_pred])
-    res=[ph_seq_pred,ph_dur_pred]
-    if return_time:
-        res.append(ph_time_pred)
-    if return_confidence:
-        res.append(frame_confidence.mean())
-    if return_ctc_pred:
-        res.append(ctc_ph_seq)
-    if return_plot:
-        plot1=utils.plot_spectrogram_and_phonemes(melspec[0],target_gt=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred)
-        plot2=utils.plot_spectrogram_and_phonemes(seg_prob,target_gt=edge_pred*vocab['<vocab_size>'])#target_pred=frame_target,
-        res.extend([plot1,plot2])
-    return res
-                                
+        # ctc seq decode
+        if return_ctc_pred:
+            ctc_pred=torch.nn.functional.softmax(ctc[0],dim=0)
+            ctc_ph_seq=decode_ctc(ctc_pred)
+
+        ph_seq_pred=np.array([vocab[i] for i in ph_seq_num_pred])
+        ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
+        interval_Tier=intervals_to_Tier(ph_interval_pred,ph_seq_pred,ignore_text_list=[vocab[0]])
+        
+        res=[interval_Tier]
+        if return_confidence:
+            res.append(frame_confidence.mean())
+        if return_ctc_pred:
+            res.append(ctc_ph_seq)
+        if return_plot:
+            plot1=utils.plot_spectrogram_and_phonemes(melspec[0],target_gt=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred)
+            plot2=utils.plot_spectrogram_and_phonemes(seg_prob,target_gt=edge_pred*vocab['<vocab_size>'])#target_pred=frame_target,
+            res.extend([plot1,plot2])
+        return tuple(res)
+
 def parse_args():
     """
     进行参数的解析
@@ -383,6 +391,18 @@ def intervals_to_tg(intervals,ph_seq,word_seq,ph_num):
 
     return textgrid
 
+def intervals_to_Tier(intervals,text,ignore_text_list):
+    intervals_list=[]
+    for i in range(len(text)):
+        if i>0 and intervals_list[-1].xmax!=intervals[i,0]:
+            intervals_list.append(tg.Interval('',intervals_list[-1].xmax,intervals[i,0])) 
+        if text[i] in ignore_text_list:
+            intervals_list.append(tg.Interval('',intervals[i,0],intervals[i,1]))
+        else:
+            intervals_list.append(tg.Interval(text[i],intervals[i,0],intervals[i,1]))
+
+    return tg.Tier(intervals_list)
+
 class DataItemWordLab:
     def __init__(self,file_path,dictionary:Dictionary) -> None:
         super().__init__()
@@ -409,6 +429,16 @@ class DataItemWordLab:
     def postprocess_tg(self):
         pass
 
+def get_words_Tier(phones_Tier,word_seq,ph_num):
+    phones_Tier=[i for i in phones_Tier if i.text!='']
+    words_Tier=[]
+    ph_location=np.cumsum([0,*ph_num])
+    for i in range(len(ph_location)-1):
+        if i>0 and words_Tier[-1].xmax!=phones_Tier[ph_location[i]].xmin:
+            words_Tier.append(tg.Interval('',words_Tier[-1].xmax,phones_Tier[ph_location[i]].xmin))
+        words_Tier.append(tg.Interval(word_seq[i],phones_Tier[ph_location[i]].xmin,phones_Tier[ph_location[i+1]-1].xmax))
+    return tg.Tier(words_Tier)
+
 if __name__ == '__main__':
     # input: config.yaml, wavs, labs, dictionary, phoneme_mode
     # ouput: textgrids
@@ -434,9 +464,12 @@ if __name__ == '__main__':
             for file_name in tqdm(file_names):
 
                 item=DataItemWordLab(os.path.join(path,file_name),dictionary)
-
-                ph_seq_pred,ph_dur_pred,ph_time_pred=infer_once(item.path+'.wav',item.input_seq,model,return_time=True)
-                ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
-                textgrid=intervals_to_tg(ph_interval_pred,ph_seq_pred,item.word_seq,item.ph_num)
+                aligner=Aligner(model)
+                phones_Tier=aligner(item.path+'.wav',item.input_seq)[0]
+                words_Tier=get_words_Tier(phones_Tier,item.word_seq,item.ph_num)
+                textgrid=tg.TextGrid()
+                textgrid['words']=words_Tier
+                textgrid['phones']=phones_Tier
+                # textgrid=intervals_to_tg(ph_interval_pred,ph_seq_pred,item.word_seq,item.ph_num)
 
                 textgrid.write(os.path.join(path,file_name+'.TextGrid'))
