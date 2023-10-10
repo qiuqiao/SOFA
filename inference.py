@@ -59,6 +59,7 @@ class WordDictionary(Dictionary):
     def __contains__(self, item):
         return item in self.dict
 
+
 class PhonemeDictionary(Dictionary):
     def __init__(self):
         pass
@@ -74,6 +75,32 @@ class PhonemeDictionary(Dictionary):
 
     def g2p(self, words: list) -> list:
         return words
+
+class DataItemWordLab:
+    def __init__(self,file_path,dictionary:Dictionary) -> None:
+        super().__init__()
+        self.name=os.path.basename(file_path)
+        self.path=file_path
+        self.input_audio,_=torchaudio.load(file_path+'.wav')
+        self.word_seq=self.read_lab(file_path+'.lab')
+        self.input_seq,self.ph_num=self.word_to_ph(self.word_seq,dictionary)
+
+    def read_lab(self,lab_path:str)->list:
+        with open(lab_path,'r') as f:
+            lab_seq=f.readlines()[0].strip().split(' ')
+        return np.array(lab_seq)
+    
+    def word_to_ph(self,word_seq,dictionary:Dictionary):
+        ph_seq=[vocab[0]]
+        ph_num=[]
+        for word in word_seq:
+            ph_seq.extend(dictionary(word))
+            ph_num.append(len(dictionary(word)))
+        ph_seq.append(vocab[0])
+        return np.array(ph_seq),np.array(ph_num)
+
+    def postprocess_tg(self):
+        pass
 
 
 def get_ap_interval(audio_path):
@@ -160,92 +187,78 @@ def detect_AP(audio_path,ph_seq,ph_interval):
         return []
     
     output_interval=np.array([i for i in output_interval if i[1]-i[0]>config.postprocess.min_interval_dur])
-    
-    # print(interval_idx)
-    # idxes_e=interval_idx[:,0]
-    # idxes_v=range(len(idxes_e))
-
-    # for idx_e,idx_v in zip(idxes_e,idxes_v):
-    #     if to_be_extended_interval[idx_v,0]-empty_interval[idx_e,0]<1e-6:
-    #         ph_interval[empty_pos[idx_e],0]=to_be_extended_interval[idx_v,1]
-    #         if empty_pos[idx_e]>0:
-    #             ph_interval[empty_pos[idx_e]-1,1]=to_be_extended_interval[idx_v,1]
-    #     elif empty_interval[idx_e,1]-to_be_extended_interval[idx_v,1]<1e-6:
-    #         ph_interval[empty_pos[idx_e],1]=to_be_extended_interval[idx_v,0]
-    #         if empty_pos[idx_e]<len(ph_seq)-1:
-    #             ph_interval[empty_pos[idx_e]+1,0]=to_be_extended_interval[idx_v,0]
 
     return output_interval
 
 
-def decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
-    # 乘上is_phoneme正确分类的概率
-    prob_log[0,:]+=prob_log[0,:]
-    prob_log[1:,:]+=1/prob_log[[0],:]
-
-    # forward
-    dp=np.zeros([len(ph_seq_num),prob_log.shape[-1]])-np.inf
-    #只能从<EMPTY>开始或者从第一个音素开始
-    dp[0,0]=prob_log[ph_seq_num[0],0]
-    if ph_seq_num[0]==0:
-        dp[1,0]=prob_log[ph_seq_num[1],0]
-    backtrack_j=np.zeros_like(dp)-1
-    for i in range(1,dp.shape[-1]):
-        # [j,i-1]->[j,i]
-        prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]
-        # [j-1,i-1]->[j,i]
-        prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]
-        prob2=np.concatenate([np.array([-np.inf]),prob2])
-        # [j-2,i-1]->[j,i]
-        # 不能跳过音素，可以跳过<EMPTY>
-        prob3=dp[:-2,i-1]+prob_log[ph_seq_num[2:],i]+is_edge_prob_log[i]
-        prob3[ph_seq_num[1:-1]!=0]=-np.inf
-        prob3=np.concatenate([np.array([-np.inf,-np.inf]),prob3])
-
-        backtrack_j[:,i]=np.arange(len(prob1))-np.argmax(np.stack([prob1,prob2,prob3],axis=0),axis=0)
-        dp[:,i]=np.max(np.stack([prob1,prob2,prob3],axis=0),axis=0)
-    backtrack_j=backtrack_j.astype(np.int32)
-
-    # backward
-    ph_seq_num_pred=[]
-    ph_time_int=[]
-    frame_confidence=[]
-    #只能从最后一个音素或者<EMPTY>结束
-    if ph_seq_num[-1]==0 and dp[-1,-1]<dp[-2,-1]:
-        # confidence=dp[-2,-1]
-        j=int(len(ph_seq_num)-2)
-    else:
-        # confidence=dp[-1,-1]
-        j=int(len(ph_seq_num)-1)
-    i=int(dp.shape[-1]-1)
-    while j>=0:
-        frame_confidence.append(dp[j,i])
-        if j!=backtrack_j[j][i]:
-            ph_seq_num_pred.append(int(ph_seq_num[j]))
-            ph_time_int.append(i)
-        j=backtrack_j[j][i]
-        i-=1
-    ph_seq_num_pred.reverse()
-    ph_time_int.reverse()
-    frame_confidence.reverse()
-    frame_confidence=np.exp(np.diff(frame_confidence,1))
-
-    return np.array(ph_seq_num_pred),np.array(ph_time_int),np.array(frame_confidence)
-
-def decode_ctc(ctc_pred):
-    ctc_pred=ctc_pred.cpu().numpy()
-    ctc_pred=np.argmax(ctc_pred,axis=0)
-    ctc_seq=[]
-    for idx in range(len(ctc_pred)-1):
-        if ctc_pred[idx]!=ctc_pred[idx+1]:
-            ctc_seq.append(ctc_pred[idx])
-    ctc_ph_seq=[vocab[i] for i in ctc_seq if i != 0]
-
-    return ctc_ph_seq
-
 class Aligner:
     def __init__(self,model) -> None:
         self.model=model
+
+    def decode_ctc(self,ctc_pred):
+        ctc_pred=ctc_pred.cpu().numpy()
+        ctc_pred=np.argmax(ctc_pred,axis=0)
+        ctc_seq=[]
+        for idx in range(len(ctc_pred)-1):
+            if ctc_pred[idx]!=ctc_pred[idx+1]:
+                ctc_seq.append(ctc_pred[idx])
+        ctc_ph_seq=[vocab[i] for i in ctc_seq if i != 0]
+
+        return ctc_ph_seq
+
+    def decode_alignment(self,ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log):
+        # 乘上is_phoneme正确分类的概率
+        prob_log[0,:]+=prob_log[0,:]
+        prob_log[1:,:]+=1/prob_log[[0],:]
+
+        # forward
+        dp=np.zeros([len(ph_seq_num),prob_log.shape[-1]])-np.inf
+        #只能从<EMPTY>开始或者从第一个音素开始
+        dp[0,0]=prob_log[ph_seq_num[0],0]
+        if ph_seq_num[0]==0:
+            dp[1,0]=prob_log[ph_seq_num[1],0]
+        backtrack_j=np.zeros_like(dp)-1
+        for i in range(1,dp.shape[-1]):
+            # [j,i-1]->[j,i]
+            prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]
+            # [j-1,i-1]->[j,i]
+            prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]
+            prob2=np.concatenate([np.array([-np.inf]),prob2])
+            # [j-2,i-1]->[j,i]
+            # 不能跳过音素，可以跳过<EMPTY>
+            prob3=dp[:-2,i-1]+prob_log[ph_seq_num[2:],i]+is_edge_prob_log[i]
+            prob3[ph_seq_num[1:-1]!=0]=-np.inf
+            prob3=np.concatenate([np.array([-np.inf,-np.inf]),prob3])
+
+            backtrack_j[:,i]=np.arange(len(prob1))-np.argmax(np.stack([prob1,prob2,prob3],axis=0),axis=0)
+            dp[:,i]=np.max(np.stack([prob1,prob2,prob3],axis=0),axis=0)
+        backtrack_j=backtrack_j.astype(np.int32)
+
+        # backward
+        ph_seq_num_pred=[]
+        ph_time_int=[]
+        frame_confidence=[]
+        #只能从最后一个音素或者<EMPTY>结束
+        if ph_seq_num[-1]==0 and dp[-1,-1]<dp[-2,-1]:
+            # confidence=dp[-2,-1]
+            j=int(len(ph_seq_num)-2)
+        else:
+            # confidence=dp[-1,-1]
+            j=int(len(ph_seq_num)-1)
+        i=int(dp.shape[-1]-1)
+        while j>=0:
+            frame_confidence.append(dp[j,i])
+            if j!=backtrack_j[j][i]:
+                ph_seq_num_pred.append(int(ph_seq_num[j]))
+                ph_time_int.append(i)
+            j=backtrack_j[j][i]
+            i-=1
+        ph_seq_num_pred.reverse()
+        ph_time_int.reverse()
+        frame_confidence.reverse()
+        frame_confidence=np.exp(np.diff(frame_confidence,1))
+
+        return np.array(ph_seq_num_pred),np.array(ph_time_int),np.array(frame_confidence)
 
     def __call__(self,audio_path,ph_seq,return_confidence=False,return_ctc_pred=False,return_plot=False):
         # extract melspec
@@ -288,7 +301,7 @@ class Aligner:
         ph_seq_num=np.array([vocab[i] for i in ph_seq])
 
         # dynamic programming decoding
-        ph_seq_num_pred,ph_time_pred_int,frame_confidence=decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
+        ph_seq_num_pred,ph_time_pred_int,frame_confidence=self.decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
 
         # calculat time
         ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]*config.inference_edge_weight).clip(-0.5,0.5)
@@ -300,7 +313,7 @@ class Aligner:
         # ctc seq decode
         if return_ctc_pred:
             ctc_pred=torch.nn.functional.softmax(ctc[0],dim=0)
-            ctc_ph_seq=decode_ctc(ctc_pred)
+            ctc_ph_seq=self.decode_ctc(ctc_pred)
 
         ph_seq_pred=np.array([vocab[i] for i in ph_seq_num_pred])
         ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
@@ -316,20 +329,6 @@ class Aligner:
             plot2=utils.plot_spectrogram_and_phonemes(seg_prob,target_gt=edge_pred*vocab['<vocab_size>'])#target_pred=frame_target,
             res.extend([plot1,plot2])
         return tuple(res)
-
-def parse_args():
-    """
-    进行参数的解析
-    """
-    description = "you should add those parameter"
-    parser = argparse.ArgumentParser(description=description)
-
-    parser.add_argument('-m','--model_folder_path', type=str, default='ckpt', help='model folder path. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
-    parser.add_argument('-s','--segments_path', type=str, default='segments', help='segments path. It shoould contain 2 types of file: .wav and .lab')
-    parser.add_argument('-d','--dictionary_path', type=str, default=os.path.join('dictionary','opencpop-extension.txt'), help='dictionary path. It should be a txt file.')
-    parser.add_argument('-p','--phoneme_mode',action='store_true',help='phoneme mode. If this argument is set, the dictionary path will be ignored and the phoneme mode will be used.')
-
-    return parser.parse_args()
 
 def load_model(model_path='ckpt'):
     # input: str:model_path
@@ -391,7 +390,7 @@ def intervals_to_tg(intervals,ph_seq,word_seq,ph_num):
 
     return textgrid
 
-def intervals_to_Tier(intervals,text,ignore_text_list):
+def intervals_to_Tier(intervals,text,ignore_text_list=[]):
     intervals_list=[]
     for i in range(len(text)):
         if i>0 and intervals_list[-1].xmax!=intervals[i,0]:
@@ -403,32 +402,6 @@ def intervals_to_Tier(intervals,text,ignore_text_list):
 
     return tg.Tier(intervals_list)
 
-class DataItemWordLab:
-    def __init__(self,file_path,dictionary:Dictionary) -> None:
-        super().__init__()
-        self.name=os.path.basename(file_path)
-        self.path=file_path
-        self.input_audio,_=torchaudio.load(file_path+'.wav')
-        self.word_seq=self.read_lab(file_path+'.lab')
-        self.input_seq,self.ph_num=self.word_to_ph(self.word_seq,dictionary)
-
-    def read_lab(self,lab_path:str)->list:
-        with open(lab_path,'r') as f:
-            lab_seq=f.readlines()[0].strip().split(' ')
-        return np.array(lab_seq)
-    
-    def word_to_ph(self,word_seq,dictionary:Dictionary):
-        ph_seq=[vocab[0]]
-        ph_num=[]
-        for word in word_seq:
-            ph_seq.extend(dictionary(word))
-            ph_num.append(len(dictionary(word)))
-        ph_seq.append(vocab[0])
-        return np.array(ph_seq),np.array(ph_num)
-
-    def postprocess_tg(self):
-        pass
-
 def get_words_Tier(phones_Tier,word_seq,ph_num):
     phones_Tier=[i for i in phones_Tier if i.text!='']
     words_Tier=[]
@@ -438,6 +411,20 @@ def get_words_Tier(phones_Tier,word_seq,ph_num):
             words_Tier.append(tg.Interval('',words_Tier[-1].xmax,phones_Tier[ph_location[i]].xmin))
         words_Tier.append(tg.Interval(word_seq[i],phones_Tier[ph_location[i]].xmin,phones_Tier[ph_location[i+1]-1].xmax))
     return tg.Tier(words_Tier)
+
+def parse_args():
+    """
+    进行参数的解析
+    """
+    description = "you should add those parameter"
+    parser = argparse.ArgumentParser(description=description)
+
+    parser.add_argument('-m','--model_folder_path', type=str, default='ckpt', help='model folder path. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
+    parser.add_argument('-s','--segments_path', type=str, default='segments', help='segments path. It shoould contain 2 types of file: .wav and .lab')
+    parser.add_argument('-d','--dictionary_path', type=str, default=os.path.join('dictionary','opencpop-extension.txt'), help='dictionary path. It should be a txt file.')
+    parser.add_argument('-p','--phoneme_mode',action='store_true',help='phoneme mode. If this argument is set, the dictionary path will be ignored and the phoneme mode will be used.')
+
+    return parser.parse_args()
 
 if __name__ == '__main__':
     # input: config.yaml, wavs, labs, dictionary, phoneme_mode
@@ -451,6 +438,8 @@ if __name__ == '__main__':
     else:
         dictionary=WordDictionary()
         dictionary.load(args.dictionary_path)
+    
+    aligner=Aligner(model)
 
     for path, subdirs, files in os.walk(args.segments_path):
         if len(subdirs)==0:
@@ -464,7 +453,7 @@ if __name__ == '__main__':
             for file_name in tqdm(file_names):
 
                 item=DataItemWordLab(os.path.join(path,file_name),dictionary)
-                aligner=Aligner(model)
+                
                 phones_Tier=aligner(item.path+'.wav',item.input_seq)[0]
                 words_Tier=get_words_Tier(phones_Tier,item.word_seq,item.ph_num)
                 textgrid=tg.TextGrid()
