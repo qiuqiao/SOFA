@@ -147,18 +147,17 @@ class Aligner:
         return np.array(ph_seq_num_pred),np.array(ph_time_int),np.array(frame_confidence)
 
     def __call__(self,audio,ph_seq,return_confidence=False,return_ctc_pred=False,return_plot=False):
-        # extract melspec
+
         melspec=utils.extract_normed_mel(audio)
         T=melspec.shape[-1]
         melspec=utils.pad_to_divisible_length(melspec,32)
 
-        # forward
         with torch.no_grad():
             h,seg,ctc,edge=self.model(melspec.to(config.device))
-            seg,ctc,edge=seg[:,:,:T],ctc[:,:,:T],edge[:,:,:T]
+            seg,ctc,edge=seg[0,:,:T],ctc[0,:,:T],edge[0,:,:T]
 
         # postprocess output
-        seg_prob=torch.nn.functional.softmax(seg[0],dim=0)
+        seg_prob=torch.nn.functional.softmax(seg,dim=0)
         seg_prob[0,:]*=config.inference_empty_coefficient
         # seg_prob[0,:]*=torch.tensor(1-get_vowel_frame(audio.squeeze(0).cpu().numpy())).to(config.device)
         seg_prob/=seg_prob.sum(dim=0)
@@ -167,8 +166,8 @@ class Aligner:
 
         seg_prob=seg_prob.cpu().numpy()
 
-        edge=torch.nn.functional.softmax(edge,dim=1)
-        edge_pred=edge[0,0,:].clone().cpu().numpy()
+        edge=torch.nn.functional.softmax(edge,dim=0)
+        edge_pred=edge[0,:].clone().cpu().numpy()
 
         edge_diff=np.concatenate(([0],edge_pred,[1]))
         edge_diff=np.diff(edge_diff,1)
@@ -197,7 +196,7 @@ class Aligner:
 
         # ctc seq decode
         if return_ctc_pred:
-            ctc_pred=torch.nn.functional.softmax(ctc[0],dim=0)
+            ctc_pred=torch.nn.functional.softmax(ctc,dim=0)
             ctc_ph_seq=self.decode_ctc(ctc_pred)
 
         ph_seq_pred=np.array([vocab[i] for i in ph_seq_num_pred])
@@ -237,7 +236,7 @@ class DataItemOfWordLab:
         for word in word_seq:
             ph_seq.extend(dictionary(word))
             ph_num.append(len(dictionary(word)))
-        ph_seq.append(vocab[0])
+            ph_seq.append(vocab[0])
         return np.array(ph_seq),np.array(ph_num)
 
     def align(self,aligner:Aligner,*args, **kwargs):
@@ -365,48 +364,6 @@ def load_model(model_path='ckpt'):
 
     return model
 
-
-def word_seq_to_ph_seq(word_seq,dictionary:Dictionary):
-    ph_seq=[vocab[0]]
-    for word in word_seq:
-        ph_seq.extend(dictionary(word))
-    ph_seq.append(vocab[0])
-    
-    return ph_seq
-
-def read_lab(lab_path):
-    with open(lab_path,'r') as f:
-        lab_seq=f.readlines()[0].strip().split(' ')
-    return lab_seq
-
-def intervals_to_tg(intervals,ph_seq,word_seq,ph_num):
-    # ap_interval=detect_AP(os.path.join(path,file_name+'.wav'),ph_seq,intervals)
-    # 去除<EMPTY>及其对应的ph_dur、ph_time
-    indexes_to_remove = np.where(ph_seq==vocab[0])
-    ph_seq = np.delete(ph_seq, indexes_to_remove)
-    intervals = np.delete(intervals, indexes_to_remove,axis=0)
-
-    # convert to textgrid
-    textgrid=tg.TextGrid()
-    words=[]
-    phones=[]
-    ph_location=np.cumsum([0,*ph_num])
-    for i in range(len(ph_seq)):
-        if i>0 and phones[-1].xmax!=intervals[i,0]:
-            phones.append(tg.Interval('',phones[-1].xmax,intervals[i,0])) 
-        if intervals[i,0]>intervals[i,1]:
-            print(intervals[i,0],intervals[i,1],i,ph_seq)
-        phones.append(tg.Interval(ph_seq[i],intervals[i,0],intervals[i,1]))
-    for i in range(len(ph_location)-1):
-        if i>0 and words[-1].xmax!=intervals[ph_location[i],0]:
-            words.append(tg.Interval('',words[-1].xmax,intervals[ph_location[i],0]))
-        words.append(tg.Interval(word_seq[i],intervals[ph_location[i],0],intervals[ph_location[i+1]-1,1]))
-
-    textgrid['words']=tg.Tier(words)
-    textgrid['phones']=tg.Tier(phones)
-
-    return textgrid
-
 def intervals_to_Tier(intervals,text,ignore_text_list=[]):
     intervals_list=[]
     for i in range(len(text)):
@@ -461,8 +418,5 @@ if __name__ == '__main__':
 
                 item=DataItemOfWordLab(os.path.join(path,file_name),dictionary)
                 item.align(aligner)
-                
-                # phones_tg=item.aligned_tg
-                # textgrid=add_words_Tier(phones_tg,item.word_seq,item.ph_num)
 
                 item.aligned_tg.write(os.path.join(path,file_name+'.TextGrid'))
