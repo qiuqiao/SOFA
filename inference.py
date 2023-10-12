@@ -51,12 +51,17 @@ class DataItem(metaclass=ABCMeta):
 
     def align(self,aligner,*args, **kwargs):
         # aligner:Aligner
-        self.aligned_tg,align_information=aligner(self.input_audio,self.input_seq,*args, **kwargs)
+        aligned_res,align_information=aligner(self.input_audio,self.input_seq,*args, **kwargs)
+        if self.aligned_tg is not None:
+            self.aligned_tg=aligned_res
+        else:
+            self.aligned_tg['phones']=aligned_res['phones']
         self.postprocess_align()
         return align_information
 
+    @abstractmethod
     def postprocess_align(self):
-        self.aligned_tg=self.add_words_tier(self.aligned_tg,self.word_seq,self.ph_num)
+        pass
 
     def postprocess_tg(self,tg_processor,*args,**kwargs):
         # tg_processor:TextGridProcessor
@@ -110,13 +115,12 @@ class AddAspiration(TextGridProcessor):
         tier_of_empty=tg.Tier([i for i in data_item.aligned_tg['phones'] if i.text==''])
         intersection_tier=self.tier_intersection(tier_of_ap,tier_of_empty)
         intersection_tier=tg.Tier([i for i in intersection_tier if i.xmax-i.xmin>config.postprocess.min_interval_dur])
-        data_item.aligned_tg['phones']=[i for i in data_item.aligned_tg['phones'] if i.text !='']
         data_item.aligned_tg['words']=[i for i in data_item.aligned_tg['words'] if i.text !='']
-        data_item.aligned_tg['phones']=self.add_intervals(data_item.aligned_tg['phones'],intersection_tier)
+        data_item.aligned_tg['phones']=[i for i in data_item.aligned_tg['phones'] if i.text !='']
         data_item.aligned_tg['words']=self.add_intervals(data_item.aligned_tg['words'],intersection_tier)
-
-        data_item.aligned_tg['phones']=fill_in_empty_of_tier(data_item.aligned_tg['phones'],length=data_item.input_audio.shape[-1]/config.sample_rate)
-        data_item.aligned_tg['words']=fill_in_empty_of_tier(data_item.aligned_tg['words'],length=data_item.input_audio.shape[-1]/config.sample_rate)
+        data_item.aligned_tg['phones']=self.add_intervals(data_item.aligned_tg['phones'],intersection_tier)
+        data_item.aligned_tg['words']=fill_in_empty_of_tier(data_item.aligned_tg['words'],length=data_item.input_audio.shape[-1]/config.sample_rate,text='SP')
+        data_item.aligned_tg['phones']=fill_in_empty_of_tier(data_item.aligned_tg['phones'],length=data_item.input_audio.shape[-1]/config.sample_rate,text='SP')
 
         return data_item.aligned_tg
 
@@ -187,9 +191,10 @@ class Aligner:
         backtrack_j=np.zeros_like(dp)-1
         for i in range(1,dp.shape[-1]):
             # [j,i-1]->[j,i]
-            prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]
+            prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]-config.infer.empty_number_punish*(ph_seq_num[:]==0)
             # [j-1,i-1]->[j,i]
             prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]
+            prob2+=-config.infer.empty_number_punish*(ph_seq_num[1:]==0)
             prob2=np.concatenate([np.array([-np.inf]),prob2])
             # [j-2,i-1]->[j,i]
             # 不能跳过音素，可以跳过<EMPTY>
@@ -239,7 +244,7 @@ class Aligner:
 
         # postprocess output
         seg_prob=torch.nn.functional.softmax(seg,dim=0)
-        seg_prob[0,:]*=config.inference_empty_coefficient
+        # seg_prob[0,:]*=config.inference_empty_coefficient
         # seg_prob[0,:]*=torch.tensor(1-get_vowel_frame(audio.squeeze(0).cpu().numpy())).to(config.device)
         seg_prob/=seg_prob.sum(dim=0)
 
@@ -284,7 +289,7 @@ class Aligner:
         ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
         phones_tier=intervals_to_tier(ph_interval_pred,ph_seq_pred,ignore_text_list=[vocab[0]])
         phones_tier=fill_in_empty_of_tier(phones_tier,T)
-
+        
         aligned_tg=tg.TextGrid()
         aligned_tg['phones']=phones_tier
         align_information={}
@@ -306,6 +311,9 @@ class DataItemOfWordLab(DataItem):
         self.input_audio=utils.load_resampled_audio(file_path+'.wav')
         self.word_seq=self.read_lab(file_path+'.lab')
         self.input_seq,self.ph_num=self.word_to_ph(self.word_seq,dictionary)
+        self.aligned_tg=tg.TextGrid({})
+        self.aligned_tg['words']=tg.Tier([])
+        self.aligned_tg['phones']=tg.Tier([])
 
     def read_lab(self,lab_path:str)->list:
         with open(lab_path,'r') as f:
@@ -329,8 +337,13 @@ class DataItemOfWordLab(DataItem):
             if i>0 and words_tier[-1].xmax!=phones_tier[ph_location[i]].xmin:
                 words_tier.append(tg.Interval('',words_tier[-1].xmax,phones_tier[ph_location[i]].xmin))
             words_tier.append(tg.Interval(word_seq[i],phones_tier[ph_location[i]].xmin,phones_tier[ph_location[i+1]-1].xmax))
+        # print(phones_tg)
         phones_tg['words']=tg.Tier(words_tier)
         return phones_tg
+    
+    def postprocess_align(self):
+        self.aligned_tg=self.add_words_tier(self.aligned_tg,self.word_seq,self.ph_num)
+        self.aligned_tg.move_to_end('phones')
 
 def get_ap_interval(audio):
     audio=audio.cpu().numpy()
@@ -448,17 +461,20 @@ def intervals_to_tier(intervals,text,ignore_text_list=[]):
 
     return tg.Tier(intervals_list)
 
-def fill_in_empty_of_tier(tier,length):
+def fill_in_empty_of_tier(tier,length,text=''):
     res=[]
     if tier[0].xmin>0:
-        res.append(tg.Interval('',0,tier[0].xmin))
+        res.append(tg.Interval(text,0,tier[0].xmin))
 
     for idx,item in enumerate(tier):
-        res.append(item)
+        if item.text==text:
+            res.append(tg.Interval(text,item.xmin,item.xmax))
+        else:
+            res.append(item)
         if idx<len(tier)-1 and item.xmax<tier[idx+1].xmin:
-            res.append(tg.Interval('',item.xmax,tier[idx+1].xmin))
+            res.append(tg.Interval(text,item.xmax,tier[idx+1].xmin))
     if tier[-1].xmax<length:
-        res.append(tg.Interval('',tier[-1].xmax,length))
+        res.append(tg.Interval(text,tier[-1].xmax,length))
     return tg.Tier(res)
 
 def parse_args():
