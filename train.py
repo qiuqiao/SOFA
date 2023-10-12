@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
 from utils import GaussianRampUpScheduler
 from tqdm import tqdm, trange
-from inference import infer_once
+from infer import Aligner
 import random
 import torch
 import numpy as np
@@ -90,7 +90,6 @@ if __name__ == '__main__':
     writer = SummaryWriter()
     print('start training')
     for step in range(config.max_steps):
-        model.train()
         optimizer.zero_grad()
 
         # full supervised
@@ -237,11 +236,13 @@ if __name__ == '__main__':
                     ctc_losses.append(0.01*CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths).cpu().item())
             ctc_loss_total=np.array(ctc_losses).mean()
             writer.add_scalar('Loss/valid/ctc', ctc_loss_total, step)
+            model.train()
         
         if step%config.test_interval==0:
             # pass
             print('testing...')
             model.eval()
+            aligner=Aligner(model)
             id=1
 
             for path, subdirs, files in os.walk(os.path.join('data','test')):
@@ -256,21 +257,17 @@ if __name__ == '__main__':
                             new_lst = [vocab[0]] * (len(ph_seq_input) * 2 +1)  # 创建一个新列表，长度是原列表的2倍减1。
                             new_lst[1::2] = ph_seq_input  # 将原列表的元素插入到新列表的偶数位置。
                             ph_seq_input=new_lst
-                            ph_seq_pred,ph_dur_pred,ph_confidence,ctc_ph_seq,plot1,plot2=infer_once(
-                                trans.loc[idx,'path'],
-                                ph_seq_input,
-                                model,
-                                return_confidence=True,
-                                return_ctc_pred=True,
-                                return_plot=True)
+                            audio=utils.load_resampled_audio(trans.loc[idx,'path'])
+                            tg,others=aligner(audio,ph_seq_input,True,True,True)
                             
-                            writer.add_figure(f'{id}/melseg', plot1, step)
-                            writer.add_figure(f'{id}/probvec', plot2, step)
-                            writer.add_text(f'{id}/ctc_ph_seq', ' '.join(ctc_ph_seq), step)
+                            writer.add_figure(f'{id}/melseg', others['plot'][0], step)
+                            writer.add_figure(f'{id}/probvec', others['plot'][1], step)
+                            writer.add_text(f'{id}/ctc_ph_seq', ' '.join(others['ctc_ph_seq']), step)
                             id+=1
 
-                            ph_confidence_total.append(ph_confidence)
+                            ph_confidence_total.append(others['confidence'])
                         writer.add_scalar('Accuracy/test/confidence', np.mean(ph_confidence_total), step)
+            model.train()
                         
         
         if step%config.save_ckpt_interval==0 and step >= config.save_ckpt_start:
