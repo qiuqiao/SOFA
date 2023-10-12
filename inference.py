@@ -13,6 +13,7 @@ import argparse
 import textgrids as tg
 import librosa
 from abc import ABCMeta, abstractmethod
+import pandas as pd
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
@@ -38,6 +39,86 @@ class Dictionary(metaclass=ABCMeta):
     @abstractmethod
     def __contains__(self, item)->bool:
         pass
+
+class DataItem(metaclass=ABCMeta):
+    @abstractmethod
+    def __init__(self, *args, **kwargs) -> None:
+        self.name:str
+        self.path:str
+        self.input_audio:torch.Tensor
+        self.input_seq:np.ndarray
+        self.aligned_tg=None
+
+    def align(self,aligner,*args, **kwargs):
+        # aligner:Aligner
+        self.aligned_tg,align_information=aligner(self.input_audio,self.input_seq,*args, **kwargs)
+        self.postprocess_align()
+        return align_information
+
+    def postprocess_align(self):
+        self.aligned_tg=self.add_words_tier(self.aligned_tg,self.word_seq,self.ph_num)
+
+    def postprocess_tg(self,tg_processor,*args,**kwargs):
+        # tg_processor:TextGridProcessor
+        self.aligned_tg=tg_processor(self,*args,**kwargs)
+
+    def get_align_result(self)->tg.TextGrid:
+        if self.aligned_tg is None:
+            raise Exception('You should align first!')
+        else:
+            return self.aligned_tg
+
+    def save_align_result(self,folder:str):
+        if self.aligned_tg is None:
+            raise Exception('You should align first!')
+        else:
+            if not os.path.exists(folder):
+                os.mkdir(folder)
+            self.aligned_tg.write(os.path.join(folder,self.name+'.TextGrid'))
+
+class TextGridProcessor(metaclass=ABCMeta):
+    def __init__(self) -> None:
+        pass
+    
+    @abstractmethod
+    def __call__(self,data_item:DataItem, *args: Any, **kwargs: Any) -> Any:
+        pass
+
+class AddAspiration(TextGridProcessor):
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def get_ap_from_audio(self,audio:torch.Tensor):
+        ap_interval=get_ap_interval(audio)
+        ap_tier=intervals_to_tier(ap_interval,['AP'])
+        return ap_tier
+    def tier_intersection(self,tier1,tier2,text='AP'):
+        intersection_tier=[]
+        for i in tier1:
+            for j in tier2:
+                if i.xmax>j.xmin and i.xmin<j.xmax:
+                    intersection_tier.append(tg.Interval(text=text,xmin=max(i.xmin,j.xmin),xmax=min(i.xmax,j.xmax)))
+        return tg.Tier(intersection_tier)
+    
+    def add_intervals(self,tier,interval):
+        tier.extend(interval)
+        tier=sorted(tier,key=lambda x:x.xmin)
+        return tier
+
+    def __call__(self,data_item:DataItem, *args: Any, **kwargs: Any) -> Any:
+        tier_of_ap=self.get_ap_from_audio(data_item.input_audio)
+        tier_of_empty=tg.Tier([i for i in data_item.aligned_tg['phones'] if i.text==''])
+        intersection_tier=self.tier_intersection(tier_of_ap,tier_of_empty)
+        intersection_tier=tg.Tier([i for i in intersection_tier if i.xmax-i.xmin>config.postprocess.min_interval_dur])
+        data_item.aligned_tg['phones']=[i for i in data_item.aligned_tg['phones'] if i.text !='']
+        data_item.aligned_tg['words']=[i for i in data_item.aligned_tg['words'] if i.text !='']
+        data_item.aligned_tg['phones']=self.add_intervals(data_item.aligned_tg['phones'],intersection_tier)
+        data_item.aligned_tg['words']=self.add_intervals(data_item.aligned_tg['words'],intersection_tier)
+
+        data_item.aligned_tg['phones']=fill_in_empty_of_tier(data_item.aligned_tg['phones'],length=data_item.input_audio.shape[-1]/config.sample_rate)
+        data_item.aligned_tg['words']=fill_in_empty_of_tier(data_item.aligned_tg['words'],length=data_item.input_audio.shape[-1]/config.sample_rate)
+
+        return data_item.aligned_tg
 
 
 class WordDictionary(Dictionary):
@@ -201,10 +282,11 @@ class Aligner:
 
         ph_seq_pred=np.array([vocab[i] for i in ph_seq_num_pred])
         ph_interval_pred=np.stack([ph_time_pred[:-1],ph_time_pred[1:]],axis=1)
-        phones_Tier=intervals_to_Tier(ph_interval_pred,ph_seq_pred,ignore_text_list=[vocab[0]])
+        phones_tier=intervals_to_tier(ph_interval_pred,ph_seq_pred,ignore_text_list=[vocab[0]])
+        phones_tier=fill_in_empty_of_tier(phones_tier,T)
 
         aligned_tg=tg.TextGrid()
-        aligned_tg['phones']=phones_Tier
+        aligned_tg['phones']=phones_tier
         align_information={}
         if return_confidence:
             align_information['confidence']=frame_confidence.mean()
@@ -216,7 +298,7 @@ class Aligner:
             align_information['plot']=[plot1,plot2]
         return aligned_tg,align_information
 
-class DataItemOfWordLab:
+class DataItemOfWordLab(DataItem):
     def __init__(self,file_path,dictionary:Dictionary) -> None:
         super().__init__()
         self.name=os.path.basename(file_path)
@@ -239,28 +321,21 @@ class DataItemOfWordLab:
             ph_seq.append(vocab[0])
         return np.array(ph_seq),np.array(ph_num)
 
-    def align(self,aligner:Aligner,*args, **kwargs):
-        self.aligned_tg,align_information=aligner(self.input_audio,self.input_seq,*args, **kwargs)
-        self.postprocess_align()
-        return align_information
-
-    def postprocess_align(self):
-        self.aligned_tg=self.add_words_Tier(self.aligned_tg,self.word_seq,self.ph_num)
-
-    def add_words_Tier(self,phones_tg,word_seq,ph_num):
-        phones_Tier=[i for i in phones_tg['phones'] if i.text!='']
-        words_Tier=[]
+    def add_words_tier(self,phones_tg,word_seq,ph_num):
+        phones_tier=[i for i in phones_tg['phones'] if i.text!='']
+        words_tier=[]
         ph_location=np.cumsum([0,*ph_num])
         for i in range(len(ph_location)-1):
-            if i>0 and words_Tier[-1].xmax!=phones_Tier[ph_location[i]].xmin:
-                words_Tier.append(tg.Interval('',words_Tier[-1].xmax,phones_Tier[ph_location[i]].xmin))
-            words_Tier.append(tg.Interval(word_seq[i],phones_Tier[ph_location[i]].xmin,phones_Tier[ph_location[i+1]-1].xmax))
-        phones_tg['words']=tg.Tier(words_Tier)
+            if i>0 and words_tier[-1].xmax!=phones_tier[ph_location[i]].xmin:
+                words_tier.append(tg.Interval('',words_tier[-1].xmax,phones_tier[ph_location[i]].xmin))
+            words_tier.append(tg.Interval(word_seq[i],phones_tier[ph_location[i]].xmin,phones_tier[ph_location[i+1]-1].xmax))
+        phones_tg['words']=tg.Tier(words_tier)
         return phones_tg
 
-def get_ap_interval(audio_path):
-    audio=utils.load_resampled_audio(audio_path)
-    audio=audio.squeeze(0).cpu().numpy()
+def get_ap_interval(audio):
+    audio=audio.cpu().numpy()
+    if len(audio.shape)>1:
+        audio=audio[0]
 
     spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=config.sample_rate, n_fft=2048, hop_length=config.hop_length).squeeze(0)
     not_LFNoise=spectral_centroid>config.postprocess.br_centroid
@@ -282,11 +357,8 @@ def get_ap_interval(audio_path):
         if is_interval_edge==1:
             left_idx=idx
         elif is_interval_edge==-1:
-            if (idx-left_idx)*(config.hop_length/config.sample_rate)<config.postprocess.min_interval_dur:
-                left_idx=-1
-            else:
-                if left_idx>=0:
-                    ap_interval.append([left_idx,idx])
+            if left_idx>=0 and (idx-left_idx)*(config.hop_length/config.sample_rate)>config.postprocess.min_interval_dur:
+                ap_interval.append([left_idx,idx])
     ap_interval=np.array(ap_interval)
 
     return ap_interval*config.hop_length/config.sample_rate
@@ -364,17 +436,30 @@ def load_model(model_path='ckpt'):
 
     return model
 
-def intervals_to_Tier(intervals,text,ignore_text_list=[]):
+def intervals_to_tier(intervals,text,ignore_text_list=[]):
+    if len(text)==1:
+        text=[*text]*len(intervals)
     intervals_list=[]
     for i in range(len(text)):
-        if i>0 and intervals_list[-1].xmax!=intervals[i,0]:
-            intervals_list.append(tg.Interval('',intervals_list[-1].xmax,intervals[i,0])) 
         if text[i] in ignore_text_list:
-            intervals_list.append(tg.Interval('',intervals[i,0],intervals[i,1]))
+            continue
         else:
             intervals_list.append(tg.Interval(text[i],intervals[i,0],intervals[i,1]))
 
     return tg.Tier(intervals_list)
+
+def fill_in_empty_of_tier(tier,length):
+    res=[]
+    if tier[0].xmin>0:
+        res.append(tg.Interval('',0,tier[0].xmin))
+
+    for idx,item in enumerate(tier):
+        res.append(item)
+        if idx<len(tier)-1 and item.xmax<tier[idx+1].xmin:
+            res.append(tg.Interval('',item.xmax,tier[idx+1].xmin))
+    if tier[-1].xmax<length:
+        res.append(tg.Interval('',tier[-1].xmax,length))
+    return tg.Tier(res)
 
 def parse_args():
     """
@@ -404,6 +489,7 @@ if __name__ == '__main__':
         dictionary.load(args.dictionary_path)
     
     aligner=Aligner(model)
+    ap_adder=AddAspiration()
 
     for path, subdirs, files in os.walk(args.segments_path):
         if len(subdirs)==0:
@@ -418,5 +504,6 @@ if __name__ == '__main__':
 
                 item=DataItemOfWordLab(os.path.join(path,file_name),dictionary)
                 item.align(aligner)
+                item.postprocess_tg(ap_adder)
 
                 item.aligned_tg.write(os.path.join(path,file_name+'.TextGrid'))
