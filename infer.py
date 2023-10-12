@@ -441,7 +441,8 @@ def load_model(model_path='ckpt'):
     if len(pth_list)==0:
         raise Exception('No .pth file in model folder!')
     elif len(pth_list)>1:
-        raise Exception('More than one .pth file in model folder!')
+        pth_name=sorted(pth_list,key=lambda x:os.path.getmtime(os.path.join(model_path,x)),reverse=True)[0]
+        print(f'More than one .pth file in model folder. choosed latest.')
     else:
         pth_name=pth_list[0]
     print(f'loading {pth_name}...')
@@ -484,7 +485,7 @@ def parse_args():
     description = "you should add those parameter"
     parser = argparse.ArgumentParser(description=description)
 
-    parser.add_argument('-m','--model_folder_path', type=str, default='ckpt', help='model folder path. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
+    parser.add_argument('-m','--model_folder_path', type=str, default=os.path.join('ckpt',config.train.model_name), help='model folder path. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
     parser.add_argument('-s','--segments_path', type=str, default='segments', help='segments path. It shoould contain 2 types of file: .wav and .lab')
     parser.add_argument('-d','--dictionary_path', type=str, default=os.path.join('dictionary','opencpop-extension.txt'), help='dictionary path. It should be a txt file.')
     parser.add_argument('-p','--phoneme_mode',action='store_true',help='phoneme mode. If this argument is set, the dictionary path will be ignored and the phoneme mode will be used.')

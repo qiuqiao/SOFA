@@ -85,7 +85,6 @@ if __name__ == '__main__':
 
 
     # start training
-    model_name='model'
     progress_bar = tqdm(total=config.max_steps, ncols=80, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
     writer = SummaryWriter()
     print('start training')
@@ -271,7 +270,9 @@ if __name__ == '__main__':
                         
         
         if step%config.save_ckpt_interval==0 and step >= config.save_ckpt_start:
-            torch.save(model.state_dict(), f'ckpt/{model_name}_{step}.pth')
-            print(f'saved model at {step} steps, path: ckpt/{model_name}_{step}.pth')
+            if not os.path.exists(os.path.join('ckpt',config.train.model_name)):
+                os.makedirs(os.path.join('ckpt',config.train.model_name))
+            torch.save(model.state_dict(), os.path.join('ckpt',config.train.model_name,f'{step}.pth'))
+            print(f'saved model at {step} steps, path: ckpt/{config.train.model_name}/{step}.pth')
 
     progress_bar.close()

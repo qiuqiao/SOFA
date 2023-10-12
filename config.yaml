@@ -1,5 +1,3 @@
-vowel_db: 45
-min_vowel_interval_dur: 0.1
 infer:
   br_db: 35
   br_centroid: 2000.
@@ -8,6 +6,10 @@ infer:
   empty_number_punish: 1
   empty_duration_punish: 0.5
   edge_weight: 2
+train:
+  model_name: model
+vowel_db: 45
+min_vowel_interval_dur: 0.1
 melspec_maxlength: 3000
 inference_empty_coefficient: 0.3
 model_name: model
