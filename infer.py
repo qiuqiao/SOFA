@@ -114,7 +114,7 @@ class AddAspiration(TextGridProcessor):
         tier_of_ap=self.get_ap_from_audio(data_item.input_audio)
         tier_of_empty=tg.Tier([i for i in data_item.aligned_tg['phones'] if i.text==''])
         intersection_tier=self.tier_intersection(tier_of_ap,tier_of_empty)
-        intersection_tier=tg.Tier([i for i in intersection_tier if i.xmax-i.xmin>config.postprocess.min_interval_dur])
+        intersection_tier=tg.Tier([i for i in intersection_tier if i.xmax-i.xmin>config.infer.min_ap_interval_dur])
         data_item.aligned_tg['words']=[i for i in data_item.aligned_tg['words'] if i.text !='']
         data_item.aligned_tg['phones']=[i for i in data_item.aligned_tg['phones'] if i.text !='']
         data_item.aligned_tg['words']=self.add_intervals(data_item.aligned_tg['words'],intersection_tier)
@@ -261,7 +261,7 @@ class Aligner:
 
         is_edge_prob=edge_pred
         is_edge_prob[1:]+=is_edge_prob[:-1]
-        is_edge_prob=(is_edge_prob/2)**config.inference_edge_weight
+        is_edge_prob=(is_edge_prob/2)**config.infer.edge_weight
 
         is_edge_prob_log=np.log(is_edge_prob.clip(1e-10,1-1e-10))
 
@@ -274,7 +274,7 @@ class Aligner:
         ph_seq_num_pred,ph_time_pred_int,frame_confidence=self.decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
 
         # calculat time
-        ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]*config.inference_edge_weight).clip(-0.5,0.5)
+        ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]*config.infer.edge_weight).clip(-0.5,0.5)
         ph_time_pred=np.concatenate((ph_time_pred,[T+1]))*(config.hop_length/config.sample_rate)
         ph_time_pred[0]=0
 
@@ -351,15 +351,15 @@ def get_ap_interval(audio):
         audio=audio[0]
 
     spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=config.sample_rate, n_fft=2048, hop_length=config.hop_length).squeeze(0)
-    not_LFNoise=spectral_centroid>config.postprocess.br_centroid
+    not_LFNoise=spectral_centroid>config.infer.br_centroid
 
     rms_db=20*np.log10(librosa.feature.rms(y=audio,hop_length=config.hop_length)[0]/2e-5)
-    not_space=rms_db>config.postprocess.br_db
+    not_space=rms_db>config.infer.br_db
 
     chromagram = librosa.feature.chroma_stft(y=audio, sr=config.sample_rate, hop_length=config.hop_length)
     chromagram=chromagram/np.sum(chromagram,axis=0)
     chromagram_entropy=-np.sum(chromagram*np.log(chromagram),axis=0)
-    not_vowel=chromagram_entropy>config.postprocess.chromagram_entropy_thresh
+    not_vowel=chromagram_entropy>config.infer.chromagram_entropy_thresh
 
 
     is_ap=1*not_LFNoise*not_vowel*not_space
@@ -370,7 +370,7 @@ def get_ap_interval(audio):
         if is_interval_edge==1:
             left_idx=idx
         elif is_interval_edge==-1:
-            if left_idx>=0 and (idx-left_idx)*(config.hop_length/config.sample_rate)>config.postprocess.min_interval_dur:
+            if left_idx>=0 and (idx-left_idx)*(config.hop_length/config.sample_rate)>config.infer.min_ap_interval_dur:
                 ap_interval.append([left_idx,idx])
     ap_interval=np.array(ap_interval)
 
@@ -399,12 +399,12 @@ def interval_intersection(intervals_a=[[1,3],[6,8]],intervals_b=[[2,6]]):
 def get_vowel_frame(audio):
     y=audio
     rms_db=20*np.log10(librosa.feature.rms(y=y,hop_length=config.hop_length)[0]/2e-5)
-    not_space=rms_db>config.postprocess.vowel_db
+    not_space=rms_db>config.infer.vowel_db
 
     chromagram = librosa.feature.chroma_stft(y=y, sr=config.sample_rate, hop_length=config.hop_length)
     chromagram=chromagram/np.sum(chromagram,axis=0)
     chromagram_entropy=-np.sum(chromagram*np.log(chromagram),axis=0)
-    not_ap=chromagram_entropy<config.postprocess.chromagram_entropy_thresh
+    not_ap=chromagram_entropy<config.infer.chromagram_entropy_thresh
 
     is_vowel=1*not_ap*not_space
     is_vowel_diff=np.diff(is_vowel,1)
@@ -413,7 +413,7 @@ def get_vowel_frame(audio):
         if is_interval_edge==1:
             left_idx=idx
         elif is_interval_edge==-1:
-            if (idx-left_idx)*(config.hop_length/config.sample_rate)<config.postprocess.min_interval_dur:
+            if (idx-left_idx)*(config.hop_length/config.sample_rate)<config.infer.min_ap_interval_dur:
                 is_vowel[left_idx+1:idx+1]=0
                 left_idx=-1
 
@@ -426,7 +426,7 @@ def detect_AP(audio_path,ph_seq,ph_interval):
     if len(interval_idx)<1:
         return []
     
-    output_interval=np.array([i for i in output_interval if i[1]-i[0]>config.postprocess.min_interval_dur])
+    output_interval=np.array([i for i in output_interval if i[1]-i[0]>config.infer.min_ap_interval_dur])
 
     return output_interval
 
