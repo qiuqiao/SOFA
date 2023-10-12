@@ -37,58 +37,40 @@ if __name__ == '__main__':
 
     # dataset
     full_train_dataset = FullLabelDataset(name='train')
-    full_train_dataloader = DataLoader(dataset=full_train_dataset, batch_size=config.batch_size_sup, shuffle=True, collate_fn=collate_fn)
+    full_train_dataloader = DataLoader(dataset=full_train_dataset, batch_size=config.train.batch_size_sup, shuffle=True, collate_fn=collate_fn)
     full_train_dataiter = iter(full_train_dataloader)
 
     full_valid_dataset = FullLabelDataset(name='valid')
-    full_valid_dataloader = DataLoader(dataset=full_valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=collate_fn,drop_last=True)
+    full_valid_dataloader = DataLoader(dataset=full_valid_dataset, batch_size=config.train.batch_size_sup, shuffle=False,collate_fn=collate_fn,drop_last=True)
 
     weak_train_dataset = WeakLabelDataset(name='train')
-    weak_train_dataloader = DataLoader(dataset=weak_train_dataset, batch_size=config.batch_size_sup, shuffle=True, collate_fn=weak_label_collate_fn)
+    weak_train_dataloader = DataLoader(dataset=weak_train_dataset, batch_size=config.train.batch_size_wsp, shuffle=True, collate_fn=weak_label_collate_fn)
     weak_train_dataiter = iter(weak_train_dataloader)
 
     weak_valid_dataset = WeakLabelDataset(name='valid')
-    weak_valid_dataloader = DataLoader(dataset=weak_valid_dataset, batch_size=config.batch_size_sup, shuffle=False,collate_fn=weak_label_collate_fn,drop_last=True)
+    weak_valid_dataloader = DataLoader(dataset=weak_valid_dataset, batch_size=config.train.batch_size_wsp, shuffle=False,collate_fn=weak_label_collate_fn,drop_last=True)
 
-    # usp_dataset = NoLabelDataset(name='train')
-    # usp_dataloader = DataLoader(dataset=usp_dataset, batch_size=config.batch_size_usp, shuffle=True,collate_fn=collate_fn)
-    # usp_dataiter = iter(usp_dataloader)
-
-    # model
-    # model=FullModel().to(config.device)
+    # 这里要加一个使用预训练模型的功能
     model=FullModel().to(config.device)
-    # model_path='ckpt'
-    # pth_list=os.listdir(model_path)
-    # pth_list=[i for i in pth_list if i.endswith('.pth')]
-    # if len(pth_list)==0:
-    #     raise Exception('No .pth file in model folder!')
-    # elif len(pth_list)>1:
-    #     raise Exception('More than one .pth file in model folder!')
-    # else:
-    #     pth_name=pth_list[0]
-    # print(f'loading {pth_name}...')
-    # model.load_state_dict(torch.load(os.path.join(model_path,pth_name)))
 
     # loss function
-    seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.label_smoothing)
+    seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.train.label_smoothing)
     edge_GHM_loss_fn=utils.GHMLoss(2,num_prob_bins=5,alpha=0.999999,label_smoothing=0.0,enable_prob_input=True)
     EMD_loss_fn=utils.BinaryEMDLoss()
-    # CE_loss_fn=nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
-    # BCE_loss_fn=nn.BCELoss()
     MSE_loss_fn=nn.MSELoss()
     CTC_loss_fn = nn.CTCLoss()
 
     # optimizer and scheduler
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate,weight_decay=config.weight_decay)
-    scheduler = OneCycleLR(optimizer, max_lr=config.learning_rate, total_steps=config.max_steps)
-    wsp_scheduler = GaussianRampUpScheduler(config.max_steps,0,config.max_steps)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.train.learning_rate,weight_decay=config.train.weight_decay)
+    scheduler = OneCycleLR(optimizer, max_lr=config.train.learning_rate, total_steps=config.train.max_steps)
+    wsp_scheduler = GaussianRampUpScheduler(config.train.max_steps,0,config.train.max_steps)
 
 
     # start training
-    progress_bar = tqdm(total=config.max_steps, ncols=80, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
+    progress_bar = tqdm(total=config.train.max_steps, ncols=80, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
     writer = SummaryWriter()
     print('start training')
-    for step in range(config.max_steps):
+    for step in range(config.train.max_steps):
         optimizer.zero_grad()
 
         # full supervised
@@ -145,27 +127,6 @@ if __name__ == '__main__':
         # log
         writer.add_scalar('Loss/train/wsp/ctc', wsp_loss.item(), step) 
 
-        # unsupervised training
-        # try:
-        #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
-        # except StopIteration:
-        #     usp_dataiter = iter(usp_dataloader)
-        #     feature, feature_weak_aug, feature_strong_aug=next(usp_dataiter)
-
-        # feature, feature_weak_aug, feature_strong_aug=feature.to(config.device), feature_weak_aug.to(config.device), feature_strong_aug.to(config.device)
-        # h,seg,ctc,edge=model(feature)
-        # h_weak,seg_weak,ctc_weak,edge_weak=model(feature_weak_aug)
-        # h_strong,seg_strong,ctc_strong,edge_strong=model(feature_strong_aug)
-        # consistence_loss=(
-        #     MSE_loss_fn(seg_weak,seg)+MSE_loss_fn(seg_strong,seg)+MSE_loss_fn(seg_strong,seg_weak)+\
-        #     MSE_loss_fn(edge_weak,edge)+MSE_loss_fn(edge_strong,edge)+MSE_loss_fn(edge_strong,edge_weak)
-        # )
-
-        # writer.add_scalar('Loss/train/consistence', consistence_loss.item(), step)
-
-        # loss+=usp_scheduler()*consistence_loss
-
-
         # sum up losses
         loss=fsp_loss+wsp_scheduler()*wsp_loss
 
@@ -182,7 +143,7 @@ if __name__ == '__main__':
         progress_bar.set_description(f'tr_loss: {loss.item():.3f}')
         progress_bar.update()
 
-        if step%config.val_interval==0:
+        if step%config.train.val_interval==0:
             # pass
             print('validating...')
             model.eval()
@@ -237,7 +198,7 @@ if __name__ == '__main__':
             writer.add_scalar('Loss/valid/ctc', ctc_loss_total, step)
             model.train()
         
-        if step%config.test_interval==0:
+        if step%config.train.test_interval==0:
             # pass
             print('testing...')
             model.eval()
@@ -269,7 +230,7 @@ if __name__ == '__main__':
             model.train()
                         
         
-        if step%config.save_ckpt_interval==0 and step >= config.save_ckpt_start:
+        if step%config.train.save_ckpt_interval==0 and step >= config.train.save_ckpt_start:
             if not os.path.exists(os.path.join('ckpt',config.train.model_name)):
                 os.makedirs(os.path.join('ckpt',config.train.model_name))
             torch.save(model.state_dict(), os.path.join('ckpt',config.train.model_name,f'{step}.pth'))

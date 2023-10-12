@@ -244,8 +244,6 @@ class Aligner:
 
         # postprocess output
         seg_prob=torch.nn.functional.softmax(seg,dim=0)
-        # seg_prob[0,:]*=config.inference_empty_coefficient
-        # seg_prob[0,:]*=torch.tensor(1-get_vowel_frame(audio.squeeze(0).cpu().numpy())).to(config.device)
         seg_prob/=seg_prob.sum(dim=0)
 
         prob_log=seg_prob.log().cpu().numpy()

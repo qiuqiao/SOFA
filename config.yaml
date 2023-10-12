@@ -1,3 +1,34 @@
+random_seed: 114
+device: cuda
+hidden_dim_scaling: 1
+sample_rate: 48000
+n_fft: 1024
+hop_length: 480
+n_mels: 128
+
+valid_length: 300
+vowel_db: 45
+min_vowel_interval_dur: 0.1
+melspec_maxlength: 3000
+ignore_phonemes:
+  - AP
+  - SP
+  - <AP>
+  - <SP>
+  - ''
+  - pau
+train:
+  model_name: model
+  batch_size_sup: 16
+  batch_size_wsp: 16
+  label_smoothing: 0.08
+  weight_decay: 0.01
+  learning_rate: 0.001
+  max_steps: 10001
+  test_interval: 500
+  save_ckpt_start: 8000
+  save_ckpt_interval: 200
+  val_interval: 100
 infer:
   br_db: 35
   br_centroid: 2000.
@@ -6,36 +37,3 @@ infer:
   empty_number_punish: 1
   empty_duration_punish: 0.5
   edge_weight: 2
-train:
-  model_name: model
-vowel_db: 45
-min_vowel_interval_dur: 0.1
-melspec_maxlength: 3000
-inference_empty_coefficient: 0.3
-model_name: model
-inference_data_path: inference
-random_seed: 114
-valid_length: 300
-label_smoothing: 0.08
-weight_decay: 0.01
-batch_size_sup: 16
-batch_size_usp: 16
-learning_rate: 0.001
-device: cuda
-hidden_dim_scaling: 1
-max_steps: 10001
-val_interval: 100
-test_interval: 500
-save_ckpt_start: 8000
-save_ckpt_interval: 200
-sample_rate: 48000
-n_fft: 1024
-hop_length: 480
-n_mels: 128
-ignore_phonemes:
-  - AP
-  - SP
-  - <AP>
-  - <SP>
-  - ''
-  - pau
