@@ -344,32 +344,29 @@ class DataItemOfWordLab(DataItem):
         self.aligned_tg.move_to_end('phones')
 
 def get_ap_interval(audio):
-    audio=audio.cpu().numpy()
-    if len(audio.shape)>1:
-        audio=audio[0]
 
-    spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=config.sample_rate, n_fft=2048, hop_length=config.hop_length).squeeze(0)
-    not_LFNoise=spectral_centroid>config.infer.br_centroid
+    SPL_db=utils.get_loudness_SPL(audio)
+    not_space=SPL_db>config.infer.br_db
 
-    rms_db=20*np.log10(librosa.feature.rms(y=audio,hop_length=config.hop_length)[0]/2e-5)
-    not_space=rms_db>config.infer.br_db
+    chromagram=utils.get_chroma_spec(audio)
+    chromagram_entropy=-torch.sum(chromagram*torch.log(chromagram),axis=0)
+    not_vowel=chromagram_entropy>config.chromagram_entropy_thresh
 
-    chromagram = librosa.feature.chroma_stft(y=audio, sr=config.sample_rate, hop_length=config.hop_length)
-    chromagram=chromagram/np.sum(chromagram,axis=0)
-    chromagram_entropy=-np.sum(chromagram*np.log(chromagram),axis=0)
-    not_vowel=chromagram_entropy>config.infer.chromagram_entropy_thresh
+    not_noise=utils.spectral_centroid_transform(audio)>config.infer.br_centroid
+    not_noise=not_noise.squeeze(0)
 
+    is_ap=1*not_space*not_vowel*not_noise
 
-    is_ap=1*not_LFNoise*not_vowel*not_space
-    is_ap_diff=np.diff(is_ap,1)
+    min_frame_length=int((config.min_vowel_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
+    is_ap_diff=torch.diff(torch.cat((torch.tensor([0]).to(config.device),is_ap,torch.tensor([0]).to(config.device))))
+    st=torch.where(is_ap_diff>0)
+    ed=torch.where(is_ap_diff<0)
+    lengths=(ed[0]-st[0])
+    long_enough_seq=torch.where(lengths<min_frame_length)
     ap_interval=[]
-    left_idx=-1
-    for idx,is_interval_edge in enumerate(is_ap_diff):
-        if is_interval_edge==1:
-            left_idx=idx
-        elif is_interval_edge==-1:
-            if left_idx>=0 and (idx-left_idx)*(config.hop_length/config.sample_rate)>config.infer.min_ap_interval_dur:
-                ap_interval.append([left_idx,idx])
+    for i in long_enough_seq[0]:
+        ap_interval.append([st[0][i].cpu().numpy(),ed[0][i].cpu().numpy()])
+    
     ap_interval=np.array(ap_interval)
 
     return ap_interval*config.hop_length/config.sample_rate
@@ -393,29 +390,6 @@ def interval_intersection(intervals_a=[[1,3],[6,8]],intervals_b=[[2,6]]):
                 idx_b+=1
     
     return np.array(intersection),np.array(interval_idx)
-
-def get_vowel_frame(audio):
-    y=audio
-    rms_db=20*np.log10(librosa.feature.rms(y=y,hop_length=config.hop_length)[0]/2e-5)
-    not_space=rms_db>config.infer.vowel_db
-
-    chromagram = librosa.feature.chroma_stft(y=y, sr=config.sample_rate, hop_length=config.hop_length)
-    chromagram=chromagram/np.sum(chromagram,axis=0)
-    chromagram_entropy=-np.sum(chromagram*np.log(chromagram),axis=0)
-    not_ap=chromagram_entropy<config.infer.chromagram_entropy_thresh
-
-    is_vowel=1*not_ap*not_space
-    is_vowel_diff=np.diff(is_vowel,1)
-    left_idx=-1
-    for idx,is_interval_edge in enumerate(is_vowel_diff):
-        if is_interval_edge==1:
-            left_idx=idx
-        elif is_interval_edge==-1:
-            if (idx-left_idx)*(config.hop_length/config.sample_rate)<config.infer.min_ap_interval_dur:
-                is_vowel[left_idx+1:idx+1]=0
-                left_idx=-1
-
-    return is_vowel
 
 def detect_AP(audio_path,ph_seq,ph_interval):
     # empty_pos=np.argwhere(ph_seq==vocab[0]).T[0]
