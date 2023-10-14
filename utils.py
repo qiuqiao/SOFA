@@ -34,7 +34,43 @@ extract_mel = T.MelSpectrogram(
     norm="slaney",
     n_mels=config.n_mels,
     mel_scale="htk",
-).float()
+).float().to(config.device)
+
+def get_chroma_vec_from_freq(f,n_mels=12):
+    # 输入频率，输出十二个音调的符合度
+    if f==0:
+        return torch.zeros(n_mels)
+    n = n_mels * torch.log2(torch.tensor(f / 440).abs())%n_mels
+    res=torch.zeros(n_mels)
+    res[n.long()]=1-n%1
+    res[(n.long()+1)%n_mels]=n%1
+    return res
+
+def get_chroma_fbank(sample_rate,n_fft,n_mels=12):
+    freq=torch.linspace(0,sample_rate/2,n_fft//2+1)
+    chroma_fbank=torch.zeros(n_fft//2+1,n_mels)
+    for i in range(n_fft//2+1):
+        chroma_fbank[i]=get_chroma_vec_from_freq(freq[i],n_mels)
+    return chroma_fbank*((sample_rate/2-freq.unsqueeze(1))/(sample_rate/2)+0.1)/1.1
+
+spec_transform=torchaudio.transforms.Spectrogram(n_fft=config.chromagram_n_fft, win_length=None, hop_length=config.hop_length, power=2.0).to(config.device)
+chroma_fbank=get_chroma_fbank(config.sample_rate,config.chromagram_n_fft,24).to(config.device)
+spectral_centroid_transform=torchaudio.transforms.SpectralCentroid(config.sample_rate,config.chromagram_n_fft,win_length=None, hop_length=config.hop_length).to(config.device)
+
+def get_chroma_spec(audio):
+    # 输入音频，输出chroma谱
+    audio=audio
+    spec=spec_transform(audio)[0]
+    chroma_spec=torch.nn.functional.softmax(1+torch.log((spec.T@chroma_fbank).T),dim=0)
+    return chroma_spec
+
+def get_loudness_SPL(audio):
+    weight = torch.hann_window(config.hop_length*2, periodic=False).unsqueeze(0).unsqueeze(0).to(config.device)
+    weight=weight/weight.sum()
+
+    output = torch.nn.functional.conv1d(torch.pow(audio,2), weight,stride=config.hop_length,padding=config.hop_length)
+
+    return 20*torch.log10(torch.sqrt(output[0])/2e-5)
 
 def extract_normed_mel(waveform):
     melspec = extract_mel(waveform.float()).unsqueeze(0)
@@ -238,8 +274,24 @@ def plot_confusion_matrix(confusion_matrix):
     
     return fig
 
+resample=torchaudio.transforms.Resample(config.sample_rate, config.sample_rate).to(config.device)
 def load_resampled_audio(audio_path):
     audio, sample_rate = torchaudio.load(audio_path)
+    audio=audio[0].unsqueeze(0)
+    audio=audio.to(config.device)
     if sample_rate!=config.sample_rate:
-        audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
+        audio=resample(audio)
     return audio
+
+def get_padded_melspec(audio):
+    audio=audio[0].unsqueeze(0)
+    melspec=extract_normed_mel(audio)
+
+    padding_len=32-melspec.shape[-1]%32
+    if padding_len==0:
+        padding_len=32
+    melspec=torch.nn.functional.pad(melspec,(0,padding_len))
+    if len(melspec.shape)>3:
+        melspec=melspec.squeeze(0)
+
+    return melspec

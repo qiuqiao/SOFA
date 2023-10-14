@@ -12,6 +12,7 @@ import os
 from einops import repeat
 from data_augmentation import AudioAugmentation
 import warnings
+import librosa
 
 def dict_to_namespace(d):
     namespace = Namespace()
@@ -44,22 +45,7 @@ def get_data_list(folder):
 
     return data_list
 
-def get_padded_melspec(audio, sample_rate):
-    audio=audio[0].unsqueeze(0)
 
-    if sample_rate!=config.sample_rate:
-        audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate)(audio)
-    melspec=utils.extract_normed_mel(audio)
-
-    padding_len=32-melspec.shape[-1]%32
-    if padding_len==0:
-        padding_len=32
-    melspec=torch.nn.functional.pad(melspec,(0,padding_len))
-    if len(melspec.shape)>3:
-        melspec=melspec.squeeze(0)
-    melspec=melspec.squeeze(0).numpy().astype('float32')
-
-    return melspec
 
 def full_label_binarize(data_list,name='train'):
     idx_data=[]
@@ -69,8 +55,8 @@ def full_label_binarize(data_list,name='train'):
         meta_data={}
         # return: input_feature, seg_target
         # melspec
-        audio, sample_rate = torchaudio.load(data_list.iloc[index]['path'])
-        melspec=get_padded_melspec(audio, sample_rate)
+        audio=utils.load_resampled_audio(data_list.iloc[index]['path'])
+        melspec=utils.get_padded_melspec(audio)
         T=melspec.shape[-1]
 
         if T>config.melspec_maxlength:
@@ -135,58 +121,27 @@ def full_label_binarize(data_list,name='train'):
     idx_data=pd.DataFrame(idx_data)
     idx_data.to_pickle(os.path.join('data','full_label',name+'.idx'))
 
-# no label
-def no_label_binarize(name='train'):
-    file_path_list=[]
-    for path,folders,files in os.walk(os.path.join('data')):
-        for file in files:
-            if file.endswith('.wav'):
-                file_path_list.append(os.path.join(path,file))
+def get_vowel_frame(audio):
 
-    idx_data=[]
-    data_file=open(os.path.join('data','no_label',name+'.data'), 'wb')
-    audio_aug=AudioAugmentation()
+    SPL_db=utils.get_loudness_SPL(audio)
+    not_space=SPL_db>config.vowel_db
 
-    for index,path in enumerate(tqdm(file_path_list)):
-        # return: input_feature, input_feature_weak_aug, input_feature_strong_aug
+    chromagram=utils.get_chroma_spec(audio)
+    chromagram_entropy=-torch.sum(chromagram*torch.log(chromagram),axis=0)
+    not_ap=chromagram_entropy<config.chromagram_entropy_thresh
 
-        meta_data={}
-        
-        audio, sample_rate = torchaudio.load(file_path_list[index])
-        melspec=get_padded_melspec(audio, sample_rate)
+    is_vowel=1*not_space*not_ap
 
-        input_feature=melspec
-        T=melspec.shape[-1]
-        if T>config.melspec_maxlength:
-            warnings.warn(f'Melspec of {data_list.iloc[index]["path"][:-4]} has a length of {T}, which is longer than {config.melspec_maxlength}. Ignored.')
-            continue
+    min_frame_length=int((config.min_vowel_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
+    is_vowel_diff=torch.diff(torch.cat((torch.tensor([0]).to(config.device),is_vowel,torch.tensor([0]).to(config.device))))
+    st=torch.where(is_vowel_diff>0)
+    ed=torch.where(is_vowel_diff<0)
+    lengths=(ed[0]-st[0])
+    too_short_seq=torch.where(lengths<min_frame_length)
+    for i in too_short_seq[0]:
+        is_vowel[st[0][i]:ed[0][i]]=0
 
-        meta_data['input_feature']={}
-        wirte_ndarray_to_bin(data_file,meta_data['input_feature'],input_feature)
-
-
-        audio_weak_aug,audio_strong_aug=audio_aug(audio)
-        melspec_weak_aug=get_padded_melspec(audio_weak_aug, sample_rate)
-
-        input_feature_weak_aug=melspec_weak_aug
-
-        meta_data['input_feature_weak_aug']={}
-        wirte_ndarray_to_bin(data_file,meta_data['input_feature_weak_aug'],input_feature_weak_aug)
-
-
-        melspec_strong_aug=get_padded_melspec(audio_strong_aug, sample_rate)
-
-        input_feature_strong_aug=melspec_strong_aug
-
-        meta_data['input_feature_strong_aug']={}
-        wirte_ndarray_to_bin(data_file,meta_data['input_feature_strong_aug'],input_feature_strong_aug)
-
-        idx_data.append(meta_data)
-
-
-    data_file.close()
-    idx_data=pd.DataFrame(idx_data)
-    idx_data.to_pickle(os.path.join('data','no_label',name+'.idx'))
+    return is_vowel
 
 def weak_label_binarize(data_list,name='train'):
     idx_data=[]
@@ -196,8 +151,9 @@ def weak_label_binarize(data_list,name='train'):
         meta_data={}
         # return: input_feature, ctc_target
         # melspec
-        audio, sample_rate = torchaudio.load(data_list.iloc[index]['path'])
-        melspec=get_padded_melspec(audio, sample_rate)
+        audio=utils.load_resampled_audio(data_list.iloc[index]['path'])
+        melspec=utils.get_padded_melspec(audio)
+        melspec=melspec.squeeze(0).cpu().numpy().astype('float32')
 
         T=melspec.shape[-1]
         if T>config.melspec_maxlength:
@@ -221,6 +177,18 @@ def weak_label_binarize(data_list,name='train'):
         meta_data['ctc_target']={}
         wirte_ndarray_to_bin(data_file,meta_data['ctc_target'],ctc_target)
 
+        # is_vowel_target
+        is_vowel=get_vowel_frame(audio)
+        is_vowel=is_vowel.unsqueeze(0)
+        # padding according to melspec
+        padding_len=melspec.shape[-1]-is_vowel.shape[-1]
+        is_vowel=torch.nn.functional.pad(is_vowel,(0,padding_len))
+        is_vowel_target=is_vowel.cpu().numpy().astype('int32')
+        # print(is_vowel_target.shape,melspec.shape)
+
+        meta_data['is_vowel_target']={}
+        wirte_ndarray_to_bin(data_file,meta_data['is_vowel_target'],is_vowel_target)
+
         idx_data.append(meta_data)
 
     data_file.close()
@@ -228,13 +196,12 @@ def weak_label_binarize(data_list,name='train'):
     idx_data.to_pickle(os.path.join('data','weak_label',name+'.idx'))
 
 if __name__=='__main__':
-    data_list=get_data_list('full_label')
-    valid_list_length=int(config.valid_length)
-    valid_list=data_list.sample(valid_list_length)
-    train_list=data_list.drop(valid_list.index)
-
-    full_label_binarize(valid_list,'valid')
-    full_label_binarize(train_list,'train')
+    # data_list=get_data_list('full_label')
+    # valid_list_length=int(config.valid_length)
+    # valid_list=data_list.sample(valid_list_length)
+    # train_list=data_list.drop(valid_list.index)
+    # full_label_binarize(valid_list,'valid')
+    # full_label_binarize(train_list,'train')
 
     data_list=pd.concat([get_data_list('full_label'),get_data_list('weak_label')])
     data_list.reset_index(drop=True,inplace=True)
@@ -243,5 +210,3 @@ if __name__=='__main__':
     train_list=data_list.drop(valid_list.index)
     weak_label_binarize(valid_list,'valid')
     weak_label_binarize(train_list,'train')
-
-    # no_label_binarize('train')

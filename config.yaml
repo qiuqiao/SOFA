@@ -6,8 +6,12 @@ n_fft: 1024
 hop_length: 480
 n_mels: 128
 
+label_smoothing: 0.08
+
+chromagram_n_fft: 8192
+chromagram_entropy_thresh: 2.5
 valid_length: 300
-vowel_db: 45
+vowel_db: 60
 min_vowel_interval_dur: 0.1
 melspec_maxlength: 3000
 ignore_phonemes:
@@ -21,7 +25,6 @@ train:
   model_name: model
   batch_size_sup: 16
   batch_size_wsp: 16
-  label_smoothing: 0.08
   weight_decay: 0.01
   learning_rate: 0.001
   max_steps: 10001
@@ -30,10 +33,9 @@ train:
   save_ckpt_interval: 200
   val_interval: 100
 infer:
-  br_db: 35
+  br_db: 40
   br_centroid: 2000.
-  chromagram_entropy_thresh: 2
-  min_ap_interval_dur: 0.1
-  empty_number_punish: 1
+  min_ap_interval_dur: 0 #0.1
+  empty_number_punish: 0 #1
   empty_duration_punish: 0.5
   edge_weight: 2

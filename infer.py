@@ -296,7 +296,7 @@ class Aligner:
         if return_ctc_pred:
             align_information['ctc_ph_seq']=ctc_ph_seq
         if return_plot:
-            plot1=utils.plot_spectrogram_and_phonemes(melspec[0],target_gt=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred)
+            plot1=utils.plot_spectrogram_and_phonemes(melspec[0].cpu(),target_gt=frame_confidence*config.n_mels,ph_seq=ph_seq_pred,ph_dur=ph_dur_pred)
             plot2=utils.plot_spectrogram_and_phonemes(seg_prob,target_gt=edge_pred*vocab['<vocab_size>'])#target_pred=frame_target,
             align_information['plot']=[plot1,plot2]
         return aligned_tg,align_information

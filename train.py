@@ -54,7 +54,7 @@ if __name__ == '__main__':
     model=FullModel().to(config.device)
 
     # loss function
-    seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.train.label_smoothing)
+    seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.label_smoothing)
     edge_GHM_loss_fn=utils.GHMLoss(2,num_prob_bins=5,alpha=0.999999,label_smoothing=0.0,enable_prob_input=True)
     EMD_loss_fn=utils.BinaryEMDLoss()
     MSE_loss_fn=nn.MSELoss()
@@ -107,25 +107,31 @@ if __name__ == '__main__':
         # weak supervised
         # get data
         try:
-            input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
+            input_feature,ctc_target,ctc_target_lengths,is_vowel_target=next(weak_train_dataiter)
         except StopIteration:
             weak_train_dataiter = iter(weak_train_dataloader)
-            input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
+            input_feature,ctc_target,ctc_target_lengths,is_vowel_target=next(weak_train_dataiter)
 
         input_feature=torch.tensor(input_feature).to(config.device)
         ctc_target=torch.tensor(ctc_target).to(config.device).long()
         ctc_target_lengths=torch.tensor(ctc_target_lengths).to(config.device).long()
+        is_vowel_target=torch.tensor(is_vowel_target).to(config.device).float()
 
         # forward
         h,seg,ctc,edge=model(input_feature)
 
         # calculate loss
-        ctc=F.log_softmax(ctc,dim=1)
-        ctc=rearrange(ctc,'n c t -> t n c')
-        wsp_loss=CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths)
+        ctc_log_softmax=F.log_softmax(ctc,dim=1)
+        ctc_log_softmax=rearrange(ctc_log_softmax,'n c t -> t n c')
+        ctc_loss=CTC_loss_fn(ctc_log_softmax, ctc_target, torch.tensor(ctc_log_softmax.shape[0]).repeat(ctc_log_softmax.shape[1]), ctc_target_lengths)
+        seg_softmax=F.softmax(seg,dim=1)
+        vowel_loss=torch.pow(is_vowel_target*seg_softmax[:,1:,:].sum(dim=1)-is_vowel_target,2).sum()/is_vowel_target.sum()
+        wsp_loss=ctc_loss+vowel_loss
 
         # log
-        writer.add_scalar('Loss/train/wsp/ctc', wsp_loss.item(), step) 
+        writer.add_scalar('Loss/train/wsp', wsp_loss.item(), step)
+        writer.add_scalar('Loss/train/wsp/ctc', ctc_loss.item(), step)
+        writer.add_scalar('Loss/train/wsp/vowel', vowel_loss.item(), step)
 
         # sum up losses
         loss=fsp_loss+wsp_scheduler()*wsp_loss
@@ -185,7 +191,7 @@ if __name__ == '__main__':
             # forward
             ctc_losses=[]
             with torch.no_grad():
-                for input_feature,ctc_target,ctc_target_lengths in weak_valid_dataloader:
+                for input_feature,ctc_target,ctc_target_lengths,is_vowel_target in weak_valid_dataloader:
                     input_feature=input_feature.to(config.device)
                     ctc_target=ctc_target.to(config.device).long()
                     ctc_target_lengths=ctc_target_lengths.to(config.device).long()
@@ -193,7 +199,7 @@ if __name__ == '__main__':
                     h,seg,ctc,edge=model(input_feature)
                     ctc=F.log_softmax(ctc,dim=1)
                     ctc=rearrange(ctc,'n c t -> t n c')
-                    ctc_losses.append(0.01*CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths).cpu().item())
+                    ctc_losses.append(CTC_loss_fn(ctc, ctc_target, torch.tensor(ctc.shape[0]).repeat(ctc.shape[1]), ctc_target_lengths).cpu().item())
             ctc_loss_total=np.array(ctc_losses).mean()
             writer.add_scalar('Loss/valid/ctc', ctc_loss_total, step)
             model.train()
