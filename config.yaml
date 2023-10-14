@@ -21,21 +21,22 @@ ignore_phonemes:
   - <SP>
   - ''
   - pau
+  - cl
 train:
   model_name: model
-  batch_size_sup: 16
-  batch_size_wsp: 16
+  batch_size_sup: 24
+  batch_size_wsp: 24
   weight_decay: 0.01
-  learning_rate: 0.001
+  learning_rate: 0.0015
   max_steps: 10001
   test_interval: 500
   save_ckpt_start: 8000
   save_ckpt_interval: 200
   val_interval: 100
 infer:
-  br_db: 40
+  br_db: 35
   br_centroid: 2000.
-  min_ap_interval_dur: 0 #0.1
-  empty_number_punish: 0 #1
+  min_ap_interval_dur: 0.1 #0.1
+  empty_number_punish: 0.5 #1
   empty_duration_punish: 0.5
   edge_weight: 2

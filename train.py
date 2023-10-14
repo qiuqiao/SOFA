@@ -124,14 +124,14 @@ if __name__ == '__main__':
         ctc_log_softmax=F.log_softmax(ctc,dim=1)
         ctc_log_softmax=rearrange(ctc_log_softmax,'n c t -> t n c')
         ctc_loss=CTC_loss_fn(ctc_log_softmax, ctc_target, torch.tensor(ctc_log_softmax.shape[0]).repeat(ctc_log_softmax.shape[1]), ctc_target_lengths)
-        seg_softmax=F.softmax(seg,dim=1)
-        vowel_loss=torch.pow(is_vowel_target*seg_softmax[:,1:,:].sum(dim=1)-is_vowel_target,2).sum()/is_vowel_target.sum()
-        wsp_loss=ctc_loss+vowel_loss
+        # seg_softmax=F.softmax(seg,dim=1)
+        # vowel_loss=torch.pow(is_vowel_target*seg_softmax[:,1:,:].sum(dim=1)-is_vowel_target,2).sum()/is_vowel_target.sum()
+        wsp_loss=ctc_loss#+vowel_loss
 
         # log
         writer.add_scalar('Loss/train/wsp', wsp_loss.item(), step)
         writer.add_scalar('Loss/train/wsp/ctc', ctc_loss.item(), step)
-        writer.add_scalar('Loss/train/wsp/vowel', vowel_loss.item(), step)
+        # writer.add_scalar('Loss/train/wsp/vowel', vowel_loss.item(), step)
 
         # sum up losses
         loss=fsp_loss+wsp_scheduler()*wsp_loss

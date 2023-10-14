@@ -57,6 +57,8 @@ def full_label_binarize(data_list,name='train'):
         # melspec
         audio=utils.load_resampled_audio(data_list.iloc[index]['path'])
         melspec=utils.get_padded_melspec(audio)
+        if len(melspec.shape)>2:
+            melspec=melspec.squeeze(0)
         T=melspec.shape[-1]
 
         if T>config.melspec_maxlength:
@@ -64,29 +66,23 @@ def full_label_binarize(data_list,name='train'):
             continue
 
         input_feature=melspec
+        input_feature=input_feature.cpu().numpy().astype('float32')
         assert(len(input_feature.shape)==2)
         
         meta_data['input_feature']={}
         wirte_ndarray_to_bin(data_file,meta_data['input_feature'],input_feature)
 
-        # ctc_target
+        # seg_target
         ph_seq=[i for i in data_list.iloc[index]['ph_seq'].split(' ') if i !='']
         ph_seq_num=[vocab[ph] for ph in ph_seq]
-        # ctc_target=np.array(ph_seq_num)
-        # ctc_target=ctc_target.astype('int32')
 
-        # meta_data['ctc_target']={}
-        # wirte_ndarray_to_bin(data_file,meta_data['ctc_target'],ctc_target)
-
-        # seg_target
         ph_dur=torch.tensor([float(i) for i in data_list.iloc[index]['ph_dur'].split(' ') if i !=''])
-        if (len(ph_dur)!=len(ph_seq_num)):
-            print(data_list.iloc[index]['path'],len(ph_dur),len(ph_seq_num))
         assert(len(ph_dur)==len(ph_seq_num))
         ph_time=ph_dur.cumsum(dim=0)*config.sample_rate/config.hop_length
         ph_time_int=(ph_time).round().int()
         ph_time_diff_with_int=ph_time-ph_time_int
         ph_time_int=torch.cat([torch.tensor([0]),ph_time_int])
+        # ph_time_int[ph_time_int>=T]=T-1
         target=torch.zeros(T)
         for i in range(len(ph_seq_num)):
             target[ph_time_int[i]:ph_time_int[i+1]]=ph_seq_num[i]
@@ -182,7 +178,7 @@ def weak_label_binarize(data_list,name='train'):
         is_vowel=is_vowel.unsqueeze(0)
         # padding according to melspec
         padding_len=melspec.shape[-1]-is_vowel.shape[-1]
-        is_vowel=torch.nn.functional.pad(is_vowel,(0,padding_len))
+        is_vowel=0.9*torch.nn.functional.pad(is_vowel,(0,padding_len))
         is_vowel_target=is_vowel.cpu().numpy().astype('int32')
         # print(is_vowel_target.shape,melspec.shape)
 
@@ -196,12 +192,12 @@ def weak_label_binarize(data_list,name='train'):
     idx_data.to_pickle(os.path.join('data','weak_label',name+'.idx'))
 
 if __name__=='__main__':
-    # data_list=get_data_list('full_label')
-    # valid_list_length=int(config.valid_length)
-    # valid_list=data_list.sample(valid_list_length)
-    # train_list=data_list.drop(valid_list.index)
-    # full_label_binarize(valid_list,'valid')
-    # full_label_binarize(train_list,'train')
+    data_list=get_data_list('full_label')
+    valid_list_length=int(config.valid_length)
+    valid_list=data_list.sample(valid_list_length)
+    train_list=data_list.drop(valid_list.index)
+    full_label_binarize(valid_list,'valid')
+    full_label_binarize(train_list,'train')
 
     data_list=pd.concat([get_data_list('full_label'),get_data_list('weak_label')])
     data_list.reset_index(drop=True,inplace=True)
