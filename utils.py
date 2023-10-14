@@ -274,13 +274,12 @@ def plot_confusion_matrix(confusion_matrix):
     
     return fig
 
-resample=torchaudio.transforms.Resample(config.sample_rate, config.sample_rate).to(config.device)
 def load_resampled_audio(audio_path):
     audio, sample_rate = torchaudio.load(audio_path)
     audio=audio[0].unsqueeze(0)
     audio=audio.to(config.device)
     if sample_rate!=config.sample_rate:
-        audio=resample(audio)
+        audio=torchaudio.transforms.Resample(sample_rate, config.sample_rate).to(config.device)(audio)
     return audio
 
 def get_padded_melspec(audio):
