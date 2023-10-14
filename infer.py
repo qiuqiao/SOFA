@@ -355,20 +355,19 @@ def get_ap_interval(audio):
     not_noise=utils.spectral_centroid_transform(audio)>config.infer.br_centroid
     not_noise=not_noise.squeeze(0)
 
-    is_ap=1*not_space*not_vowel*not_noise
+    is_ap=1*not_vowel*not_noise*not_space
 
     min_frame_length=int((config.min_vowel_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
     is_ap_diff=torch.diff(torch.cat((torch.tensor([0]).to(config.device),is_ap,torch.tensor([0]).to(config.device))))
     st=torch.where(is_ap_diff>0)
     ed=torch.where(is_ap_diff<0)
     lengths=(ed[0]-st[0])
-    long_enough_seq=torch.where(lengths<min_frame_length)
+    long_enough_seq=torch.where(lengths>min_frame_length)
     ap_interval=[]
     for i in long_enough_seq[0]:
         ap_interval.append([st[0][i].cpu().numpy(),ed[0][i].cpu().numpy()])
     
     ap_interval=np.array(ap_interval)
-
     return ap_interval*config.hop_length/config.sample_rate
 
 def interval_intersection(intervals_a=[[1,3],[6,8]],intervals_b=[[2,6]]):
