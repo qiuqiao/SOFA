@@ -10,6 +10,6 @@
 
 # 取消忽略myfolder文件夹本身
 !/data/
-!/inference/
+!/segments/
 !/ckpt/
 !/dictionary
