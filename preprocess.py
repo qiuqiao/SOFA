@@ -3,6 +3,7 @@ import torchaudio
 import pandas as pd
 import numpy as np
 import utils
+from utils import dict_to_namespace
 from utils import wirte_ndarray_to_bin
 import os
 import yaml
@@ -10,28 +11,8 @@ from argparse import Namespace
 from tqdm import tqdm,trange
 import os
 from einops import repeat
-from data_augmentation import AudioAugmentation
 import warnings
-import librosa
-
-def dict_to_namespace(d):
-    namespace = Namespace()
-    for key, value in d.items():
-        if isinstance(value, dict):
-            setattr(namespace, key, dict_to_namespace(value))
-        else:
-            setattr(namespace, key, value)
-    return namespace
-
-with open('config.yaml', 'r') as file:
-    config = yaml.safe_load(file)
-config=dict_to_namespace(config)
-
-with open('vocab.yaml', 'r') as file:
-    vocab = yaml.safe_load(file)
-
-torch.manual_seed(config.random_seed)
-np.random.seed(config.random_seed)
+import argparse
 
 def generate_vocab():
     print('generating vocabulary...')
@@ -41,8 +22,6 @@ def generate_vocab():
             df = pd.read_csv(os.path.join(path,'transcriptions.csv'))
             ph=sorted(set(' '.join(df['ph_seq']).split(' ')))
             phonemes.extend(ph)
-            if 'iou' in ph:
-                print(os.path.join(path,'transcriptions.csv'))
 
     phonemes=set(phonemes)
     for p in config.ignore_phonemes:
@@ -56,9 +35,11 @@ def generate_vocab():
     vocab.update({p:0 for p in config.ignore_phonemes})
     vocab.update({'<vocab_size>':len(phonemes)})
 
-    with open('vocab.yaml', 'w') as file:
+    with open(os.path.join('ckpt',config.model_name,'vocab.yaml'), 'w') as file:
         yaml.dump(vocab, file)
     print('done.')
+
+    return vocab
 
 def get_data_list(folder):
     data_list=pd.DataFrame()
@@ -71,7 +52,6 @@ def get_data_list(folder):
     data_list.reset_index(drop=True,inplace=True)
 
     return data_list
-
 
 
 def full_label_binarize(data_list,name='train'):
@@ -186,8 +166,37 @@ def weak_label_binarize(data_list,name='train'):
     idx_data=pd.DataFrame(idx_data)
     idx_data.to_pickle(os.path.join('data','weak_label',name+'.idx'))
 
+def parse_args():
+    description='Preprocess the dataset.'
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('-c','--config_path', type=str, default=os.path.join('configs','config.yaml'), help='Path to config file.')
+
+    return parser.parse_args()
+
+def get_config():
+    with open(args.config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    config=dict_to_namespace(config)
+
+    return config
+
+def copy_config():
+    with open(args.config_path, 'r') as file:
+        config_text=file.read()
+    if not os.path.exists(os.path.join('ckpt',config.model_name)):
+        os.makedirs(os.path.join('ckpt',config.model_name))
+    with open(os.path.join('ckpt',config.model_name,'config.yaml'), 'w') as file:
+        file.write(config_text)
+
 if __name__=='__main__':
-    generate_vocab()
+    args=parse_args()
+    config=get_config()
+    copy_config()
+
+    vocab=generate_vocab()
+
+    torch.manual_seed(config.random_seed)
+    np.random.seed(config.random_seed)
 
     data_list=get_data_list('full_label')
     valid_list_length=int(config.valid_length)

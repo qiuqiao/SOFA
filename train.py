@@ -234,9 +234,9 @@ if __name__ == '__main__':
                         
         
         if step%config.train.save_ckpt_interval==0 and step >= config.train.save_ckpt_start:
-            if not os.path.exists(os.path.join('ckpt',config.train.model_name)):
-                os.makedirs(os.path.join('ckpt',config.train.model_name))
-            torch.save(model.state_dict(), os.path.join('ckpt',config.train.model_name,f'{step}.pth'))
-            print(f'saved model at {step} steps, path: ckpt/{config.train.model_name}/{step}.pth')
+            if not os.path.exists(os.path.join('ckpt',config.model_name)):
+                os.makedirs(os.path.join('ckpt',config.model_name))
+            torch.save(model.state_dict(), os.path.join('ckpt',config.model_name,f'{step}.pth'))
+            print(f'saved model at {step} steps, path: ckpt/{config.model_name}/{step}.pth')
 
     progress_bar.close()

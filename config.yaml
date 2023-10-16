@@ -1,9 +1,10 @@
-hidden_dim_scaling: 1
+model_name: model
 sample_rate: 48000
 n_fft: 1024
 hop_length: 480
 n_mels: 128
 chromagram_n_fft: 8192
+hidden_dim_scaling: 1
 
 valid_length: 300
 melspec_maxlength: 3000
@@ -22,7 +23,6 @@ random_seed: 114
 device: cuda
 
 train:
-  model_name: model
   batch_size_sup: 24
   batch_size_wsp: 24
   weight_decay: 0.01
