@@ -350,14 +350,14 @@ def get_ap_interval(audio):
 
     chromagram=utils.get_chroma_spec(audio)
     chromagram_entropy=-torch.sum(chromagram*torch.log(chromagram),axis=0)
-    not_vowel=chromagram_entropy>config.chromagram_entropy_thresh
+    not_vowel=chromagram_entropy>config.infer.chromagram_entropy_thresh
 
     not_noise=utils.spectral_centroid_transform(audio)>config.infer.br_centroid
     not_noise=not_noise.squeeze(0)
 
     is_ap=1*not_vowel*not_noise*not_space
 
-    min_frame_length=int((config.min_vowel_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
+    min_frame_length=int((config.infer.min_ap_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
     is_ap_diff=torch.diff(torch.cat((torch.tensor([0]).to(config.device),is_ap,torch.tensor([0]).to(config.device))))
     st=torch.where(is_ap_diff>0)
     ed=torch.where(is_ap_diff<0)

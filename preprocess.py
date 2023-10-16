@@ -33,6 +33,33 @@ with open('vocab.yaml', 'r') as file:
 torch.manual_seed(config.random_seed)
 np.random.seed(config.random_seed)
 
+def generate_vocab():
+    print('generating vocabulary...')
+    phonemes=[]
+    for path,folders,files in os.walk('data'):
+        if 'transcriptions.csv' in files:
+            df = pd.read_csv(os.path.join(path,'transcriptions.csv'))
+            ph=sorted(set(' '.join(df['ph_seq']).split(' ')))
+            phonemes.extend(ph)
+            if 'iou' in ph:
+                print(os.path.join(path,'transcriptions.csv'))
+
+    phonemes=set(phonemes)
+    for p in config.ignore_phonemes:
+        if p in phonemes:
+            phonemes.remove(p)
+    phonemes=sorted(phonemes)
+    phonemes=['<EMPTY>',*phonemes]
+
+    vocab={phonemes[i]:i for i in range(len(phonemes))}
+    vocab.update({i:phonemes[i] for i in range(len(phonemes))})
+    vocab.update({p:0 for p in config.ignore_phonemes})
+    vocab.update({'<vocab_size>':len(phonemes)})
+
+    with open('vocab.yaml', 'w') as file:
+        yaml.dump(vocab, file)
+    print('done.')
+
 def get_data_list(folder):
     data_list=pd.DataFrame()
     dataset_list=os.listdir(os.path.join('data', folder))
@@ -117,27 +144,6 @@ def full_label_binarize(data_list,name='train'):
     idx_data=pd.DataFrame(idx_data)
     idx_data.to_pickle(os.path.join('data','full_label',name+'.idx'))
 
-def get_vowel_frame(audio):
-
-    SPL_db=utils.get_loudness_SPL(audio)
-    not_space=SPL_db>config.vowel_db
-
-    chromagram=utils.get_chroma_spec(audio)
-    chromagram_entropy=-torch.sum(chromagram*torch.log(chromagram),axis=0)
-    not_ap=chromagram_entropy<config.chromagram_entropy_thresh
-
-    is_vowel=1*not_space*not_ap
-
-    min_frame_length=int((config.min_vowel_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
-    is_vowel_diff=torch.diff(torch.cat((torch.tensor([0]).to(config.device),is_vowel,torch.tensor([0]).to(config.device))))
-    st=torch.where(is_vowel_diff>0)
-    ed=torch.where(is_vowel_diff<0)
-    lengths=(ed[0]-st[0])
-    too_short_seq=torch.where(lengths<min_frame_length)
-    for i in too_short_seq[0]:
-        is_vowel[st[0][i]:ed[0][i]]=0
-
-    return is_vowel
 
 def weak_label_binarize(data_list,name='train'):
     idx_data=[]
@@ -173,17 +179,6 @@ def weak_label_binarize(data_list,name='train'):
         meta_data['ctc_target']={}
         wirte_ndarray_to_bin(data_file,meta_data['ctc_target'],ctc_target)
 
-        # is_vowel_target
-        is_vowel=get_vowel_frame(audio)
-        is_vowel=is_vowel.unsqueeze(0)
-        # padding according to melspec
-        padding_len=melspec.shape[-1]-is_vowel.shape[-1]
-        is_vowel=0.9*torch.nn.functional.pad(is_vowel,(0,padding_len))
-        is_vowel_target=is_vowel.cpu().numpy().astype('int32')
-        # print(is_vowel_target.shape,melspec.shape)
-
-        meta_data['is_vowel_target']={}
-        wirte_ndarray_to_bin(data_file,meta_data['is_vowel_target'],is_vowel_target)
 
         idx_data.append(meta_data)
 
@@ -192,6 +187,8 @@ def weak_label_binarize(data_list,name='train'):
     idx_data.to_pickle(os.path.join('data','weak_label',name+'.idx'))
 
 if __name__=='__main__':
+    generate_vocab()
+
     data_list=get_data_list('full_label')
     valid_list_length=int(config.valid_length)
     valid_list=data_list.sample(valid_list_length)

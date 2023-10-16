@@ -107,15 +107,14 @@ if __name__ == '__main__':
         # weak supervised
         # get data
         try:
-            input_feature,ctc_target,ctc_target_lengths,is_vowel_target=next(weak_train_dataiter)
+            input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
         except StopIteration:
             weak_train_dataiter = iter(weak_train_dataloader)
-            input_feature,ctc_target,ctc_target_lengths,is_vowel_target=next(weak_train_dataiter)
+            input_feature,ctc_target,ctc_target_lengths=next(weak_train_dataiter)
 
         input_feature=torch.tensor(input_feature).to(config.device)
         ctc_target=torch.tensor(ctc_target).to(config.device).long()
         ctc_target_lengths=torch.tensor(ctc_target_lengths).to(config.device).long()
-        is_vowel_target=torch.tensor(is_vowel_target).to(config.device).float()
 
         # forward
         h,seg,ctc,edge=model(input_feature)
@@ -124,9 +123,7 @@ if __name__ == '__main__':
         ctc_log_softmax=F.log_softmax(ctc,dim=1)
         ctc_log_softmax=rearrange(ctc_log_softmax,'n c t -> t n c')
         ctc_loss=CTC_loss_fn(ctc_log_softmax, ctc_target, torch.tensor(ctc_log_softmax.shape[0]).repeat(ctc_log_softmax.shape[1]), ctc_target_lengths)
-        # seg_softmax=F.softmax(seg,dim=1)
-        # vowel_loss=torch.pow(is_vowel_target*seg_softmax[:,1:,:].sum(dim=1)-is_vowel_target,2).sum()/is_vowel_target.sum()
-        wsp_loss=ctc_loss#+vowel_loss
+        wsp_loss=ctc_loss
 
         # log
         writer.add_scalar('Loss/train/wsp', wsp_loss.item(), step)
@@ -191,7 +188,7 @@ if __name__ == '__main__':
             # forward
             ctc_losses=[]
             with torch.no_grad():
-                for input_feature,ctc_target,ctc_target_lengths,is_vowel_target in weak_valid_dataloader:
+                for input_feature,ctc_target,ctc_target_lengths in weak_valid_dataloader:
                     input_feature=input_feature.to(config.device)
                     ctc_target=ctc_target.to(config.device).long()
                     ctc_target_lengths=ctc_target_lengths.to(config.device).long()

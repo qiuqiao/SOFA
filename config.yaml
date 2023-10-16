@@ -1,19 +1,14 @@
-random_seed: 114
-device: cuda
 hidden_dim_scaling: 1
 sample_rate: 48000
 n_fft: 1024
 hop_length: 480
 n_mels: 128
+chromagram_n_fft: 8192
 
+valid_length: 300
+melspec_maxlength: 3000
 label_smoothing: 0.08
 
-chromagram_n_fft: 8192
-chromagram_entropy_thresh: 2.5
-valid_length: 300
-vowel_db: 60
-min_vowel_interval_dur: 0.1
-melspec_maxlength: 3000
 ignore_phonemes:
   - AP
   - SP
@@ -22,6 +17,10 @@ ignore_phonemes:
   - ''
   - pau
   - cl
+
+random_seed: 114
+device: cuda
+
 train:
   model_name: model
   batch_size_sup: 24
@@ -36,7 +35,8 @@ train:
 infer:
   br_db: 35
   br_centroid: 2000.
-  min_ap_interval_dur: 0.1 #0.1
-  empty_number_punish: 0.5 #1
+  min_ap_interval_dur: 0.1
+  empty_number_punish: 0.5
   empty_duration_punish: 0.5
   edge_weight: 2
+  chromagram_entropy_thresh: 2.5

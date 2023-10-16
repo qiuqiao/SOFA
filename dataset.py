@@ -53,11 +53,7 @@ class WeakLabelDataset(torch.utils.data.Dataset):
         ctc_target=utils.read_ndarray_from_bin(self.data_file,self.idx_data['ctc_target'][index])
         ctc_target=torch.tensor(ctc_target).long()
 
-        # is_vowel_target
-        is_vowel_target=utils.read_ndarray_from_bin(self.data_file,self.idx_data['is_vowel_target'][index])
-        is_vowel_target=torch.tensor(is_vowel_target).long()
-
-        return input_feature,ctc_target,is_vowel_target
+        return input_feature,ctc_target
 
 def weak_label_collate_fn(batch):
     max_len=[]
@@ -67,17 +63,15 @@ def weak_label_collate_fn(batch):
     for i in range(len(batch)):
         batch_list = list(batch[i])
         batch_list[0] = torch.nn.functional.pad(torch.tensor(batch_list[0]), (0, max_len[0] - batch_list[0].shape[-1]), 'constant', 0)
-        batch_list[2] = torch.nn.functional.pad(torch.tensor(batch_list[2]), (0, max_len[2] - batch_list[2].shape[-1]), 'constant', 0)
         batch_list[1] = torch.tensor(batch_list[1]).long()
         batch[i] = tuple(batch_list)
     
     input_feature=torch.stack([i[0] for i in batch])
-    is_vowel_target=torch.stack([i[2] for i in batch])
 
     ctc_target=torch.cat([i[1] for i in batch])
     ctc_target_lengths=torch.tensor([len(i[1]) for i in batch])
 
-    return input_feature,ctc_target,ctc_target_lengths,is_vowel_target
+    return input_feature,ctc_target,ctc_target_lengths
 
 def collate_fn(batch):
     max_len=[]
