@@ -4,9 +4,6 @@ import utils
 import os
 import yaml
 
-with open('config.yaml', 'r') as file:
-    config = yaml.safe_load(file)
-
 class FullLabelDataset(torch.utils.data.Dataset):
     # return: 
     #   tensor[C,T], input_feature

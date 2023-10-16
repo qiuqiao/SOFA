@@ -4,13 +4,6 @@ from einops import rearrange
 import yaml
 import utils
 
-with open('config.yaml', 'r') as file:
-    config = yaml.safe_load(file)
-config=utils.dict_to_namespace(config)
-
-with open('vocab.yaml', 'r') as file:
-    vocab = yaml.safe_load(file)
-
 class Residual(nn.Module):
     def __init__(self, dim_x, dim_out):
         super().__init__()
@@ -232,14 +225,13 @@ class Decoder(nn.Module):
     
 
 class FullModel(nn.Module):
-    def __init__(self,init_type='xavier_normal'):
+    def __init__(self,in_channels,out_channels,init_type='xavier_normal'):
         super(FullModel, self).__init__()
         self.init_type=init_type
-        input_channels=config.n_mels
-        self.encoder=UNetEncoder(in_channels=input_channels, out_channels=128*config.hidden_dim_scaling,hidden_dim_scaling=config.hidden_dim_scaling)
-        self.seg_decoder=Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=vocab['<vocab_size>'])
+        self.encoder=UNetEncoder(in_channels=in_channels, out_channels=128)
+        self.seg_decoder=Decoder(in_channels=128, out_channels=out_channels)
         self.edge_decoder=nn.Sequential(
-            Decoder(in_channels=128*config.hidden_dim_scaling, out_channels=2),
+            Decoder(in_channels=128, out_channels=2),
         )
 
         self.apply(self.init_weights)

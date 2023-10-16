@@ -11,17 +11,18 @@ import yaml
 from tqdm import trange,tqdm
 import argparse
 import textgrids as tg
-import librosa
 from abc import ABCMeta, abstractmethod
 import pandas as pd
 
-with open('config.yaml', 'r') as file:
-    config = yaml.safe_load(file)
-config=dict_to_namespace(config)
+# temporary solution
+config=None
+vocab=None
+def init_config_and_vocab(config_input,vocab_input):
+    global config
+    config=config_input
 
-with open('vocab.yaml', 'r') as file:
-    vocab = yaml.safe_load(file)
-
+    global vocab
+    vocab=vocab_input
 
 class Dictionary(metaclass=ABCMeta):
     @abstractmethod
@@ -405,7 +406,7 @@ def detect_AP(audio_path,ph_seq,ph_interval):
 def load_model(model_path='ckpt'):
     # input: str:model_path
     # output: FullModel:model
-    model=FullModel().to(config.device).eval()
+    model=FullModel(config.n_mels,vocab['<vocab_size>']).to(config.device).eval()
     model_path=model_path
     pth_list=os.listdir(model_path)
     pth_list=[i for i in pth_list if i.endswith('.pth')]
@@ -456,7 +457,7 @@ def parse_args():
     description = "you should add those parameter"
     parser = argparse.ArgumentParser(description=description)
 
-    parser.add_argument('-m','--model_folder_path', type=str, default=os.path.join('ckpt',config.model_name), help='model folder path. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
+    parser.add_argument('-m','--model_name', type=str, required=True, help='model folder name in /ckpt. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
     parser.add_argument('-s','--segments_path', type=str, default='segments', help='segments path. It shoould contain 2 types of file: .wav and .lab')
     parser.add_argument('-d','--dictionary_path', type=str, default=os.path.join('dictionary','opencpop-extension.txt'), help='dictionary path. It should be a txt file.')
     parser.add_argument('-p','--phoneme_mode',action='store_true',help='phoneme mode. If this argument is set, the dictionary path will be ignored and the phoneme mode will be used.')
@@ -464,11 +465,17 @@ def parse_args():
     return parser.parse_args()
 
 if __name__ == '__main__':
-    # input: config.yaml, wavs, labs, dictionary, phoneme_mode
-    # ouput: textgrids
     args=parse_args()
 
-    model=load_model(args.model_folder_path)
+    with open(os.path.join('ckpt',args.model_name,'config.yaml'), 'r') as file:
+        config = yaml.safe_load(file)
+    config=dict_to_namespace(config)
+    utils.init_config(config)# temporary solution
+
+    with open(os.path.join('ckpt',args.model_name,'vocab.yaml'), 'r') as file:
+        vocab = yaml.safe_load(file)
+
+    model=load_model(os.path.join('ckpt',args.model_name))
 
     if args.phoneme_mode:
         dictionary=PhonemeDictionary()

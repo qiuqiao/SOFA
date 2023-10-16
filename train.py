@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
 from utils import GaussianRampUpScheduler
 from tqdm import tqdm, trange
-from infer import Aligner
+import infer
 import random
 import torch
 import numpy as np
@@ -18,22 +18,34 @@ from dataset import FullLabelDataset, collate_fn, WeakLabelDataset, weak_label_c
 from model import FullModel
 from einops import rearrange
 import yaml
+import argparse
 
-with open('config.yaml', 'r') as file:
-    config = yaml.safe_load(file)
-config=utils.dict_to_namespace(config)
+def parse_args():
+    description='Train the model.'
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('-m','--model_name', type=str, required=True, help='model folder name in /ckpt.')
 
-with open('vocab.yaml', 'r') as file:
-    vocab = yaml.safe_load(file)
-
-import warnings
-warnings.filterwarnings("ignore")
-
-torch.manual_seed(config.random_seed)
-np.random.seed(config.random_seed)
-random.seed(config.random_seed)
+    return parser.parse_args()
 
 if __name__ == '__main__':
+    args=parse_args()
+
+    with open(os.path.join('ckpt',args.model_name,'config.yaml'), 'r') as file:
+        config = yaml.safe_load(file)
+    config=utils.dict_to_namespace(config)
+    utils.init_config(config)# temporary solution
+
+    with open(os.path.join('ckpt',args.model_name,'vocab.yaml'), 'r') as file:
+        vocab = yaml.safe_load(file)
+    
+    infer.init_config_and_vocab(config,vocab)# temporary solution
+
+    import warnings
+    warnings.filterwarnings("ignore")
+
+    torch.manual_seed(config.random_seed)
+    np.random.seed(config.random_seed)
+    random.seed(config.random_seed)
 
     # dataset
     full_train_dataset = FullLabelDataset(name='train')
@@ -51,7 +63,7 @@ if __name__ == '__main__':
     weak_valid_dataloader = DataLoader(dataset=weak_valid_dataset, batch_size=config.train.batch_size_wsp, shuffle=False,collate_fn=weak_label_collate_fn,drop_last=True)
 
     # 这里要加一个使用预训练模型的功能
-    model=FullModel().to(config.device)
+    model=FullModel(config.n_mels,vocab['<vocab_size>']).to(config.device)
 
     # loss function
     seg_GHM_loss_fn=utils.GHMLoss(vocab['<vocab_size>'],num_prob_bins=10,alpha=0.999,label_smoothing=config.label_smoothing)
@@ -205,7 +217,7 @@ if __name__ == '__main__':
             # pass
             print('testing...')
             model.eval()
-            aligner=Aligner(model)
+            aligner=infer.Aligner(model)
             id=1
 
             for path, subdirs, files in os.walk(os.path.join('data','test')):

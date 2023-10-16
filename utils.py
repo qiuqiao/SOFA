@@ -19,22 +19,36 @@ def dict_to_namespace(d):
             setattr(namespace, key, value)
     return namespace
 
-with open('config.yaml', 'r') as file:
-    config = yaml.safe_load(file)
-config=dict_to_namespace(config)
+# temporary solution
+config=None
+extract_mel=None
+spec_transform=None
+chroma_fbank=None
+spectral_centroid_transform=None
+def init_config(config_input):
+    global config
+    config=config_input
 
-extract_mel = T.MelSpectrogram(
-    sample_rate=config.sample_rate,
-    n_fft=config.n_fft,
-    win_length=None,
-    hop_length=config.hop_length,
-    center=True,
-    pad_mode="reflect",
-    power=2.0,
-    norm="slaney",
-    n_mels=config.n_mels,
-    mel_scale="htk",
-).float().to(config.device)
+    global extract_mel
+    extract_mel = T.MelSpectrogram(
+        sample_rate=config.sample_rate,
+        n_fft=config.n_fft,
+        win_length=None,
+        hop_length=config.hop_length,
+        center=True,
+        pad_mode="reflect",
+        power=2.0,
+        norm="slaney",
+        n_mels=config.n_mels,
+        mel_scale="htk",
+    ).float().to(config.device)
+
+    global spec_transform
+    global chroma_fbank
+    global spectral_centroid_transform
+    spec_transform=torchaudio.transforms.Spectrogram(n_fft=config.chromagram_n_fft, win_length=None, hop_length=config.hop_length, power=2.0).to(config.device)
+    chroma_fbank=get_chroma_fbank(config.sample_rate,config.chromagram_n_fft,24).to(config.device)
+    spectral_centroid_transform=torchaudio.transforms.SpectralCentroid(config.sample_rate,config.chromagram_n_fft,win_length=None, hop_length=config.hop_length).to(config.device)
 
 def get_chroma_vec_from_freq(f,n_mels=12):
     # 输入频率，输出十二个音调的符合度
@@ -52,10 +66,6 @@ def get_chroma_fbank(sample_rate,n_fft,n_mels=12):
     for i in range(n_fft//2+1):
         chroma_fbank[i]=get_chroma_vec_from_freq(freq[i],n_mels)
     return chroma_fbank*((sample_rate/2-freq.unsqueeze(1))/(sample_rate/2)+0.1)/1.1
-
-spec_transform=torchaudio.transforms.Spectrogram(n_fft=config.chromagram_n_fft, win_length=None, hop_length=config.hop_length, power=2.0).to(config.device)
-chroma_fbank=get_chroma_fbank(config.sample_rate,config.chromagram_n_fft,24).to(config.device)
-spectral_centroid_transform=torchaudio.transforms.SpectralCentroid(config.sample_rate,config.chromagram_n_fft,win_length=None, hop_length=config.hop_length).to(config.device)
 
 def get_chroma_spec(audio):
     # 输入音频，输出chroma谱

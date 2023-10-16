@@ -7,7 +7,6 @@ from utils import dict_to_namespace
 from utils import wirte_ndarray_to_bin
 import os
 import yaml
-from argparse import Namespace
 from tqdm import tqdm,trange
 import os
 from einops import repeat
@@ -191,6 +190,7 @@ def copy_config():
 if __name__=='__main__':
     args=parse_args()
     config=get_config()
+    utils.init_config(config)# temporary solution
     copy_config()
 
     vocab=generate_vocab()
