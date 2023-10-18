@@ -80,10 +80,6 @@ SOFA: Singing-Oriented Forced Aligner是一个专为歌声设计的强制对齐�
 
 暂时没有微调功能，待完善
 
-# 更新日志
-
-* v0.0.1beta：SOFA发布公测版
-
 # todos
 
 * 完善训练功能的README
