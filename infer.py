@@ -1,6 +1,5 @@
 from typing import Any
 import torch
-import torchaudio
 import numpy as np
 import utils
 from utils import dict_to_namespace
@@ -8,11 +7,10 @@ import os
 import torch
 from model import FullModel
 import yaml
-from tqdm import trange,tqdm
+from tqdm import tqdm
 import argparse
 import textgrids as tg
 from abc import ABCMeta, abstractmethod
-import pandas as pd
 
 # temporary solution
 config=None

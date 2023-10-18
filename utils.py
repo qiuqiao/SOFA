@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import yaml
 import numpy as np
 import torch
 import torchaudio.transforms as T

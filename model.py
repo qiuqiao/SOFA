@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 from einops import rearrange
-import yaml
-import utils
 
 class Residual(nn.Module):
     def __init__(self, dim_x, dim_out):

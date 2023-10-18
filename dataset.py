@@ -2,7 +2,6 @@ import torch
 import pandas as pd
 import utils
 import os
-import yaml
 
 class FullLabelDataset(torch.utils.data.Dataset):
     # return: 
