@@ -16,11 +16,12 @@ SOFA: Singing-Oriented Forced Aligner是一个专为歌声设计的强制对齐�
 
 1. 使用`git clone`​​下载本仓库的代码
 2. 安装所需的python环境，python版本的要求为`3.10`​​  
-    ​```bash
-    conda create -n SOFA python=3.10 -y
-    conda activate SOFA
-    pip install -r requirements.txt
-    ```​​
+
+    ```bash
+        conda create -n SOFA python=3.10 -y
+        conda activate SOFA
+        pip install -r requirements.txt
+    ```
 3. 下载模型文件压缩包。你可以在本仓库的release中找到预训练模型
 4. 把模型文件压缩包解压到`/ckpt`​​文件夹下。解压后，文件结构应当如下
 
