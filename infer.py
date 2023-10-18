@@ -17,6 +17,7 @@ import pandas as pd
 # temporary solution
 config=None
 vocab=None
+args=None
 def init_config_and_vocab(config_input,vocab_input):
     global config
     config=config_input
@@ -64,9 +65,9 @@ class DataItem(metaclass=ABCMeta):
     def postprocess_align(self):
         pass
 
-    def postprocess_tg(self,tg_processor,*args,**kwargs):
+    def postprocess_tg(self,tg_processor):
         # tg_processor:TextGridProcessor
-        self.aligned_tg=tg_processor(self,*args,**kwargs)
+        self.aligned_tg=tg_processor(self)
 
     def get_align_result(self)->tg.TextGrid:
         if self.aligned_tg is None:
@@ -87,7 +88,7 @@ class TextGridProcessor(metaclass=ABCMeta):
         pass
     
     @abstractmethod
-    def __call__(self,data_item:DataItem, *args: Any, **kwargs: Any) -> Any:
+    def __call__(self,data_item:DataItem) -> Any:
         pass
 
 class AddAspiration(TextGridProcessor):
@@ -111,11 +112,11 @@ class AddAspiration(TextGridProcessor):
         tier=sorted(tier,key=lambda x:x.xmin)
         return tier
 
-    def __call__(self,data_item:DataItem, *args: Any, **kwargs: Any) -> Any:
+    def __call__(self,data_item:DataItem) -> Any:
         tier_of_ap=self.get_ap_from_audio(data_item.input_audio)
         tier_of_empty=tg.Tier([i for i in data_item.aligned_tg['phones'] if i.text==''])
         intersection_tier=self.tier_intersection(tier_of_ap,tier_of_empty)
-        intersection_tier=tg.Tier([i for i in intersection_tier if i.xmax-i.xmin>config.infer.min_ap_interval_dur])
+        intersection_tier=tg.Tier([i for i in intersection_tier if i.xmax-i.xmin>args.min_ap_interval_dur])
         data_item.aligned_tg['words']=[i for i in data_item.aligned_tg['words'] if i.text !='']
         data_item.aligned_tg['phones']=[i for i in data_item.aligned_tg['phones'] if i.text !='']
         data_item.aligned_tg['words']=self.add_intervals(data_item.aligned_tg['words'],intersection_tier)
@@ -192,10 +193,10 @@ class Aligner:
         backtrack_j=np.zeros_like(dp)-1
         for i in range(1,dp.shape[-1]):
             # [j,i-1]->[j,i]
-            prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]-config.infer.empty_number_punish*(ph_seq_num[:]==0)
+            prob1=dp[:,i-1]+prob_log[ph_seq_num[:],i]+not_edge_prob_log[i]-args.empty_count_penalty_weight*(ph_seq_num[:]==0)
             # [j-1,i-1]->[j,i]
             prob2=dp[:-1,i-1]+prob_log[ph_seq_num[1:],i]+is_edge_prob_log[i]
-            prob2+=-config.infer.empty_number_punish*(ph_seq_num[1:]==0)
+            prob2+=-args.empty_length_penalty_weight*args.empty_count_penalty_weight*(ph_seq_num[1:]==0)
             prob2=np.concatenate([np.array([-np.inf]),prob2])
             # [j-2,i-1]->[j,i]
             # 不能跳过音素，可以跳过<EMPTY>
@@ -260,7 +261,7 @@ class Aligner:
 
         is_edge_prob=edge_pred
         is_edge_prob[1:]+=is_edge_prob[:-1]
-        is_edge_prob=(is_edge_prob/2)**config.infer.edge_weight
+        is_edge_prob=(is_edge_prob/2)
 
         is_edge_prob_log=np.log(is_edge_prob.clip(1e-10,1-1e-10))
 
@@ -273,7 +274,7 @@ class Aligner:
         ph_seq_num_pred,ph_time_pred_int,frame_confidence=self.decode_alignment(ph_seq_num,prob_log,is_edge_prob_log,not_edge_prob_log)
 
         # calculat time
-        ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]*config.infer.edge_weight).clip(-0.5,0.5)
+        ph_time_pred=ph_time_pred_int.astype('float64')+(edge_diff[ph_time_pred_int]).clip(-0.5,0.5)
         ph_time_pred=np.concatenate((ph_time_pred,[T+1]))*(config.hop_length/config.sample_rate)
         ph_time_pred[0]=0
 
@@ -347,18 +348,18 @@ class DataItemOfWordLab(DataItem):
 def get_ap_interval(audio):
 
     SPL_db=utils.get_loudness_SPL(audio)
-    not_space=SPL_db>config.infer.br_db
+    not_space=SPL_db>args.br_db
 
     chromagram=utils.get_chroma_spec(audio)
     chromagram_entropy=-torch.sum(chromagram*torch.log(chromagram),axis=0)
-    not_vowel=chromagram_entropy>config.infer.chromagram_entropy_thresh
+    not_vowel=chromagram_entropy>args.chromagram_entropy_thresh
 
-    not_noise=utils.spectral_centroid_transform(audio)>config.infer.br_centroid
+    not_noise=utils.spectral_centroid_transform(audio)>args.br_centroid
     not_noise=not_noise.squeeze(0)
 
     is_ap=1*not_vowel*not_noise*not_space
 
-    min_frame_length=int((config.infer.min_ap_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
+    min_frame_length=int((args.min_ap_interval_dur)/(config.hop_length/config.sample_rate)+0.5)
     is_ap_diff=torch.diff(torch.cat((torch.tensor([0]).to(config.device),is_ap,torch.tensor([0]).to(config.device))))
     st=torch.where(is_ap_diff>0)
     ed=torch.where(is_ap_diff<0)
@@ -398,7 +399,7 @@ def detect_AP(audio_path,ph_seq,ph_interval):
     if len(interval_idx)<1:
         return []
     
-    output_interval=np.array([i for i in output_interval if i[1]-i[0]>config.infer.min_ap_interval_dur])
+    output_interval=np.array([i for i in output_interval if i[1]-i[0]>args.min_ap_interval_dur])
 
     return output_interval
 
@@ -457,11 +458,17 @@ def parse_args():
     description = "you should add those parameter"
     parser = argparse.ArgumentParser(description=description)
 
-    parser.add_argument('-m','--model_name', type=str, required=True, help='model folder name in /ckpt. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
+    parser.add_argument('model_name', type=str, help='model folder name in /ckpt. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
     parser.add_argument('-s','--segments_path', type=str, default='segments', help='segments path. It shoould contain 2 types of file: .wav and .lab')
     parser.add_argument('-d','--dictionary_path', type=str, default=os.path.join('dictionary','opencpop-extension.txt'), help='dictionary path. It should be a txt file.')
-    parser.add_argument('-p','--phoneme_mode',action='store_true',help='phoneme mode. If this argument is set, the dictionary path will be ignored and the phoneme mode will be used.')
 
+    parser.add_argument('--br_db',type=float,default=35,help='breath db threshold')
+    parser.add_argument('--br_centroid',type=float,default=2000,help='breath centroid threshold')
+    parser.add_argument('--chromagram_entropy_thresh',type=float,default=2.5,help='chromagram entropy threshold')
+    parser.add_argument('--min_ap_interval_dur',type=float,default=0.1,help='min ap interval duration')
+    parser.add_argument('--empty_count_penalty_weight',type=float,default=0.5,help='empty count penalty weight')
+    parser.add_argument('--empty_length_penalty_weight',type=float,default=0.5,help='empty length penalty weight')
+    
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -477,7 +484,7 @@ if __name__ == '__main__':
 
     model=load_model(os.path.join('ckpt',args.model_name))
 
-    if args.phoneme_mode:
+    if args.dictionary_path==None:
         dictionary=PhonemeDictionary()
     else:
         dictionary=WordDictionary()

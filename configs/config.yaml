@@ -29,12 +29,3 @@ train:
   save_ckpt_start: 8000
   save_ckpt_interval: 200
   val_interval: 100
-
-infer:
-  br_db: 35
-  br_centroid: 2000.
-  min_ap_interval_dur: 0.1
-  empty_number_punish: 0.5
-  empty_duration_punish: 0.5
-  edge_weight: 2
-  chromagram_entropy_thresh: 2.5
