@@ -461,6 +461,7 @@ def parse_args():
     parser.add_argument('model_name', type=str, help='model folder name in /ckpt. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.')
     parser.add_argument('-s','--segments_path', type=str, default='segments', help='segments path. It shoould contain 2 types of file: .wav and .lab')
     parser.add_argument('-d','--dictionary_path', type=str, default=os.path.join('dictionary','opencpop-extension.txt'), help='dictionary path. It should be a txt file.')
+    parser.add_argument('-p','--phoneme_mode',action='store_true',help='enable phoneme mode')
 
     parser.add_argument('--br_db',type=float,default=35,help='breath db threshold')
     parser.add_argument('--br_centroid',type=float,default=2000,help='breath centroid threshold')
@@ -484,7 +485,7 @@ if __name__ == '__main__':
 
     model=load_model(os.path.join('ckpt',args.model_name))
 
-    if args.dictionary_path==None:
+    if args.phoneme_mode:
         dictionary=PhonemeDictionary()
     else:
         dictionary=WordDictionary()
