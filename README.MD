@@ -59,9 +59,10 @@ SOFA: Singing-Oriented Forced Aligner是一个专为歌声设计的强制对齐�
 
     **注意，singer文件夹内不可有其他文件夹。**
 7. 命令行推理  
-    需要指定模型所在的文件夹名称`model_name`​，待标注的数据集文件夹`segments_path`​（默认为`/segments`​），字典文件`dictionary_path`​（默认为`/dictionary/opencpop-extension.txt`​），如果无需使用字典，请指定`-p`​或`--phoneme_mode`​。  
+    需要指定模型所在的文件夹名称`model_name`​，待标注的数据集文件夹`segments_path`​（默认为`/segments`​），字典文件`dictionary_path`​（默认为`/dictionary/opencpop-extension.txt`​）
+    如果.lab文件里是音素序列而不是单词序列，无需使用字典，请指定`-p`​或`--phoneme_mode`​。  
     除此之外，还支持指定推理时的一些参数，可以使用python infer.py -h查看。
-
+ 
     ```bash
     python infer.py model_name -s SEGMENTS_PATH [-d DICTIONARY_PATH/-p]
     ```
