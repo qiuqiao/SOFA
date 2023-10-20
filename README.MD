@@ -82,12 +82,3 @@ It offers the following advantages:
 ## Training
 
 Due to the current version's imperfections, I plan to release the training and fine-tuning instructions after refactoring.
-
-# Todos
-
-* Complete the README for training functionality
-* Enhance the explanation of `config.yaml`
-* Change the network architecture to conformer
-* Add fine-tuning functionality
-* Output confidence scores for each piece of data during inference
-* Add textless alignment functionality
