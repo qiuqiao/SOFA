@@ -27,11 +27,11 @@ class ForcedAlignmentBinarizer:
     def __init__(self, config: dict):
         self.config_global = config["global"]
 
-        self.data_folder_path = config["data_folder"]
-        self.ignored_phonemes = config["ignored_phonemes"]
-        self.binary_data_folder = config["binary_data_folder"]
-        self.valid_set_size = config["valid_set_size"]
-        self.data_folder = config["data_folder"]
+        self.data_folder_path = config["preprocessing"]["data_folder"]
+        self.ignored_phonemes = config["preprocessing"]["ignored_phonemes"]
+        self.binary_data_folder = config["preprocessing"]["binary_data_folder"]
+        self.valid_set_size = config["preprocessing"]["valid_set_size"]
+        self.data_folder = config["preprocessing"]["data_folder"]
 
         self.vocab = None
         self.meta_data_df = None
