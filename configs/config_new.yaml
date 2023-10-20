@@ -16,7 +16,8 @@ global:
 preprocessing:
   data_folder: data/
   binary_data_folder: data/binary/
-  ignore_phonemes:
+  test_data_folder: data/test/
+  ignored_phonemes:
     - AP
     - SP
     - <AP>
@@ -24,3 +25,4 @@ preprocessing:
     - ''
     - pau
     - cl
+  valid_set_size: 100

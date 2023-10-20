@@ -25,16 +25,21 @@ rmvpe = None
 
 class ForcedAlignmentBinarizer:
     def __init__(self, config: dict):
-        self.config = config["preprocessing"]
         self.config_global = config["global"]
+
+        self.data_folder_path = config["data_folder"]
+        self.ignored_phonemes = config["ignored_phonemes"]
+        self.binary_data_folder = config["binary_data_folder"]
+        self.valid_set_size = config["valid_set_size"]
+        self.data_folder = config["data_folder"]
+
         self.vocab = None
         self.meta_data_df = None
 
-    def get_vocab(self):
+    def get_vocab(self, data_folder_path, ignored_phonemes):
         print("generating vocab...")
         phonemes = []
-        data_path = pathlib.Path(self.config["data_folder"])
-        trans_path_list = data_path.rglob("transcriptions.csv")
+        trans_path_list = pathlib.Path(data_folder_path).rglob("transcriptions.csv")
 
         for trans_path in trans_path_list:
             if trans_path.name == "transcriptions.csv":
@@ -43,7 +48,7 @@ class ForcedAlignmentBinarizer:
                 phonemes.extend(ph)
 
         phonemes = set(phonemes)
-        for p in self.config["ignore_phonemes"]:
+        for p in ignored_phonemes:
             if p in phonemes:
                 phonemes.remove(p)
         phonemes = sorted(phonemes)
@@ -51,60 +56,59 @@ class ForcedAlignmentBinarizer:
 
         vocab = dict(zip(phonemes, range(len(phonemes))))
         vocab.update(dict(zip(range(len(phonemes)), phonemes)))
-        vocab.update({i: 0 for i in self.config["ignore_phonemes"]})
+        vocab.update({i: 0 for i in ignored_phonemes})
         vocab.update({"<vocab_size>": len(phonemes)})
 
         print(f"vocab_size is {len(phonemes)}")
 
         return vocab
 
-    def split_train_valid_test(self, meta_data_list):
-        pass
-
     def process(self):
-        self.vocab = self.get_vocab()
-        with open(
-            pathlib.Path(self.config["binary_data_folder"]) / "vocab.yaml", "w"
-        ) as file:
+        self.vocab = self.get_vocab(self.data_folder_path, self.ignored_phonemes)
+        with open(pathlib.Path(self.binary_data_folder) / "vocab.yaml", "w") as file:
             yaml.dump(self.vocab, file)
 
         # load meta data of each item
-        self.load_meta_data()
-        # # split train, valid and test set
-        # (
-        #     self.meta_data_list_train,
-        #     self.meta_data_list_valid,
-        #     self.meta_data_list_test,
-        # ) = self.split_train_valid_test(self.meta_data_list)
-        # save test set
-        # binarize and save valid set
-        # binarize and save train set
+        self.load_meta_data(self.data_folder)
 
-    def load_meta_data(self):
-        print("loading metadata...")
-        path = pathlib.Path(self.config["data_folder"])
+        # split train and valid set
+        valid_set_size = int(self.valid_set_size)
+        meta_data_valid = self.meta_data_df[
+            self.meta_data_df["prefix"] != "no_label"
+        ].sample(valid_set_size)
+        meta_data_train = self.meta_data_df.drop(meta_data_valid.index)
+
+        # binarize valid set
+        self.binarize(meta_data_valid)
+
+        # binarize train set
+        # self.binarize(meta_data_train)
+
+    def binarize(self, meta_data: pd.DataFrame):
+        meta_data["ph_seq"] = meta_data["ph_seq"].apply(lambda x: x.split(" "))
+
+    def load_meta_data(self, data_folder):
+        path = pathlib.Path(data_folder)
         trans_path_list = [
             i
             for i in path.rglob("transcriptions.csv")
             if i.name == "transcriptions.csv"
         ]
 
-        for trans_path in trans_path_list:
-            print(f"processing {trans_path}...")
+        print("loading metadata...")
+        for trans_path in tqdm(trans_path_list):
             df = pd.read_csv(trans_path)
-            df["path"] = df.apply(
-                lambda df: str(trans_path.parent / "wavs" / (str(df["name"]) + ".wav")),
-                axis=1,
+            df["path"] = df["name"].apply(
+                lambda name: str(trans_path.parent / "wavs" / (str(name) + ".wav")),
             )
-            df["prefix"] = df.apply(
-                lambda df: (
+            df["prefix"] = df["path"].apply(
+                lambda path: (
                     "strong_label"
-                    if "strong_label" in df["path"]
+                    if "strong_label" in path
                     else "weak_label"
-                    if "weak_label" in df["path"]
+                    if "weak_label" in path
                     else "no_label"
                 ),
-                axis=1,
             )
 
         no_label_df = pd.DataFrame(
@@ -114,45 +118,7 @@ class ForcedAlignmentBinarizer:
         self.meta_data_df["prefix"].fillna("no_label", inplace=True)
 
         self.meta_data_df.reset_index(drop=True, inplace=True)
-
-    #     transcription_data_list = list(raw_data_dir.rglob("transcriptions.csv"))
-
-    #     for transcription_path in transcription_data_list:
-    #         for utterance_label in csv.DictReader(
-    #             open(transcription_path, "r", encoding="utf-8")
-    #         ):
-    #             item_name = utterance_label["name"]
-    #             temp_dict = {
-    #                 "wav_fn": str(
-    #                     (transcription_path.parent / "wavs") / f"{item_name}.wav"
-    #                 )
-    #             }
-
-    #             temp_dict["ph_seq"] = np.array(
-    #                 [
-    #                     self.config["vocab"][i]
-    #                     for i in utterance_label["ph_seq"].strip().split(" ")
-    #                 ]
-    #             )
-    #             if "ph_dur" in utterance_label:
-    #                 temp_dict["ph_dur"] = np.array(
-    #                     [float(i) for i in utterance_label["ph_dur"].strip().split(" ")]
-    #                 )
-    #             else:
-    #                 temp_dict["ph_dur"] = np.zeros_like(
-    #                     temp_dict["ph_seq"], dtype=np.float32
-    #                 )
-    #             if (
-    #                 str(transcription_path.parent).find("strong_label") == -1
-    #                 or "ph_dur" not in utterance_label
-    #             ):
-    #                 temp_dict["is_strong_label"] = False
-    #             else:
-    #                 temp_dict["is_strong_label"] = True
-
-    #             meta_data_dict[f"{ds_id}:{item_name}"] = temp_dict
-
-    #     self.items.update(meta_data_dict)
+        print(self.meta_data_df)
 
     # def _process_item(self, waveform, meta_data):
     #     wav_tensor = torch.from_numpy(waveform).to(self.device)
