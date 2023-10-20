@@ -10,12 +10,13 @@ import torch
 from scipy import interpolate
 import modules.rmvpe
 import yaml
+from tqdm import tqdm
 
 FORCED_ALIGNER_ITEM_ATTRIBUTES = [
     "input_feature",  # contentvec units or mel spectroogram and putch, float32[T_s, input_feature_dim]
-    "ph_frame",  # frame-wise phoneme class, int32[T_s,], if the label does not exist, it is all -1
-    "ph_edge",  # edge of phoneme, int32[T_s,], if the label does not exist, it is all -1
     "ph_seq",  # phoneme sequence, str[T_p,]
+    "ph_edge",  # edge of phoneme, int32[T_s,], if the label does not exist, it is all -1
+    "ph_frame",  # frame-wise phoneme class, int32[T_s,], if the label does not exist, it is all -1
 ]
 
 mel_spec_transform = None
@@ -27,8 +28,10 @@ class ForcedAlignmentBinarizer:
         self.config = config["preeprocessing"]
         self.config_global = config["global"]
         self.vocab = None
+        self.meta_data_list = None
 
     def generate_vocab(self):
+        print("generating vocab...")
         trans_path_list = [
             i
             for i in pathlib.Path(self.config["data_folder"]).rglob(
@@ -38,7 +41,7 @@ class ForcedAlignmentBinarizer:
         ]
 
         phonemes = []
-        for trans_path in trans_path_list:
+        for trans_path in tqdm(trans_path_list):
             with open(trans_path, "rt", newline="") as csvfile:
                 reader = csv.reader(csvfile)
                 data = [row for row in reader]
@@ -75,7 +78,7 @@ class ForcedAlignmentBinarizer:
             yaml.dump(self.vocab, file)
 
         # load meta data of each item
-        # self.meta_data_list = self.load_meta_data()
+        self.meta_data_list = self.load_meta_data()
         # # split train, valid and test set
         # (
         #     self.meta_data_list_train,
@@ -86,10 +89,72 @@ class ForcedAlignmentBinarizer:
         # binarize and save valid set
         # binarize and save train set
 
-    # def load_meta_data(self, raw_data_dir: pathlib.Path, ds_id):
-    #     # read data with transcriptions.csv
-    #     # read data without transcriptions.csv
-    #     meta_data_dict = {}
+    def load_meta_data(self):
+        print("loading metadata...")
+        path = pathlib.Path(self.config["data_folder"])
+        trans_path_list = [
+            i
+            for i in path.rglob("transcriptions.csv")
+            if i.name == "transcriptions.csv"
+        ]
+        wav_path_list = [i for i in path.rglob("*.wav")]
+        meta_data_dict = {
+            "wav_path": [],
+            "ph_seq": [],
+            "ph_dur": [],
+        }
+
+        # read data with transcriptions.csv
+        for trans_path in trans_path_list:
+            print(f"processing {trans_path}...")
+            with open(trans_path, "rt", newline="") as csvfile:
+                reader = csv.reader(csvfile)
+                data = [row for row in reader]
+                columns = data[0]
+                column_index = dict(zip(columns, range(len(columns))))
+                rows = np.array(data[1:])
+                meta_data_dict["wav_path"].extend(
+                    [
+                        trans_path.parent / "wavs" / f"{i}.wav"
+                        for i in rows[:, [column_index["name"]]]
+                    ]
+                )
+                meta_data_dict["ph_seq"].extend(
+                    rows[:, [column_index["ph_seq"]]].split(" ")
+                )
+        #         for row in tqdm(rows):
+        #             meta_data = {}
+
+        #             meta_data["wav_path"] = (
+        #                 trans_path.parent / "wavs" / f"{row[column_index['name']]}.wav"
+        #             )
+        #             if meta_data["wav_path"] in wav_path_list:
+        #                 wav_path_list.remove(meta_data["wav_path"])
+
+        #             assert "ph_seq" in columns
+        #             meta_data["ph_seq"] = np.array(
+        #                 [
+        #                     self.vocab[i]
+        #                     for i in row[column_index["ph_seq"]].strip().split(" ")
+        #                 ]
+        #             )
+
+        #             if "ph_dur" in columns:
+        #                 meta_data["ph_dur"] = np.array(
+        #                     [
+        #                         float(i)
+        #                         for i in row[column_index["ph_dur"]].strip().split(" ")
+        #                     ]
+        #                 )
+        #                 assert len(meta_data["ph_dur"]) == len(meta_data["ph_seq"])
+        #             else:
+        #                 meta_data["ph_dur"] = None
+
+        #             meta_data_list.append(meta_data)
+        # print(wav_path_list)
+        return meta_data_list
+        # read data without transcriptions.csv
+
     #     transcription_data_list = list(raw_data_dir.rglob("transcriptions.csv"))
 
     #     for transcription_path in transcription_data_list:
