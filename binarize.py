@@ -1,7 +1,6 @@
 import copy
 import csv
 import json
-import os
 import pathlib
 import random
 import librosa
@@ -11,6 +10,7 @@ from scipy import interpolate
 import modules.rmvpe
 import yaml
 from tqdm import tqdm
+import pandas as pd
 
 FORCED_ALIGNER_ITEM_ATTRIBUTES = [
     "input_feature",  # contentvec units or mel spectroogram and putch, float32[T_s, input_feature_dim]
@@ -25,33 +25,24 @@ rmvpe = None
 
 class ForcedAlignmentBinarizer:
     def __init__(self, config: dict):
-        self.config = config["preeprocessing"]
+        self.config = config["preprocessing"]
         self.config_global = config["global"]
         self.vocab = None
-        self.meta_data_list = None
+        self.meta_data_df = None
 
-    def generate_vocab(self):
+    def get_vocab(self):
         print("generating vocab...")
-        trans_path_list = [
-            i
-            for i in pathlib.Path(self.config["data_folder"]).rglob(
-                "transcriptions.csv"
-            )
-            if i.name == "transcriptions.csv"
-        ]
-
         phonemes = []
-        for trans_path in tqdm(trans_path_list):
-            with open(trans_path, "rt", newline="") as csvfile:
-                reader = csv.reader(csvfile)
-                data = [row for row in reader]
-                columns = data[0]
-                column_index = dict(zip(columns, range(len(columns))))
-                rows = data[1:]
-                for row in rows:
-                    phonemes.extend(row[column_index["ph_seq"]].strip().split(" "))
-        phonemes = set(phonemes)
+        data_path = pathlib.Path(self.config["data_folder"])
+        trans_path_list = data_path.rglob("transcriptions.csv")
 
+        for trans_path in trans_path_list:
+            if trans_path.name == "transcriptions.csv":
+                df = pd.read_csv(trans_path)
+                ph = list(set(" ".join(df["ph_seq"]).split(" ")))
+                phonemes.extend(ph)
+
+        phonemes = set(phonemes)
         for p in self.config["ignore_phonemes"]:
             if p in phonemes:
                 phonemes.remove(p)
@@ -60,7 +51,7 @@ class ForcedAlignmentBinarizer:
 
         vocab = dict(zip(phonemes, range(len(phonemes))))
         vocab.update(dict(zip(range(len(phonemes)), phonemes)))
-        vocab.update({p: 0 for p in self.config["ignore_phonemes"]})
+        vocab.update({i: 0 for i in self.config["ignore_phonemes"]})
         vocab.update({"<vocab_size>": len(phonemes)})
 
         print(f"vocab_size is {len(phonemes)}")
@@ -71,14 +62,14 @@ class ForcedAlignmentBinarizer:
         pass
 
     def process(self):
-        self.vocab = self.generate_vocab()
+        self.vocab = self.get_vocab()
         with open(
             pathlib.Path(self.config["binary_data_folder"]) / "vocab.yaml", "w"
         ) as file:
             yaml.dump(self.vocab, file)
 
         # load meta data of each item
-        self.meta_data_list = self.load_meta_data()
+        self.load_meta_data()
         # # split train, valid and test set
         # (
         #     self.meta_data_list_train,
@@ -97,63 +88,32 @@ class ForcedAlignmentBinarizer:
             for i in path.rglob("transcriptions.csv")
             if i.name == "transcriptions.csv"
         ]
-        wav_path_list = [i for i in path.rglob("*.wav")]
-        meta_data_dict = {
-            "wav_path": [],
-            "ph_seq": [],
-            "ph_dur": [],
-        }
 
-        # read data with transcriptions.csv
         for trans_path in trans_path_list:
             print(f"processing {trans_path}...")
-            with open(trans_path, "rt", newline="") as csvfile:
-                reader = csv.reader(csvfile)
-                data = [row for row in reader]
-                columns = data[0]
-                column_index = dict(zip(columns, range(len(columns))))
-                rows = np.array(data[1:])
-                meta_data_dict["wav_path"].extend(
-                    [
-                        trans_path.parent / "wavs" / f"{i}.wav"
-                        for i in rows[:, [column_index["name"]]]
-                    ]
-                )
-                meta_data_dict["ph_seq"].extend(
-                    rows[:, [column_index["ph_seq"]]].split(" ")
-                )
-        #         for row in tqdm(rows):
-        #             meta_data = {}
+            df = pd.read_csv(trans_path)
+            df["path"] = df.apply(
+                lambda df: str(trans_path.parent / "wavs" / (str(df["name"]) + ".wav")),
+                axis=1,
+            )
+            df["prefix"] = df.apply(
+                lambda df: (
+                    "strong_label"
+                    if "strong_label" in df["path"]
+                    else "weak_label"
+                    if "weak_label" in df["path"]
+                    else "no_label"
+                ),
+                axis=1,
+            )
 
-        #             meta_data["wav_path"] = (
-        #                 trans_path.parent / "wavs" / f"{row[column_index['name']]}.wav"
-        #             )
-        #             if meta_data["wav_path"] in wav_path_list:
-        #                 wav_path_list.remove(meta_data["wav_path"])
+        no_label_df = pd.DataFrame(
+            {"path": [i for i in (path / "no_label").rglob("*.wav")]}
+        )
+        self.meta_data_df = pd.concat([self.meta_data_df, df, no_label_df])
+        self.meta_data_df["prefix"].fillna("no_label", inplace=True)
 
-        #             assert "ph_seq" in columns
-        #             meta_data["ph_seq"] = np.array(
-        #                 [
-        #                     self.vocab[i]
-        #                     for i in row[column_index["ph_seq"]].strip().split(" ")
-        #                 ]
-        #             )
-
-        #             if "ph_dur" in columns:
-        #                 meta_data["ph_dur"] = np.array(
-        #                     [
-        #                         float(i)
-        #                         for i in row[column_index["ph_dur"]].strip().split(" ")
-        #                     ]
-        #                 )
-        #                 assert len(meta_data["ph_dur"]) == len(meta_data["ph_seq"])
-        #             else:
-        #                 meta_data["ph_dur"] = None
-
-        #             meta_data_list.append(meta_data)
-        # print(wav_path_list)
-        return meta_data_list
-        # read data without transcriptions.csv
+        self.meta_data_df.reset_index(drop=True, inplace=True)
 
     #     transcription_data_list = list(raw_data_dir.rglob("transcriptions.csv"))
 
@@ -324,7 +284,7 @@ class ForcedAlignmentBinarizer:
 
 
 if __name__ == "__main__":
-    with open("configs/config copy.yaml", "r") as file:
+    with open("configs/config_new.yaml", "r") as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
     print(config)
     ForcedAlignmentBinarizer(config=config).process()

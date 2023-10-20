@@ -1,0 +1,26 @@
+global:
+  model_name: mandarin_opencpop-extension_singing
+  sample_rate: 48000
+  n_fft: 1024
+  hop_length: 480
+  n_mels: 128
+  chromagram_n_fft: 8192
+  hidden_dim_scaling: 1
+  valid_length: 300
+  melspec_maxlength: 3000
+  label_smoothing: 0.08
+
+  random_seed: 114
+  device: cuda
+
+preeprocessing:
+  data_folder: data/
+  binary_data_folder: data/binary/
+  ignore_phonemes:
+    - AP
+    - SP
+    - <AP>
+    - <SP>
+    - ''
+    - pau
+    - cl
