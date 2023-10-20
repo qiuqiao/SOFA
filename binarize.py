@@ -33,9 +33,6 @@ class ForcedAlignmentBinarizer:
         self.valid_set_size = config["preprocessing"]["valid_set_size"]
         self.data_folder = config["preprocessing"]["data_folder"]
 
-        self.vocab = None
-        self.meta_data_df = None
-
     def get_vocab(self, data_folder_path, ignored_phonemes):
         print("generating vocab...")
         phonemes = []
@@ -64,19 +61,20 @@ class ForcedAlignmentBinarizer:
         return vocab
 
     def process(self):
-        self.vocab = self.get_vocab(self.data_folder_path, self.ignored_phonemes)
+        vocab = self.get_vocab(self.data_folder_path, self.ignored_phonemes)
         with open(pathlib.Path(self.binary_data_folder) / "vocab.yaml", "w") as file:
-            yaml.dump(self.vocab, file)
+            yaml.dump(vocab, file)
 
         # load meta data of each item
-        self.load_meta_data(self.data_folder)
+        meta_data_df = self.get_meta_data(self.data_folder)
+        print(meta_data_df)
 
         # split train and valid set
         valid_set_size = int(self.valid_set_size)
-        meta_data_valid = self.meta_data_df[
-            self.meta_data_df["prefix"] != "no_label"
-        ].sample(valid_set_size)
-        meta_data_train = self.meta_data_df.drop(meta_data_valid.index)
+        meta_data_valid = meta_data_df[meta_data_df["prefix"] != "no_label"].sample(
+            valid_set_size
+        )
+        meta_data_train = meta_data_df.drop(meta_data_valid.index)
 
         # binarize valid set
         self.binarize(meta_data_valid)
@@ -87,7 +85,7 @@ class ForcedAlignmentBinarizer:
     def binarize(self, meta_data: pd.DataFrame):
         meta_data["ph_seq"] = meta_data["ph_seq"].apply(lambda x: x.split(" "))
 
-    def load_meta_data(self, data_folder):
+    def get_meta_data(self, data_folder):
         path = pathlib.Path(data_folder)
         trans_path_list = [
             i
@@ -96,6 +94,7 @@ class ForcedAlignmentBinarizer:
         ]
 
         print("loading metadata...")
+        meta_data_df = pd.DataFrame()
         for trans_path in tqdm(trans_path_list):
             df = pd.read_csv(trans_path)
             df["path"] = df["name"].apply(
@@ -104,21 +103,23 @@ class ForcedAlignmentBinarizer:
             df["prefix"] = df["path"].apply(
                 lambda path: (
                     "strong_label"
-                    if "strong_label" in path
+                    if "strong_lasbel" in path
                     else "weak_label"
                     if "weak_label" in path
                     else "no_label"
                 ),
             )
+            meta_data_df = pd.concat([meta_data_df, df])
 
         no_label_df = pd.DataFrame(
             {"path": [i for i in (path / "no_label").rglob("*.wav")]}
         )
-        self.meta_data_df = pd.concat([self.meta_data_df, df, no_label_df])
-        self.meta_data_df["prefix"].fillna("no_label", inplace=True)
+        meta_data_df = pd.concat([meta_data_df, no_label_df])
+        meta_data_df["prefix"].fillna("no_label", inplace=True)
 
-        self.meta_data_df.reset_index(drop=True, inplace=True)
-        print(self.meta_data_df)
+        meta_data_df.reset_index(drop=True, inplace=True)
+
+        return meta_data_df
 
     # def _process_item(self, waveform, meta_data):
     #     wav_tensor = torch.from_numpy(waveform).to(self.device)
