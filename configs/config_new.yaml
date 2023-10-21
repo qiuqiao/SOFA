@@ -1,9 +1,12 @@
 global:
   model_name: mandarin_opencpop-extension_singing
-  sample_rate: 48000
-  n_fft: 1024
-  hop_length: 480
   n_mels: 128
+  sample_rate: 48000
+  win_length: 1024
+  hop_length: 480
+  fmin: 40
+  fmax: 8000
+  n_fft: 1024
   chromagram_n_fft: 8192
   hidden_dim_scaling: 1
   valid_length: 300
@@ -26,3 +29,4 @@ preprocessing:
     - pau
     - cl
   valid_set_size: 100
+  pitch_extractor: rmvpe # parselmouth
