@@ -2,146 +2,84 @@ import torch
 import pandas as pd
 import utils
 import os
+import pathlib
+import numpy as np
 
 
-class FullLabelDataset(torch.utils.data.Dataset):
-    # return:
-    #   tensor[C,T], input_feature
-    #   tensor[T], target with class indices
-    def __init__(self, name):
+class BinaryDataset(torch.utils.data.Dataset):
+    def __init__(self, binary_data_folder, prefix):
         self.idx_data = pd.read_pickle(
-            os.path.join("data", "full_label", name + ".idx")
+            pathlib.Path(binary_data_folder) / (prefix + ".idx")
         )
-        self.data_file = open(os.path.join("data", "full_label", name + ".data"), "rb")
+        self.data_file = open(
+            pathlib.Path(binary_data_folder) / (prefix + ".data"), "rb"
+        )
 
     def __len__(self):
         return len(self.idx_data)
 
+    def read_ndarray_from_bin(self, file, idx_data):
+        file.seek(idx_data["start"], 0)
+        return np.frombuffer(
+            file.read(idx_data["len"]), dtype=idx_data["dtype"]
+        ).reshape(idx_data["shape"])
+
     def __getitem__(self, index):
         # input_feature
-        input_feature = utils.read_ndarray_from_bin(
+        input_feature = self.read_ndarray_from_bin(
             self.data_file, self.idx_data["input_feature"][index]
         )
         input_feature = torch.tensor(input_feature).float()
 
-        # seg_target
-        seg_target = utils.read_ndarray_from_bin(
-            self.data_file, self.idx_data["seg_target"][index]
+        # ph_seq
+        ph_seq = self.read_ndarray_from_bin(
+            self.data_file, self.idx_data["ph_seq"][index]
         )
-        seg_target = torch.tensor(seg_target).long()
+        ph_seq = torch.tensor(ph_seq).long()
 
-        # edge_target
-        edge_target = utils.read_ndarray_from_bin(
-            self.data_file, self.idx_data["edge_target"][index]
+        # ph_edge
+        ph_edge = self.read_ndarray_from_bin(
+            self.data_file, self.idx_data["ph_edge"][index]
         )
-        edge_target = torch.tensor(edge_target).float()
+        ph_edge = torch.tensor(ph_edge).long()
 
-        return input_feature, seg_target, edge_target
-
-
-class WeakLabelDataset(torch.utils.data.Dataset):
-    # return:
-    #   tensor[C,T], input_feature
-    #   tensor[T], target with class indices
-    def __init__(self, name):
-        self.idx_data = pd.read_pickle(
-            os.path.join("data", "weak_label", name + ".idx")
+        # ph_frame
+        ph_frame = self.read_ndarray_from_bin(
+            self.data_file, self.idx_data["ph_frame"][index]
         )
-        self.data_file = open(os.path.join("data", "weak_label", name + ".data"), "rb")
+        ph_frame = torch.tensor(ph_frame).float()
 
-    def __len__(self):
-        return len(self.idx_data)
-
-    def __getitem__(self, index):
-        # input_feature
-        input_feature = utils.read_ndarray_from_bin(
-            self.data_file, self.idx_data["input_feature"][index]
-        )
-        input_feature = torch.tensor(input_feature).float()
-
-        # ctc_target
-        ctc_target = utils.read_ndarray_from_bin(
-            self.data_file, self.idx_data["ctc_target"][index]
-        )
-        ctc_target = torch.tensor(ctc_target).long()
-
-        return input_feature, ctc_target
-
-
-def weak_label_collate_fn(batch):
-    max_len = []
-    for param in range(len(batch[0])):
-        max_len.append(max([i[param].shape[-1] for i in batch]))
-
-    for i in range(len(batch)):
-        batch_list = list(batch[i])
-        batch_list[0] = torch.nn.functional.pad(
-            torch.tensor(batch_list[0]),
-            (0, max_len[0] - batch_list[0].shape[-1]),
-            "constant",
-            0,
-        )
-        batch_list[1] = torch.tensor(batch_list[1]).long()
-        batch[i] = tuple(batch_list)
-
-    input_feature = torch.stack([i[0] for i in batch])
-
-    ctc_target = torch.cat([i[1] for i in batch])
-    ctc_target_lengths = torch.tensor([len(i[1]) for i in batch])
-
-    return input_feature, ctc_target, ctc_target_lengths
+        return input_feature, ph_seq, ph_edge, ph_frame
 
 
 def collate_fn(batch):
-    max_len = []
-    for param in range(len(batch[0])):
-        max_len.append(max([i[param].shape[-1] for i in batch]))
+    max_len = [
+        max([i[param].shape[-1] for i in batch]) for param in range(len(batch[0]))
+    ]
 
-    for i in range(len(batch)):
-        batch_list = list(batch[i])
-        for param in range(len(max_len)):
-            # batch_list[param] = np.pad(batch_list[param], ((0, 0),(0, max_len[param] - batch_list[param].shape[-1])), 'constant')
-            batch_list[param] = torch.nn.functional.pad(
-                torch.tensor(batch_list[param]),
-                (0, max_len[param] - batch_list[param].shape[-1]),
+    for i, item in enumerate(batch):
+        item = list(item)
+        item[1] = torch.tensor(item[1]).long()
+        for param in [0, 2, 3]:
+            item[param] = torch.nn.functional.pad(
+                torch.tensor(item[param]),
+                (0, max_len[param] - item[param].shape[-1]),
                 "constant",
                 0,
             )
-        batch[i] = tuple(batch_list)
+        batch[i] = tuple(item)
 
-    res = []
-    for param in range(len(batch[0])):
-        # res.append(np.stack([i[param] for i in batch]))
-        res.append(torch.stack([i[param] for i in batch]))
+    ph_seq = torch.cat([item[1] for item in batch])
+    ph_seq_lengths = torch.tensor([len(item[1]) for item in batch])
 
-    return tuple(res)
+    input_feature = torch.stack([item[0] for item in batch])
+    ph_edge = torch.stack([item[2] for item in batch])
+    ph_frame = torch.stack([item[3] for item in batch])
 
-
-class NoLabelDataset(torch.utils.data.Dataset):
-    def __init__(self, name):
-        self.idx_data = pd.read_pickle(os.path.join("data", "no_label", name + ".idx"))
-        self.data_file = open(os.path.join("data", "no_label", name + ".data"), "rb")
-
-    def __len__(self):
-        return len(self.idx_data)
-
-    def __getitem__(self, index):
-        # input_feature
-        input_feature = utils.read_ndarray_from_bin(
-            self.data_file, self.idx_data["input_feature"][index]
-        )
-        input_feature = torch.tensor(input_feature).float()
-
-        # input_feature_weak_aug
-        input_feature_weak_aug = utils.read_ndarray_from_bin(
-            self.data_file, self.idx_data["input_feature_weak_aug"][index]
-        )
-        input_feature_weak_aug = torch.tensor(input_feature_weak_aug).float()
-
-        # input_feature_strong_aug
-        input_feature_strong_aug = utils.read_ndarray_from_bin(
-            self.data_file, self.idx_data["input_feature_strong_aug"][index]
-        )
-        input_feature_strong_aug = torch.tensor(input_feature_strong_aug).float()
-
-        return input_feature, input_feature_weak_aug, input_feature_strong_aug
+    return (
+        input_feature,
+        ph_seq,
+        ph_seq_lengths,
+        ph_edge,
+        ph_frame,
+    )

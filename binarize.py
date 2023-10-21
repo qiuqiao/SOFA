@@ -224,12 +224,6 @@ class ForcedAlignmentBinarizer:
         file.write(array)
         idx_data["len"] = file.tell() - idx_data["start"]
 
-    def read_ndarray_from_bin(self, file, idx_data):
-        file.seek(idx_data["start"], 0)
-        return np.frombuffer(
-            file.read(idx_data["len"]), dtype=idx_data["dtype"]
-        ).reshape(idx_data["shape"])
-
     def get_meta_data(self, data_folder):
         path = pathlib.Path(data_folder)
         trans_path_list = [
