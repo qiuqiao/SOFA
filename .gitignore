@@ -1,20 +1,18 @@
-# 忽略所有文件夹内内容
-*/
-*/transcriptions.csv
-*/*.wav
-*/*.data
-*/*.idx
-*/*.pth
-*.ipynb
-*.csv
-*.zip
-*/__pycache__/*
+.*/
+__*__
+data/binary/*
+data/no_label/*
+data/weak_label/*
+data/strong_label/*
+pretrained/*
+ckpt/*
+segments/*
 
-# 取消忽略myfolder文件夹本身
-!/data/
-!/segments/
-!/ckpt/
-!/dictionary
-!/configs/
-!/modules/
-!/modules/*
+*.ipynb
+*.zip
+*.data
+*.idx
+*.wav
+*.csv
+
+!.gitkeep
