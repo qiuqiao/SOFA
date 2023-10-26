@@ -421,6 +421,35 @@ class Decoder(nn.Module):
         return self.layer(x)
 
 
+class AlignmentModel(nn.Module):
+    def __init__(self, encoder, decoder, config, init_type="xavier_normal"):
+        super(AlignmentModel, self).__init__()
+        self.init_type = init_type
+        self.encoder = encoder
+        self.seg_decoder = decoder
+        self.edge_decoder = nn.Sequential(
+            Decoder(in_channels=128, out_channels=2),
+        )
+
+        self.apply(self.init_weights)
+
+    def init_weights(self, m):
+        init_type = self.init_type
+        if isinstance(m, nn.Conv1d):
+            if init_type == "xavier_normal":
+                nn.init.xavier_normal_(m.weight)
+            elif init_type == "xavier_uniform":
+                nn.init.xavier_uniform_(m.weight)
+            nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        h = self.encoder(x)
+        seg = self.seg_decoder(h)
+        edge = self.edge_decoder(h)
+        ctc = torch.cat((edge[:, [1], :], seg[:, 1:, :]), dim=1)
+        return h, seg, ctc, edge
+
+
 class FullModel(nn.Module):
     def __init__(self, in_channels, out_channels, init_type="xavier_normal"):
         super(FullModel, self).__init__()

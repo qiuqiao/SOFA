@@ -1,5 +1,4 @@
 global:
-  model_name: mandarin_opencpop-extension_singing
   n_mels: 128
   sample_rate: 48000
   win_length: 1024
@@ -13,13 +12,13 @@ global:
   melspec_maxlength: 3000
   label_smoothing: 0.08
 
-  random_seed: 114
+  model_name: mandarin_opencpop-extension_singing
+  random_seed: 114514
   device: cuda
+  binary_data_folder: data/binary/
 
 preprocessing:
   data_folder: data/
-  binary_data_folder: data/binary/
-  test_data_folder: data/test/
   ignored_phonemes:
     - AP
     - SP
@@ -30,3 +29,10 @@ preprocessing:
     - cl
   valid_set_size: 100
   pitch_extractor: rmvpe # parselmouth
+
+train:
+  test_data_folder: data/test/
+  num_gpus: 1
+  random_seed: 114514
+  precision: 32-true # bf16-mixed
+  batch_size: 32

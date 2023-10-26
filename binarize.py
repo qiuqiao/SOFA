@@ -46,7 +46,7 @@ class ForcedAlignmentBinarizer:
 
         self.data_folder_path = config["preprocessing"]["data_folder"]
         self.ignored_phonemes = config["preprocessing"]["ignored_phonemes"]
-        self.binary_data_folder = config["preprocessing"]["binary_data_folder"]
+        self.binary_data_folder = config["global"]["binary_data_folder"]
         self.valid_set_size = config["preprocessing"]["valid_set_size"]
         self.data_folder = config["preprocessing"]["data_folder"]
         self.pitch_extractor = config["preprocessing"]["pitch_extractor"]

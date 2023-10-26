@@ -1,8 +1,28 @@
-einops==0.7.0
-matplotlib==3.7.2
-numpy==1.24.0
-pandas==2.1.1
-praat_textgrids==1.4.0
-PyYAML==6.0.1
-torchaudio==2.0.2
-tqdm==4.66.1
+# It is recommended to install PyTorch manually.
+# PyTorch >= 2.0 is recommended, but 1.12 and 1.13 is compatible.
+# See instructions at https://pytorch.org/get-started/locally/
+
+click
+einops==0.6.1
+fairseq==0.12.2
+gradio
+h5py
+librosa<0.10.0
+lightning>=2.0.0
+matplotlib~=3.7.3
+mido
+MonkeyType==23.3.0
+numpy~=1.24.1
+onnx==1.14.0
+onnxsim==0.4.31
+praat-parselmouth==0.4.3
+PyYAML~=6.0.1
+scipy~=1.10.1
+tensorboard
+tensorboardX
+torchmetrics
+tqdm~=4.66.1
+
+torch~=2.1.0+cu118
+torchaudio~=2.1.0+cu118
+pandas~=2.0.3
