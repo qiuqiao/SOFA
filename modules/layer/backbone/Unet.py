@@ -18,7 +18,6 @@ class UNetBackbone(nn.Module):
 
         self.bottle_neck = block(32 * hidden_dims, 32 * hidden_dims, 32 * hidden_dims, **kwargs)
 
-        self.decoder_upsample = nn.Upsample(scale_factor=2, mode="nearest")
         self.decoder_5 = block((32 + 16) * hidden_dims, 16 * hidden_dims, **kwargs)
         self.residual_d5 = Residual((32 + 16) * hidden_dims, 16 * hidden_dims)
         self.decoder_4 = block((16 + 8) * hidden_dims, 8 * hidden_dims, **kwargs)
