@@ -4,7 +4,6 @@ data/binary/*
 data/no_label/*
 data/weak_label/*
 data/strong_label/*
-pretrained/*
 ckpt/*
 segments/*
 
