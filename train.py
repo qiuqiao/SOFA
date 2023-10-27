@@ -43,7 +43,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    with open(os.path.join("ckpt", args.model_name, "config.yaml"), "r") as file:
+    with open(os.path.join("ckpt", args.model_name, "config_old.yaml"), "r") as file:
         config = yaml.safe_load(file)
     config = utils.dict_to_namespace(config)
     utils.init_config(config)  # temporary solution
@@ -258,7 +258,7 @@ if __name__ == "__main__":
             recall_matrix = np.zeros_like(confusion_matrix)
             for j in range(vocab["<vocab_size>"]):
                 recall_matrix[j, :] = confusion_matrix[j, :] / (
-                    confusion_matrix[j, :].sum() + 1e-10
+                        confusion_matrix[j, :].sum() + 1e-10
                 )
             writer.add_figure(
                 "recall", utils.plot_confusion_matrix(recall_matrix), step
@@ -267,7 +267,7 @@ if __name__ == "__main__":
             precision_matrix = np.zeros_like(confusion_matrix)
             for j in range(vocab["<vocab_size>"]):
                 precision_matrix[:, j] = confusion_matrix[:, j] / (
-                    confusion_matrix[:, j].sum() + 1e-10
+                        confusion_matrix[:, j].sum() + 1e-10
                 )
             writer.add_figure(
                 "precision", utils.plot_confusion_matrix(precision_matrix), step
@@ -278,9 +278,9 @@ if __name__ == "__main__":
             ctc_losses = []
             with torch.no_grad():
                 for (
-                    input_feature,
-                    ctc_target,
-                    ctc_target_lengths,
+                        input_feature,
+                        ctc_target,
+                        ctc_target_lengths,
                 ) in weak_valid_dataloader:
                     input_feature = input_feature.to(config.device)
                     ctc_target = ctc_target.to(config.device).long()
@@ -323,7 +323,7 @@ if __name__ == "__main__":
                         for idx in trange(len(trans)):
                             ph_seq_input = trans.loc[idx, "ph_seq"].split(" ")
                             new_lst = [vocab[0]] * (
-                                len(ph_seq_input) * 2 + 1
+                                    len(ph_seq_input) * 2 + 1
                             )  # 创建一个新列表，长度是原列表的2倍减1。
                             new_lst[1::2] = ph_seq_input  # 将原列表的元素插入到新列表的偶数位置。
                             ph_seq_input = new_lst
@@ -346,8 +346,8 @@ if __name__ == "__main__":
             model.train()
 
         if (
-            step % config.train.save_ckpt_interval == 0
-            and step >= config.train.save_ckpt_start
+                step % config.train.save_ckpt_interval == 0
+                and step >= config.train.save_ckpt_start
         ):
             if not os.path.exists(os.path.join("ckpt", config.model_name)):
                 os.makedirs(os.path.join("ckpt", config.model_name))

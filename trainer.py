@@ -13,12 +13,12 @@ from modules import loss
 class AlignmentModelTrainer:
     def __init__(self, config: dict, vocab: dict):
         with open(
-            "ckpt" / pathlib.Path(config["global"]["model_name"]) / "config.yaml", "w"
+                "ckpt" / pathlib.Path(config["global"]["model_name"]) / "config_old.yaml", "w"
         ):
             yaml.dump(config)
 
         with open(
-            "ckpt" / pathlib.Path(config["global"]["model_name"]) / "vocab.yaml", "w"
+                "ckpt" / pathlib.Path(config["global"]["model_name"]) / "vocab.yaml", "w"
         ):
             yaml.dump(vocab)
 

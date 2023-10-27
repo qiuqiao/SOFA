@@ -161,14 +161,20 @@ class ForcedAlignmentBinarizer:
         h5py_file = h5py.File(pathlib.Path(binary_data_folder) / (prefix + ".h5py"), "w")
 
         print("binarizing...")
-        for idx, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
-            h5py_item_data = h5py_file.create_group(str(idx))
+        idx = 0
+        for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
             # input_feature: [T,input_dim]
             # melspec
             waveform = self.load_wav(item.wav_path)
             input_feature = self.get_melspec(waveform)
             T = input_feature.shape[-1]
-            h5py_item_data["input_feature"] = input_feature.cpu().numpy()
+            if T > self.config["max_timestep"]:
+                print(f"item {item.path} has a length of{T * self.config['max_timestep']} is too long, skip it.")
+                continue
+            else:
+                h5py_item_data = h5py_file.create_group(str(idx))
+                idx += 1
+            h5py_item_data["input_feature"] = input_feature.cpu().numpy().astype("float32")
 
             # ph_seq
             if not item.ph_seq:
@@ -176,7 +182,7 @@ class ForcedAlignmentBinarizer:
             else:
                 ph_seq = np.array(item.ph_seq)
 
-            h5py_item_data["ph_seq"] = ph_seq
+            h5py_item_data["ph_seq"] = ph_seq.astype("int32")
 
             # ph_edge
             if not item.ph_dur:
@@ -189,7 +195,7 @@ class ForcedAlignmentBinarizer:
                     )[:-1]
                 ] = 1
 
-            h5py_item_data["ph_edge"] = ph_edge
+            h5py_item_data["ph_edge"] = ph_edge.astype("float32")
 
             # ph_frame
             if not item.ph_dur:
@@ -197,7 +203,7 @@ class ForcedAlignmentBinarizer:
             else:
                 ph_frame = ph_seq[ph_edge.cumsum()]
 
-            h5py_item_data["ph_frame"] = ph_frame
+            h5py_item_data["ph_frame"] = ph_frame.astype("int32")
 
         h5py_file.close()
 
@@ -240,7 +246,7 @@ class ForcedAlignmentBinarizer:
 
 
 if __name__ == "__main__":
-    with open("configs/config_new.yaml", "r") as f:
+    with open("configs/config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     print(cfg)
     ForcedAlignmentBinarizer(config=cfg).process()

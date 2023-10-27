@@ -1,69 +1,58 @@
 import torch
-import pandas as pd
-import utils
-import os
-import pathlib
+import h5py
 import numpy as np
+import pathlib
 
 
-class BinaryDataset(torch.utils.data.Dataset):
-    def __init__(self, binary_data_folder, prefix):
-        self.idx_data = pd.read_pickle(
-            pathlib.Path(binary_data_folder) / (prefix + ".idx")
-        )
-        self.data_file = open(
-            pathlib.Path(binary_data_folder) / (prefix + ".data"), "rb"
-        )
+class MixedDataset(torch.utils.data.Dataset):
+    def __init__(self, binary_data_folder="data/binary", prefix="train"):
+        # do not open hdf5 here
+        self.h5py_file = None
+        self.keys = None
+        self.binary_data_folder = binary_data_folder
+        self.prefix = prefix
+
+    def open_h5py_file(self):
+        self.h5py_file = h5py.File(str(pathlib.Path(self.binary_data_folder) / (self.prefix + ".h5py")), 'r')
+        self.keys = list(self.h5py_file.keys())
 
     def __len__(self):
-        return len(self.idx_data)
-
-    def read_ndarray_from_bin(self, file, idx_data):
-        file.seek(idx_data["start"], 0)
-        return np.frombuffer(
-            file.read(idx_data["len"]), dtype=idx_data["dtype"]
-        ).reshape(idx_data["shape"])
+        if self.h5py_file is None:
+            self.open_h5py_file()
+        return len(self.keys)
 
     def __getitem__(self, index):
+        if self.h5py_file is None:
+            self.open_h5py_file()
+
+        item = self.h5py_file[self.keys[index]]
+
         # input_feature
-        input_feature = self.read_ndarray_from_bin(
-            self.data_file, self.idx_data["input_feature"][index]
-        )
-        input_feature = torch.tensor(input_feature).float()
+        input_feature = np.array(item["input_feature"])
 
         # ph_seq
-        ph_seq = self.read_ndarray_from_bin(
-            self.data_file, self.idx_data["ph_seq"][index]
-        )
-        ph_seq = torch.tensor(ph_seq).long()
+        ph_seq = np.array(item["ph_seq"])
 
         # ph_edge
-        ph_edge = self.read_ndarray_from_bin(
-            self.data_file, self.idx_data["ph_edge"][index]
-        )
-        ph_edge = torch.tensor(ph_edge).long()
+        ph_edge = np.array(item["ph_edge"])
 
         # ph_frame
-        ph_frame = self.read_ndarray_from_bin(
-            self.data_file, self.idx_data["ph_frame"][index]
-        )
-        ph_frame = torch.tensor(ph_frame).float()
+        ph_frame = np.array(item["ph_frame"])
 
         return input_feature, ph_seq, ph_edge, ph_frame
 
 
 def collate_fn(batch):
-    max_len = [
-        max([i[param].shape[-1] for i in batch]) for param in range(len(batch[0]))
-    ]
-
+    max_len = max([i[0].shape[-1] for i in batch])
+    max_len = max_len + 32 - max_len % 32
+    # padding
     for i, item in enumerate(batch):
         item = list(item)
-        item[1] = torch.tensor(item[1]).long()
+        item[1] = torch.tensor(item[1])
         for param in [0, 2, 3]:
             item[param] = torch.nn.functional.pad(
                 torch.tensor(item[param]),
-                (0, max_len[param] - item[param].shape[-1]),
+                (0, max_len - item[param].shape[-1]),
                 "constant",
                 0,
             )

@@ -16,12 +16,12 @@ SOFA: Singing-Oriented Forced Aligner是一个专为歌声设计的强制对齐�
 
 1. 使用`git clone`​​下载本仓库的代码
 2. 安装所需的python环境
-   1. 创建conda环境，python版本的要求为`3.10`（并不代表其他版本无法工作，你可以自己试试）
-   `conda create -n SOFA python=3.10 -y`
-   `conda activate SOFA`
-   2. 去[pytorch官网](https://pytorch.org/get-started/locally/)安装torch（仅在2.0.1版本进行测试，其他版本有可能出现错误）
-   3. 安装其他python库`pip -r requirements.txt`
-   如果你无法访问外网，请使用
+    1. 创建conda环境，python版本的要求为`3.10`（并不代表其他版本无法工作，你可以自己试试）
+       `conda create -n SOFA python=3.10 -y`
+       `conda activate SOFA`
+    2. 去[pytorch官网](https://pytorch.org/get-started/locally/)安装torch（仅在2.0.1版本进行测试，其他版本有可能出现错误）
+    3. 安装其他python库`pip -r requirements.txt`
+       如果你无法访问外网，请使用
    ```
    pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
    ```
@@ -32,7 +32,7 @@ SOFA: Singing-Oriented Forced Aligner是一个专为歌声设计的强制对齐�
     - ckpt
         - <model_name>
             - *.pth
-            - config.yaml
+            - config_old.yaml
             - vocab.yaml
     ```
 5. （可选）把字典放入`/dictionary`​​文件夹中。默认为`opencpop-extension.txt`​​
@@ -47,7 +47,7 @@ SOFA: Singing-Oriented Forced Aligner是一个专为歌声设计的强制对齐�
             - ...
     ```
 
-    如果有多个歌手，文件夹格式如下
+   如果有多个歌手，文件夹格式如下
 
     ```bash
     - segments
@@ -65,12 +65,13 @@ SOFA: Singing-Oriented Forced Aligner是一个专为歌声设计的强制对齐�
             - ...
     ```
 
-    **注意，singer文件夹内不可有其他文件夹。**
+   **注意，singer文件夹内不可有其他文件夹。**
 7. 命令行推理  
-    需要指定模型所在的文件夹名称`model_name`​，待标注的数据集文件夹`segments_path`​（默认为`/segments`​），字典文件`dictionary_path`​（默认为`/dictionary/opencpop-extension.txt`​）
-    如果.lab文件里是音素序列而不是单词序列，无需使用字典，请指定`-p`​或`--phoneme_mode`​。  
-    除此之外，还支持指定推理时的一些参数，可以使用python infer.py -h查看。
- 
+   需要指定模型所在的文件夹名称`model_name`​，待标注的数据集文件夹`segments_path`​（默认为`/segments`
+   ​），字典文件`dictionary_path`​（默认为`/dictionary/opencpop-extension.txt`​）
+   如果.lab文件里是音素序列而不是单词序列，无需使用字典，请指定`-p`​或`--phoneme_mode`​。  
+   除此之外，还支持指定推理时的一些参数，可以使用python infer.py -h查看。
+
     ```bash
     python infer.py model_name -s SEGMENTS_PATH [-d DICTIONARY_PATH/-p]
     ```

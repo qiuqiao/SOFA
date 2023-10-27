@@ -1,31 +1,38 @@
-model_name: mandarin_opencpop-extension_singing
-sample_rate: 48000
-n_fft: 1024
-hop_length: 480
-n_mels: 128
-chromagram_n_fft: 8192
-hidden_dim_scaling: 1
-valid_length: 300
-melspec_maxlength: 3000
-label_smoothing: 0.08
-ignore_phonemes:
-  - AP
-  - SP
-  - <AP>
-  - <SP>
-  - ''
-  - pau
-  - cl
-random_seed: 114
-device: cuda
+global:
+  n_mels: 128
+  sample_rate: 48000
+  win_length: 1024
+  hop_length: 480
+  fmin: 40
+  fmax: 8000
+  n_fft: 1024
+  chromagram_n_fft: 8192
+  hidden_dim_scaling: 1
+  valid_length: 300
+  max_timestep: 3000 # melspec_maxlength
+  label_smoothing: 0.08
+
+  model_name: mandarin_opencpop-extension_singing
+  random_seed: 114514
+  device: cuda
+  binary_data_folder: data/binary/
+
+preprocessing:
+  data_folder: data/
+  ignored_phonemes:
+    - AP
+    - SP
+    - <AP>
+    - <SP>
+    - ''
+    - pau
+    - cl
+  valid_set_size: 100
+  pitch_extractor: rmvpe # parselmouth
 
 train:
-  batch_size_sup: 24
-  batch_size_wsp: 24
-  weight_decay: 0.01
-  learning_rate: 0.0015
-  max_steps: 10001
-  test_interval: 500
-  save_ckpt_start: 8000
-  save_ckpt_interval: 200
-  val_interval: 100
+  test_data_folder: data/test/
+  num_gpus: 1
+  random_seed: 114514
+  precision: 32-true # bf16-mixed
+  batch_size: 32

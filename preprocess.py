@@ -45,7 +45,7 @@ def get_data_list(folder):
     dataset_list = os.listdir(os.path.join("data", folder))
     for dataset_name in dataset_list:
         if os.path.exists(
-            os.path.join("data", folder, dataset_name, "raw", "transcriptions.csv")
+                os.path.join("data", folder, dataset_name, "raw", "transcriptions.csv")
         ):
             trans = pd.read_csv(
                 os.path.join("data", folder, dataset_name, "raw", "transcriptions.csv"),
@@ -105,7 +105,7 @@ def full_label_binarize(data_list, name="train"):
         # ph_time_int[ph_time_int>=T]=T-1
         target = torch.zeros(T)
         for i in range(len(ph_seq_num)):
-            target[ph_time_int[i] : ph_time_int[i + 1]] = ph_seq_num[i]
+            target[ph_time_int[i]: ph_time_int[i + 1]] = ph_seq_num[i]
 
         seg_target = target.numpy().astype("int32")
         seg_target = np.expand_dims(seg_target, 0)
@@ -115,7 +115,7 @@ def full_label_binarize(data_list, name="train"):
 
         # edge_target
         edge_target = np.zeros_like(seg_target[0]) + config.label_smoothing / (
-            1 - config.label_smoothing
+                1 - config.label_smoothing
         )
         for i in range(len(ph_seq_num) - 1):
             if not (ph_seq_num[i] == 0 and ph_seq_num[i + 1] == 0):
@@ -166,7 +166,7 @@ def weak_label_binarize(data_list, name="train"):
         ph_seq_num = []
         for ph in ph_seq:
             assert (
-                ph in vocab
+                    ph in vocab
             ), f'"{ph}" from {data_list.iloc[index]["path"][:-4]} is not in vocab. please check your dataset or rerun "vocab_gen.py".'
             if vocab[ph] != 0:
                 ph_seq_num.append(vocab[ph])
@@ -190,7 +190,7 @@ def parse_args():
         "-c",
         "--config_path",
         type=str,
-        default=os.path.join("configs", "config.yaml"),
+        default=os.path.join("configs", "config_old.yaml"),
         help="Path to config file.",
     )
 
@@ -210,7 +210,7 @@ def copy_config():
         config_text = file.read()
     if not os.path.exists(os.path.join("ckpt", config.model_name)):
         os.makedirs(os.path.join("ckpt", config.model_name))
-    with open(os.path.join("ckpt", config.model_name, "config.yaml"), "w") as file:
+    with open(os.path.join("ckpt", config.model_name, "config_old.yaml"), "w") as file:
         file.write(config_text)
 
 

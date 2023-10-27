@@ -216,7 +216,7 @@ class Aligner:
         return ctc_ph_seq
 
     def decode_alignment(
-        self, ph_seq_num, prob_log, is_edge_prob_log, not_edge_prob_log
+            self, ph_seq_num, prob_log, is_edge_prob_log, not_edge_prob_log
     ):
         # 乘上is_phoneme正确分类的概率
         prob_log[0, :] += prob_log[0, :]
@@ -232,17 +232,17 @@ class Aligner:
         for i in range(1, dp.shape[-1]):
             # [j,i-1]->[j,i]
             prob1 = (
-                dp[:, i - 1]
-                + prob_log[ph_seq_num[:], i]
-                + not_edge_prob_log[i]
-                - args.empty_count_penalty_weight * (ph_seq_num[:] == 0)
+                    dp[:, i - 1]
+                    + prob_log[ph_seq_num[:], i]
+                    + not_edge_prob_log[i]
+                    - args.empty_count_penalty_weight * (ph_seq_num[:] == 0)
             )
             # [j-1,i-1]->[j,i]
             prob2 = dp[:-1, i - 1] + prob_log[ph_seq_num[1:], i] + is_edge_prob_log[i]
             prob2 += (
-                -args.empty_length_penalty_weight
-                * args.empty_count_penalty_weight
-                * (ph_seq_num[1:] == 0)
+                    -args.empty_length_penalty_weight
+                    * args.empty_count_penalty_weight
+                    * (ph_seq_num[1:] == 0)
             )
             prob2 = np.concatenate([np.array([-np.inf]), prob2])
             # [j-2,i-1]->[j,i]
@@ -288,12 +288,12 @@ class Aligner:
         )
 
     def __call__(
-        self,
-        audio,
-        ph_seq,
-        return_confidence=False,
-        return_ctc_pred=False,
-        return_plot=False,
+            self,
+            audio,
+            ph_seq,
+            return_confidence=False,
+            return_ctc_pred=False,
+            return_plot=False,
     ):
         melspec = utils.extract_normed_mel(audio)
         T = melspec.shape[-1]
@@ -339,7 +339,7 @@ class Aligner:
             edge_diff[ph_time_pred_int]
         ).clip(-0.5, 0.5)
         ph_time_pred = np.concatenate((ph_time_pred, [T + 1])) * (
-            config.hop_length / config.sample_rate
+                config.hop_length / config.sample_rate
         )
         ph_time_pred[0] = 0
 
@@ -578,7 +578,7 @@ def parse_args():
     parser.add_argument(
         "model_name",
         type=str,
-        help="model folder name in /ckpt. It should contain three files: a file with the .pth extension, config.yaml, and vocab.yaml.",
+        help="model folder name in /ckpt. It should contain three files: a file with the .pth extension, config_old.yaml, and vocab.yaml.",
     )
     parser.add_argument(
         "-s",
@@ -633,7 +633,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    with open(os.path.join("ckpt", args.model_name, "config.yaml"), "r") as file:
+    with open(os.path.join("ckpt", args.model_name, "config_old.yaml"), "r") as file:
         config = yaml.safe_load(file)
     config = dict_to_namespace(config)
     utils.init_config(config)  # temporary solution
