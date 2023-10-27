@@ -1,22 +1,17 @@
-import copy
-import csv
-import json
 import pathlib
-import random
 import librosa
 import numpy as np
 import torch
-from scipy import interpolate
 import modules.rmvpe
 import yaml
 from tqdm import tqdm
 import pandas as pd
 import importlib
-import torchaudio  # *发布前记得删掉
-import parselmouth
+import h5py
+import torchaudio  # TODO 发布前记得删掉
 
 FORCED_ALIGNER_ITEM_ATTRIBUTES = [
-    "input_feature",  # contentvec units or mel spectroogram and putch, float32[T_s, input_feature_dim]
+    "input_feature",  # contentvec units or mel spectrogram or with pitch, float32[T_s, input_feature_dim]
     "ph_seq",  # phoneme sequence, str[T_p,]
     "ph_edge",  # edge of phoneme, int32[T_s,], if the label does not exist, it is all -1
     "ph_frame",  # frame-wise phoneme class, int32[T_s,], if the label does not exist, it is all -1
@@ -33,7 +28,7 @@ def check_and_import(package_name):
         globals()[package_name] = importlib.import_module(package_name)
         print(f"'{package_name}' installed and imported.")
         return True
-    except:
+    except ImportError:
         print(f"'{package_name}' not installed.")
         return False
 
@@ -49,9 +44,9 @@ class ForcedAlignmentBinarizer:
         self.binary_data_folder = config["global"]["binary_data_folder"]
         self.valid_set_size = config["preprocessing"]["valid_set_size"]
         self.data_folder = config["preprocessing"]["data_folder"]
-        self.pitch_extractor = config["preprocessing"]["pitch_extractor"]
 
-    def get_vocab(self, data_folder_path, ignored_phonemes):
+    @staticmethod
+    def get_vocab(data_folder_path, ignored_phonemes):
         print("generating vocab...")
         phonemes = []
         trans_path_list = pathlib.Path(data_folder_path).rglob("transcriptions.csv")
@@ -83,15 +78,17 @@ class ForcedAlignmentBinarizer:
         with open(pathlib.Path(self.binary_data_folder) / "vocab.yaml", "w") as file:
             yaml.dump(vocab, file)
 
-        # load meta data of each item
+        # load metadata of each item
         meta_data_df = self.get_meta_data(self.data_folder)
 
         # split train and valid set
         valid_set_size = int(self.valid_set_size)
-        meta_data_valid = meta_data_df[meta_data_df["prefix"] != "no_label"].sample(
-            valid_set_size
+        meta_data_valid = (
+            meta_data_df[meta_data_df["prefix"] != "no_label"]
+            .sample(valid_set_size)
+            .reset_index(drop=True)
         )
-        meta_data_train = meta_data_df.drop(meta_data_valid.index)
+        meta_data_train = meta_data_df.drop(meta_data_valid.index).reset_index(drop=True)
 
         # binarize valid set
         self.binarize(
@@ -99,7 +96,6 @@ class ForcedAlignmentBinarizer:
             meta_data_valid,
             vocab,
             self.binary_data_folder,
-            self.pitch_extractor,
         )
 
         # binarize train set
@@ -108,16 +104,52 @@ class ForcedAlignmentBinarizer:
             meta_data_train,
             vocab,
             self.binary_data_folder,
-            self.pitch_extractor,
         )
 
+    def load_wav(self, path):
+        if self.installed_torchaudio:
+            waveform, sample_rate = torchaudio.load(path)
+            if self.config["sample_rate"] != sample_rate:
+                global resample_transform_dict
+                if sample_rate not in resample_transform_dict:
+                    resample_transform_dict[
+                        sample_rate
+                    ] = torchaudio.transforms.Resample(
+                        sample_rate, self.config["sample_rate"]
+                    )
+
+                waveform = resample_transform_dict[sample_rate](waveform)
+
+            waveform = waveform[0].to(self.config["device"])
+
+        else:
+            waveform, _ = librosa.load(
+                path, sr=self.config["sample_rate"], mono=True
+            )
+            waveform = torch.from_numpy(waveform).to(self.config["device"])
+
+        return waveform
+
+    def get_melspec(self, waveform):
+        global melspec_transform
+        if melspec_transform is None:
+            melspec_transform = modules.rmvpe.MelSpectrogram(
+                n_mel_channels=self.config["n_mels"],
+                sampling_rate=self.config["sample_rate"],
+                win_length=self.config["win_length"],
+                hop_length=self.config["hop_length"],
+                mel_fmin=self.config["fmin"],
+                mel_fmax=self.config["fmax"],
+            ).to(self.config["device"])
+
+        return melspec_transform(waveform.unsqueeze(0)).squeeze(0)
+
     def binarize(
-        self,
-        prefix: str,
-        meta_data: pd.DataFrame,
-        vocab: dict,
-        binary_data_folder: str,
-        pitch_extractor,
+            self,
+            prefix: str,
+            meta_data: pd.DataFrame,
+            vocab: dict,
+            binary_data_folder: str,
     ):
         meta_data["ph_seq"] = meta_data["ph_seq"].apply(
             lambda x: ([vocab[i] for i in x.split(" ")] if isinstance(x, str) else [])
@@ -126,68 +158,28 @@ class ForcedAlignmentBinarizer:
             lambda x: ([float(i) for i in x.split(" ")] if isinstance(x, str) else [])
         )
 
-        idx_data = []
-        binary_file = open(pathlib.Path(binary_data_folder) / (prefix + ".data"), "wb")
+        h5py_file = h5py.File(pathlib.Path(binary_data_folder) / (prefix + ".h5py"), "w")
 
         print("binarizing...")
         for idx, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
-            idx_data_item = {}
-
-            # input_feature: [input_dim,T]
+            h5py_item_data = h5py_file.create_group(str(idx))
+            # input_feature: [T,input_dim]
             # melspec
-            if self.installed_torchaudio:
-                waveform, sample_rate = torchaudio.load(item.wav_path)
-                if self.config["sample_rate"] != sample_rate:
-                    global resample_transform_dict
-                    if sample_rate not in resample_transform_dict:
-                        resample_transform_dict[
-                            sample_rate
-                        ] = torchaudio.transforms.Resample(
-                            sample_rate, self.config["sample_rate"]
-                        )
-
-                    waveform = resample_transform_dict[sample_rate](waveform)
-
-                waveform = waveform[0].to(self.config["device"])
-
-            else:
-                waveform, _ = librosa.load(
-                    item.wav_path, sr=self.config["sample_rate"], mono=True
-                )
-                waveform = torch.from_numpy(waveform).to(self.config["device"])
-
-            global melspec_transform
-            if melspec_transform is None:
-                melspec_transform = modules.rmvpe.MelSpectrogram(
-                    n_mel_channels=self.config["n_mels"],
-                    sampling_rate=self.config["sample_rate"],
-                    win_length=self.config["win_length"],
-                    hop_length=self.config["hop_length"],
-                    mel_fmin=self.config["fmin"],
-                    mel_fmax=self.config["fmax"],
-                ).to(self.config["device"])
-            input_feature = (
-                melspec_transform(waveform.unsqueeze(0)).squeeze(0).cpu().numpy()
-            )
+            waveform = self.load_wav(item.wav_path)
+            input_feature = self.get_melspec(waveform)
             T = input_feature.shape[-1]
-            # *pitch
-
-            idx_data_item["input_feature"] = {}
-            self.wirte_ndarray_to_bin(
-                binary_file, idx_data_item["input_feature"], input_feature
-            )
+            h5py_item_data["input_feature"] = input_feature.cpu().numpy()
 
             # ph_seq
-            if item.ph_seq == []:
+            if not item.ph_seq:
                 ph_seq = np.array([-1])
             else:
                 ph_seq = np.array(item.ph_seq)
 
-            idx_data_item["ph_seq"] = {}
-            self.wirte_ndarray_to_bin(binary_file, idx_data_item["ph_seq"], ph_seq)
+            h5py_item_data["ph_seq"] = ph_seq
 
             # ph_edge
-            if item.ph_dur == []:
+            if not item.ph_dur:
                 ph_edge = -1 * np.ones(T, dtype="int32")
             else:
                 ph_edge = np.zeros(T, dtype="int32")
@@ -197,34 +189,20 @@ class ForcedAlignmentBinarizer:
                     )[:-1]
                 ] = 1
 
-            idx_data_item["ph_edge"] = {}
-            self.wirte_ndarray_to_bin(binary_file, idx_data_item["ph_edge"], ph_edge)
+            h5py_item_data["ph_edge"] = ph_edge
 
             # ph_frame
-            if item.ph_dur == []:
+            if not item.ph_dur:
                 ph_frame = -1 * np.ones(T, dtype="int32")
             else:
                 ph_frame = ph_seq[ph_edge.cumsum()]
 
-            idx_data_item["ph_frame"] = {}
-            self.wirte_ndarray_to_bin(binary_file, idx_data_item["ph_frame"], ph_frame)
+            h5py_item_data["ph_frame"] = ph_frame
 
-            idx_data.append(idx_data_item)
+        h5py_file.close()
 
-        idx_data = pd.DataFrame(idx_data)
-        idx_data.to_pickle(pathlib.Path(binary_data_folder) / (prefix + ".idx"))
-        binary_file.close()
-
-    def wirte_ndarray_to_bin(self, file, idx_data, array):
-        idx_data["start"] = file.tell()
-        idx_data["shape"] = array.shape
-        idx_data["dtype"] = str(array.dtype)
-
-        array = array.tobytes()
-        file.write(array)
-        idx_data["len"] = file.tell() - idx_data["start"]
-
-    def get_meta_data(self, data_folder):
+    @staticmethod
+    def get_meta_data(data_folder):
         path = pathlib.Path(data_folder)
         trans_path_list = [
             i
@@ -240,11 +218,11 @@ class ForcedAlignmentBinarizer:
                 lambda name: str(trans_path.parent / "wavs" / (str(name) + ".wav")),
             )
             df["prefix"] = df["wav_path"].apply(
-                lambda path: (
+                lambda path_: (
                     "strong_label"
-                    if "strong_label" in path
+                    if "strong_label" in path_
                     else "weak_label"
-                    if "weak_label" in path
+                    if "weak_label" in path_
                     else "no_label"
                 ),
             )
@@ -262,7 +240,7 @@ class ForcedAlignmentBinarizer:
 
 
 if __name__ == "__main__":
-    with open("configs/config_new.yaml", "r") as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
-    # print(config)
-    ForcedAlignmentBinarizer(config=config).process()
+    with open("configs/config_new.yaml", "r") as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+    print(cfg)
+    ForcedAlignmentBinarizer(config=cfg).process()
