@@ -14,5 +14,7 @@ segments/*
 *.idx
 *.wav
 *.csv
+*.h5
+*.h5py
 
 !.gitkeep
