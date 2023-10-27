@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 from einops import rearrange
-from attention import MultiHeadSelfAttention
-from func_module import FuncModule
-from residual import Residual
+from .attention import MultiHeadSelfAttention
+from .func_module import FuncModule
+from .residual import Residual
 from modules.layer.activation.GLU import GLU
 
 

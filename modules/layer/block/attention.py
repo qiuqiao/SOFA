@@ -3,10 +3,6 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-import modules
-from func_module import FuncModule
-from residual import Residual
-
 
 class MultiHeadSelfAttention(nn.Module):
     def __init__(
