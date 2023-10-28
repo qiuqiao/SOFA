@@ -2,6 +2,13 @@ import torch
 import torch.nn as nn
 
 
+def update_ema(ema, alpha, num_bins, hist):
+    hist = hist / (torch.sum(hist) + 1e-10) * num_bins
+    ema = ema * alpha + (1 - alpha) * hist
+    ema = ema / (torch.sum(ema) + 1e-10) * num_bins
+    return ema
+
+
 class GHMLoss(torch.nn.Module):
     def __init__(
             self,
@@ -58,17 +65,31 @@ class GHMLoss(torch.nn.Module):
         # "Elements lower than min and higher than max and NaN elements are ignored."
         if mask is not None:
             L1_loss = L1_loss + 10 * (mask - 1)
-            classes_stat = (torch.sqrt(pred_probs * target_probs) * mask.unsqueeze(1)).sum(dim=0).sum(dim=-1)
+            classes_hist = (torch.sqrt(pred_probs * target_probs) * mask.unsqueeze(1)).sum(dim=0).sum(dim=-1)
         else:
-            classes_stat = (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)
-        loss_bins_stat = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
-        self.loss_bins_ema = self.update_ema(self.loss_bins_ema, self.num_loss_bins, loss_bins_stat)
-        self.classes_ema = self.update_ema(self.classes_ema, self.num_classes, classes_stat)
+            classes_hist = (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)
+        loss_hist = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
+        self.loss_bins_ema = update_ema(self.loss_bins_ema, self.num_loss_bins, loss_hist)
+        self.classes_ema = update_ema(self.classes_ema, self.num_classes, classes_hist)
 
         return loss_final
 
-    def update_ema(self, ema, num_bins, stat):
-        stat = stat / (torch.sum(stat) + 1e-10) * num_bins
-        ema = ema * self.alpha + (1 - self.alpha) * stat
-        ema = ema / (torch.sum(ema) + 1e-10) * num_bins
-        return ema
+
+class CTCGHMLoss(torch.nn.Module):
+    def __init__(self, num_bins=10, alpha=0.99):
+        super().__init__()
+        self.ctc_loss_fn = nn.CTCLoss(reduction='none')
+        self.num_bins = num_bins
+        self.ema = torch.ones(num_bins)
+        self.alpha = alpha
+
+    def forward(self, log_probs, targets, input_lengths, target_lengths):
+        raw_loss = self.ctc_loss_fn(log_probs, targets, input_lengths, target_lengths)
+        loss_for_ema = (- raw_loss / input_lengths).exp().clamp(1e-6, 1 - 1e-6)  # 值域为[0, 1]
+        loss_weighted = raw_loss / (self.ema[torch.floor(loss_for_ema * self.num_bins).long()] + 1e-10)
+        loss_final = loss_weighted.mean()
+
+        hist = torch.histogram(loss_for_ema, bins=self.num_bins, range=(0., 1.), weight=input_lengths.float()).hist
+        self.ema = update_ema(self.ema, self.alpha, self.num_bins, hist)
+
+        return loss_final
