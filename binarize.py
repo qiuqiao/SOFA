@@ -8,6 +8,7 @@ from tqdm import tqdm
 import pandas as pd
 import importlib
 import h5py
+import click
 import torchaudio  # TODO 发布前记得删掉
 
 FORCED_ALIGNER_ITEM_ATTRIBUTES = [
@@ -245,8 +246,14 @@ class ForcedAlignmentBinarizer:
         return meta_data_df
 
 
-if __name__ == "__main__":
-    with open("configs/config.yaml", "r") as f:
+@click.command()
+@click.option("--config_path", "-c", default="configs/config.yaml", help="config path, default: configs/config.yaml")
+def binarize(config_path: str):
+    with open(config_path, "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
-    print(cfg)
+    # print(cfg)
     ForcedAlignmentBinarizer(config=cfg).process()
+
+
+if __name__ == "__main__":
+    binarize()
