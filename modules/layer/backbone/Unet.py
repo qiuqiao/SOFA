@@ -6,7 +6,7 @@ from modules.layer.block.residual import Residual
 
 
 class UNetBackbone(nn.Module):
-    def __init__(self, input_dims, output_dims, hidden_dims, block=ForwardBackwardConformerBlock, **kwargs):
+    def __init__(self, input_dims, output_dims, hidden_dims=64, block=ForwardBackwardConformerBlock, **kwargs):
         super(UNetBackbone, self).__init__()
 
         self.encoder_1 = block(input_dims, hidden_dims, hidden_dims, **kwargs)

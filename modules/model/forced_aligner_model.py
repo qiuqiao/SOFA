@@ -1,34 +1,43 @@
 import torch
 import torch.nn as nn
 from modules.layer.backbone.Unet import UNetBackbone
+from modules.layer.block.conformer import ForwardBackwardConformerBlock
 
 
 class ForcedAlignmentModel(nn.Module):
-    def __init__(self, input_dims, output_dims, hidden_dims, init_type="xavier_uniform"):
+    def __init__(self, input_dims, output_dims_ph_frame, hidden_dims=64, init_type="xavier_uniform"):
         super(ForcedAlignmentModel, self).__init__()
 
         self.init_type = init_type
-        self.backbone=UNetBackbone()
-        self.ph_frame_head=
-        self.ph_edge_head=
+        self.backbone = UNetBackbone(input_dims, hidden_dims, hidden_dims, block=ForwardBackwardConformerBlock)
+        self.ph_frame_head = nn.Sequential(
+            nn.Linear(hidden_dims, hidden_dims),
+            nn.Hardswish(),
+            nn.Linear(hidden_dims, output_dims_ph_frame)
+        )
+        self.ph_edge_head = nn.Sequential(
+            nn.Linear(hidden_dims, hidden_dims),
+            nn.Hardswish(),
+            nn.Linear(hidden_dims, 2)
+        )
 
         self.apply(self.init_weights)
 
     def init_weights(self, m):
         init_type = self.init_type
-        if isinstance(m, nn.Conv1d):
+        if isinstance(m, nn.Conv1d) or isinstance(m, nn.Linear):
             if init_type == "xavier_normal":
-                nn.init.xavier_normal_(m.weight)
+                nn.init.xavier_normal_(m.weight.data)
             elif init_type == "xavier_uniform":
-                nn.init.xavier_uniform_(m.weight)
-            nn.init.constant_(m.bias, 0)
+                nn.init.xavier_uniform_(m.weight.data)
+            nn.init.constant_(m.bias.data, 0)
 
     def forward(self, x):
-        h = self.encoder(x)
-        seg = self.seg_decoder(h)
-        edge = self.edge_decoder(h)
-        ctc = torch.cat((edge[:, [1], :], seg[:, 1:, :]), dim=1)
-        return h, seg, ctc, edge
+        h = self.backbone(x)
+        ph_frame = self.ph_frame_head(h)
+        ph_edge = self.ph_edge_head(h)
+        ctc = torch.cat((ph_edge[:, [1], :], ph_frame[:, 1:, :]), dim=1)
+        return ph_frame, ph_edge, ctc
 
 
 class EMA:

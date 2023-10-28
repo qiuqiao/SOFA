@@ -33,6 +33,5 @@ preprocessing:
 train:
   test_data_folder: data/test/
   num_gpus: 1
-  random_seed: 114514
   precision: 32-true # bf16-mixed
   batch_size: 32
