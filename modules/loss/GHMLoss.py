@@ -4,84 +4,71 @@ import torch.nn as nn
 
 class GHMLoss(torch.nn.Module):
     def __init__(
-        self,
-        device,
-        num_classes,
-        num_prob_bins=10,
-        alpha=0.99,
-        label_smoothing=0.0,
-        enable_prob_input=False,
+            self,
+            num_classes,
+            num_loss_bins=10,
+            alpha=0.99,
+            label_smoothing=0.0,
     ):
         super().__init__()
-        self.device = device
-        self.enable_prob_input = enable_prob_input
         self.num_classes = num_classes
-        self.num_prob_bins = num_prob_bins
-        if not enable_prob_input:
-            self.classes_ema = torch.ones(num_classes).to(self.device)
-        self.prob_bins_ema = torch.ones(num_prob_bins).to(self.device)
+        self.classes_ema = torch.ones(num_classes)
+        self.num_loss_bins = num_loss_bins
+        self.loss_bins_ema = torch.ones(num_loss_bins)
         self.alpha = alpha
         self.loss_fn = nn.CrossEntropyLoss(
             reduction="none", label_smoothing=label_smoothing
         )
 
-    def forward(self, pred, target):
-        pred_prob = torch.softmax(pred, dim=1)
-        if not self.enable_prob_input:
-            target_prob = (
-                torch.zeros_like(pred_prob)
-                .scatter_(1, target.unsqueeze(1), 1)
-                .to(self.device)
-            )
+    def forward(self, pred, target, mask=None):
+        # pred: [B, C, T]
+        assert len(pred.shape) == 3 and pred.shape[1] == self.num_classes
+        # target: [B, T] or [B, C, T]
+        assert len(target.shape) == 2 or (len(target.shape) == 3 and target.shape[1] == self.num_classes)
+        # mask: [B, T]
+        if mask is not None:
+            assert mask.shape[0] == target.shape[0] and mask.shape[1] == target.shape[-1]
+
+        raw_loss = self.loss_fn(pred, target)  # [B, T]
+
+        if pred.shape != target.shape:
+            target_probs = (torch.zeros_like(pred).scatter_(1, target.unsqueeze(1), 1))  # [B, C, T]
         else:
-            target_prob = target
-        pred_prob = (pred_prob * target_prob).sum(dim=1).clamp(1e-6, 1 - 1e-6)
+            target_probs = target  # [B, C, T]
+        pred_probs = torch.softmax(pred, dim=1)  # [B, C, T]
 
-        loss = self.loss_fn(pred, target)
-        if not self.enable_prob_input:
-            loss_classes = target.long()
-            # print(len(self.classes_ema),loss_classes.min().cpu().numpy(),loss_classes.max().cpu().numpy(),len(self.prob_bins_ema),torch.floor(pred_prob*self.num_prob_bins).long().min().cpu().numpy(),torch.floor(pred_prob*self.num_prob_bins-1e-10).long().max().cpu().numpy())
-            loss_weighted = loss / torch.sqrt(
-                (
-                    self.classes_ema[loss_classes]
-                    * self.prob_bins_ema[
-                        torch.floor(pred_prob * self.num_prob_bins - 1e-6).long()
-                    ]
-                    + 1e-10
-                )
-            )
+        # calculate weighted loss
+        # 这里与原版实现不同，这里用了L1 loss，而不是原版的“真实标签的概率”。这是为了兼容概率张量输入。
+        # 这里的L1_loss值域是[0,2]，除以2以保证范围在[0,1]
+        L1_loss = (pred_probs - target_probs).abs().sum(dim=1).clamp(1e-6, 2 - 1e-6) / 2  # [B, T]
+        loss_weighted = raw_loss / torch.sqrt(
+            (self.classes_ema.unsqueeze(0).unsqueeze(-1) * torch.sqrt(pred_probs * target_probs)).sum(dim=1)
+            * self.loss_bins_ema[torch.floor(L1_loss * self.num_loss_bins).long()]
+            + 1e-10
+        )  # [B, T]
+
+        # apply mask
+        if mask is not None:
+            loss_weighted = loss_weighted * mask
+            loss_final = torch.sum(loss_weighted) / torch.sum(mask)
         else:
-            loss_weighted = loss / (
-                self.prob_bins_ema[torch.floor(pred_prob * self.num_prob_bins).long()]
-                + 1e-10
-            )
-        loss = torch.mean(loss_weighted)
+            loss_final = torch.mean(loss_weighted)
 
-        prob_bins = torch.histc(pred_prob, bins=self.num_prob_bins, min=0, max=1).to(
-            self.device
-        )
-        prob_bins = prob_bins / (torch.sum(prob_bins) + 1e-10) * self.num_prob_bins
-        self.prob_bins_ema = (
-            self.prob_bins_ema * self.alpha + (1 - self.alpha) * prob_bins
-        )
-        self.prob_bins_ema = (
-            self.prob_bins_ema
-            / (torch.sum(self.prob_bins_ema) + 1e-10)
-            * self.num_prob_bins
-        )
+        # update ema
+        # "Elements lower than min and higher than max and NaN elements are ignored."
+        if mask is not None:
+            L1_loss = L1_loss + 10 * (mask - 1)
+            classes_stat = (torch.sqrt(pred_probs * target_probs) * mask.unsqueeze(1)).sum(dim=0).sum(dim=-1)
+        else:
+            classes_stat = (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)
+        loss_bins_stat = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
+        self.loss_bins_ema = self.update_ema(self.loss_bins_ema, self.num_loss_bins, loss_bins_stat)
+        self.classes_ema = self.update_ema(self.classes_ema, self.num_classes, classes_stat)
 
-        if not self.enable_prob_input:
-            classes = torch.histc(
-                target.float(), bins=self.num_classes, min=0, max=self.num_classes - 1
-            ).to(self.device)
-            classes = classes / (torch.sum(classes) + 1e-10) * self.num_classes
-            self.classes_ema = (
-                self.classes_ema * self.alpha + (1 - self.alpha) * classes
-            )
-            self.classes_ema = (
-                self.classes_ema
-                / (torch.sum(self.classes_ema) + 1e-10)
-                * self.num_classes
-            )
+        return loss_final
 
-        return loss
+    def update_ema(self, ema, num_bins, stat):
+        stat = stat / (torch.sum(stat) + 1e-10) * num_bins
+        ema = ema * self.alpha + (1 - self.alpha) * stat
+        ema = ema / (torch.sum(ema) + 1e-10) * num_bins
+        return ema
