@@ -80,9 +80,9 @@ class ForcedAlignmentBinarizer:
         meta_data_valid = (
             meta_data_df[meta_data_df["label_type"] != "no_label"]
             .sample(valid_set_size)
-            .reset_index(drop=True)
         )
         meta_data_train = meta_data_df.drop(meta_data_valid.index).reset_index(drop=True)
+        meta_data_valid = meta_data_valid.reset_index(drop=True)
 
         # binarize valid set
         self.binarize(
@@ -145,28 +145,24 @@ class ForcedAlignmentBinarizer:
             vocab: dict,
             binary_data_folder: str,
     ):
-        print("Binarizing...")
+        print(f"Binarizing {prefix} set...")
         meta_data["ph_seq"] = meta_data["ph_seq"].apply(
             lambda x: ([vocab[i] for i in x.split(" ")] if isinstance(x, str) else [])
         )
         meta_data["ph_dur"] = meta_data["ph_dur"].apply(
             lambda x: ([float(i) for i in x.split(" ")] if isinstance(x, str) else [])
         )
-        meta_data["label_type_num"] = meta_data["label_type"].apply(
-            lambda x: 2 if x == "strong_label" else 1 if x == "weak_label" else 0
-        )
+        meta_data = meta_data.sort_values(by="label_type").reset_index(drop=True)
 
-        h5py_file = h5py.File(pathlib.Path(binary_data_folder) / (prefix + ".h5py"), "w")
-
-        h5py_meta_data = h5py_file.create_group("meta_data")
-        h5py_meta_data["item_num"] = meta_data.shape[0]
-        h5py_meta_data["strong_label_num"] = meta_data[meta_data["label_type_num"] == 2].shape[0]
-        h5py_meta_data["weak_label_num"] = meta_data[meta_data["label_type_num"] == 1].shape[0]
-        h5py_meta_data["no_label_num"] = meta_data[meta_data["label_type_num"] == 0].shape[0]
-
+        h5py_file_path = pathlib.Path(binary_data_folder) / (prefix + ".h5py")
+        h5py_file = h5py.File(h5py_file_path, "w")
         h5py_items = h5py_file.create_group("items")
 
+        label_type_to_id = {"no_label": 0, "weak_label": 1, "strong_label": 2}
+        label_type_ids = []
+
         idx = 0
+        total_timestep = 0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
             # input_feature: [T,input_dim]
@@ -176,27 +172,22 @@ class ForcedAlignmentBinarizer:
             T = input_feature.shape[0]
             if T > self.config["max_timestep"]:
                 print(f"Item {item.path} has a length of{T * self.config['max_timestep']} is too long, skip it.")
-                h5py_file["meta_data/item_num"] -= 1
-                if item.label_type == "strong_label":
-                    h5py_file["meta_data/strong_label_num"] -= 1
-                elif item.label_type == "weak_label":
-                    h5py_file["meta_data/weak_label_num"] -= 1
-                else:
-                    h5py_file["meta_data/no_label_num"] -= 1
                 continue
 
             else:
                 h5py_item_data = h5py_items.create_group(str(idx))
                 idx += 1
+                total_timestep += T
 
             h5py_item_data["input_feature"] = input_feature.cpu().numpy().astype("float32")
 
             # label_type: [1]
-            label_type_num = np.array([item.label_type_num])
-            h5py_item_data["label_type"] = label_type_num.astype("int32")
+            label_type_id = label_type_to_id[item.label_type]
+            h5py_item_data["label_type"] = np.array([label_type_id]).astype("int32")
+            label_type_ids.append(label_type_id)
 
             # ph_seq: [S]
-            if label_type_num < 1:
+            if label_type_id < 1:
                 ph_seq = np.array([])
             else:
                 ph_seq = np.array(item.ph_seq)
@@ -204,23 +195,27 @@ class ForcedAlignmentBinarizer:
             h5py_item_data["ph_seq"] = ph_seq.astype("int32")
 
             # ph_edge: [T]
-            if label_type_num < 2:
+            if label_type_id < 2:
                 ph_edge = np.zeros(T, dtype="float32")
             else:
                 ph_edge = np.zeros(T, dtype="float32")
-                ph_edge[
-                    (np.array(item.ph_dur).cumsum() / self.config["timestep"]).astype(
-                        "int32"
-                    )[:-1]
-                ] = 1
+                ph_edge_int = np.zeros(T, dtype="int32")  # for ph_frame
+                ph_time = (np.array(item.ph_dur).cumsum() / self.config["timestep"])[:-1]
+                if ph_time[0] < 0.5 + 1e-3:
+                    ph_time = ph_time[1:]
+                ph_time_int = ph_time.round().astype("int32")
+                ph_time_fractional = ph_time - ph_time_int
+                ph_edge_int[ph_time_int] = 1
+                ph_edge[ph_time_int] = 0.5 + ph_time_fractional
+                ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
 
             h5py_item_data["ph_edge"] = ph_edge.astype("float32")
 
             # ph_frame: [vocab_size,T]
-            if label_type_num < 2:
+            if label_type_id < 2:
                 ph_frame = np.zeros(T, dtype="int32")
             else:
-                ph_frame = ph_seq[ph_edge.cumsum().round().astype("int32")]
+                ph_frame = ph_seq[ph_edge_int.cumsum().astype("int32")]
 
             h5py_item_data["ph_frame"] = ph_frame.astype("int32")
 
@@ -231,7 +226,12 @@ class ForcedAlignmentBinarizer:
             #       h5py_item_data["ph_frame"].shape
             #       )
 
+        h5py_file.create_dataset("label_type_ids", data=np.array(label_type_ids).astype("int32"))
         h5py_file.close()
+        total_time = total_timestep * self.config["timestep"]
+        print(
+            f"Successfully binarized {prefix} set, total time {total_time:.2f}s, saved to {h5py_file_path}"
+        )
 
     @staticmethod
     def get_meta_data(data_folder):
