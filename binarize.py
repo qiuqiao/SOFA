@@ -165,11 +165,11 @@ class ForcedAlignmentBinarizer:
         total_timestep = 0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
-            # input_feature: [T,input_dim]
+            # input_feature: [input_dim,T]
             waveform = self.load_wav(item.wav_path)
-            input_feature = self.get_melspec(waveform).transpose(0, 1)
+            input_feature = self.get_melspec(waveform)
 
-            T = input_feature.shape[0]
+            T = input_feature.shape[-1]
             if T > self.config["max_timestep"]:
                 print(f"Item {item.path} has a length of{T * self.config['max_timestep']} is too long, skip it.")
                 continue
@@ -181,9 +181,9 @@ class ForcedAlignmentBinarizer:
 
             h5py_item_data["input_feature"] = input_feature.cpu().numpy().astype("float32")
 
-            # label_type: [1]
+            # label_type: []
             label_type_id = label_type_to_id[item.label_type]
-            h5py_item_data["label_type"] = np.array([label_type_id]).astype("int32")
+            h5py_item_data["label_type"] = label_type_id
             label_type_ids.append(label_type_id)
 
             # ph_seq: [S]
@@ -211,7 +211,7 @@ class ForcedAlignmentBinarizer:
 
             h5py_item_data["ph_edge"] = ph_edge.astype("float32")
 
-            # ph_frame: [vocab_size,T]
+            # ph_frame: [T]
             if label_type_id < 2:
                 ph_frame = np.zeros(T, dtype="int32")
             else:

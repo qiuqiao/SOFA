@@ -73,7 +73,7 @@ def collate_fn(batch):
     ph_edge = torch.stack([item[2] for item in batch])
     ph_frame = torch.stack([item[3] for item in batch])
 
-    label_type = torch.stack([item[4] for item in batch])
+    label_type = torch.tensor(np.array([item[4] for item in batch]))
 
     return (
         input_feature,
