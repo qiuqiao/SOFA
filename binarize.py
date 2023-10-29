@@ -9,14 +9,7 @@ import pandas as pd
 import importlib
 import h5py
 import click
-import torchaudio  # TODO 发布前记得删掉
-
-FORCED_ALIGNER_ITEM_ATTRIBUTES = [
-    "input_feature",  # contentvec units or mel spectrogram or with pitch, float32[T_s, input_feature_dim]
-    "ph_seq",  # phoneme sequence, str[T_p,]
-    "ph_edge",  # edge of phoneme, int32[T_s,], if the label does not exist, it is all -1
-    "ph_frame",  # frame-wise phoneme class, int32[T_s,], if the label does not exist, it is all -1
-]
+import torchaudio
 
 melspec_transform = None
 resample_transform_dict = {}
@@ -48,7 +41,7 @@ class ForcedAlignmentBinarizer:
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
-        print("generating vocab...")
+        print("Generating vocab...")
         phonemes = []
         trans_path_list = pathlib.Path(data_folder_path).rglob("transcriptions.csv")
 
@@ -85,7 +78,7 @@ class ForcedAlignmentBinarizer:
         # split train and valid set
         valid_set_size = int(self.valid_set_size)
         meta_data_valid = (
-            meta_data_df[meta_data_df["prefix"] != "no_label"]
+            meta_data_df[meta_data_df["label_type"] != "no_label"]
             .sample(valid_set_size)
             .reset_index(drop=True)
         )
@@ -152,44 +145,69 @@ class ForcedAlignmentBinarizer:
             vocab: dict,
             binary_data_folder: str,
     ):
+        print("Binarizing...")
         meta_data["ph_seq"] = meta_data["ph_seq"].apply(
             lambda x: ([vocab[i] for i in x.split(" ")] if isinstance(x, str) else [])
         )
         meta_data["ph_dur"] = meta_data["ph_dur"].apply(
             lambda x: ([float(i) for i in x.split(" ")] if isinstance(x, str) else [])
         )
+        meta_data["label_type_num"] = meta_data["label_type"].apply(
+            lambda x: 2 if x == "strong_label" else 1 if x == "weak_label" else 0
+        )
 
         h5py_file = h5py.File(pathlib.Path(binary_data_folder) / (prefix + ".h5py"), "w")
 
-        print("binarizing...")
+        h5py_meta_data = h5py_file.create_group("meta_data")
+        h5py_meta_data["item_num"] = meta_data.shape[0]
+        h5py_meta_data["strong_label_num"] = meta_data[meta_data["label_type_num"] == 2].shape[0]
+        h5py_meta_data["weak_label_num"] = meta_data[meta_data["label_type_num"] == 1].shape[0]
+        h5py_meta_data["no_label_num"] = meta_data[meta_data["label_type_num"] == 0].shape[0]
+
+        h5py_items = h5py_file.create_group("items")
+
         idx = 0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
+
             # input_feature: [T,input_dim]
-            # melspec
             waveform = self.load_wav(item.wav_path)
-            input_feature = self.get_melspec(waveform)
-            T = input_feature.shape[-1]
+            input_feature = self.get_melspec(waveform).transpose(0, 1)
+
+            T = input_feature.shape[0]
             if T > self.config["max_timestep"]:
-                print(f"item {item.path} has a length of{T * self.config['max_timestep']} is too long, skip it.")
+                print(f"Item {item.path} has a length of{T * self.config['max_timestep']} is too long, skip it.")
+                h5py_file["meta_data/item_num"] -= 1
+                if item.label_type == "strong_label":
+                    h5py_file["meta_data/strong_label_num"] -= 1
+                elif item.label_type == "weak_label":
+                    h5py_file["meta_data/weak_label_num"] -= 1
+                else:
+                    h5py_file["meta_data/no_label_num"] -= 1
                 continue
+
             else:
-                h5py_item_data = h5py_file.create_group(str(idx))
+                h5py_item_data = h5py_items.create_group(str(idx))
                 idx += 1
+
             h5py_item_data["input_feature"] = input_feature.cpu().numpy().astype("float32")
 
-            # ph_seq
-            if not item.ph_seq:
-                ph_seq = np.array([-1])
+            # label_type: [1]
+            label_type_num = np.array([item.label_type_num])
+            h5py_item_data["label_type"] = label_type_num.astype("int32")
+
+            # ph_seq: [S]
+            if label_type_num < 1:
+                ph_seq = np.array([])
             else:
                 ph_seq = np.array(item.ph_seq)
 
             h5py_item_data["ph_seq"] = ph_seq.astype("int32")
 
-            # ph_edge
-            if not item.ph_dur:
-                ph_edge = -1 * np.ones(T, dtype="int32")
+            # ph_edge: [T]
+            if label_type_num < 2:
+                ph_edge = np.zeros(T, dtype="float32")
             else:
-                ph_edge = np.zeros(T, dtype="int32")
+                ph_edge = np.zeros(T, dtype="float32")
                 ph_edge[
                     (np.array(item.ph_dur).cumsum() / self.config["timestep"]).astype(
                         "int32"
@@ -198,13 +216,20 @@ class ForcedAlignmentBinarizer:
 
             h5py_item_data["ph_edge"] = ph_edge.astype("float32")
 
-            # ph_frame
-            if not item.ph_dur:
-                ph_frame = -1 * np.ones(T, dtype="int32")
+            # ph_frame: [vocab_size,T]
+            if label_type_num < 2:
+                ph_frame = np.zeros(T, dtype="int32")
             else:
-                ph_frame = ph_seq[ph_edge.cumsum()]
+                ph_frame = ph_seq[ph_edge.cumsum().round().astype("int32")]
 
             h5py_item_data["ph_frame"] = ph_frame.astype("int32")
+
+            # print(h5py_item_data["input_feature"].shape,
+            #       h5py_item_data["label_type"].shape,
+            #       h5py_item_data["ph_seq"].shape,
+            #       h5py_item_data["ph_edge"].shape,
+            #       h5py_item_data["ph_frame"].shape
+            #       )
 
         h5py_file.close()
 
@@ -217,14 +242,14 @@ class ForcedAlignmentBinarizer:
             if i.name == "transcriptions.csv"
         ]
 
-        print("loading metadata...")
+        print("Loading metadata...")
         meta_data_df = pd.DataFrame()
         for trans_path in tqdm(trans_path_list):
             df = pd.read_csv(trans_path)
             df["wav_path"] = df["name"].apply(
                 lambda name: str(trans_path.parent / "wavs" / (str(name) + ".wav")),
             )
-            df["prefix"] = df["wav_path"].apply(
+            df["label_type"] = df["wav_path"].apply(
                 lambda path_: (
                     "strong_label"
                     if "strong_label" in path_
@@ -239,7 +264,7 @@ class ForcedAlignmentBinarizer:
             {"wav_path": [i for i in (path / "no_label").rglob("*.wav")]}
         )
         meta_data_df = pd.concat([meta_data_df, no_label_df])
-        meta_data_df["prefix"].fillna("no_label", inplace=True)
+        meta_data_df["label_type"].fillna("no_label", inplace=True)
 
         meta_data_df.reset_index(drop=True, inplace=True)
 
@@ -247,7 +272,7 @@ class ForcedAlignmentBinarizer:
 
 
 @click.command()
-@click.option("--config_path", "-c", default="configs/config.yaml", help="config path, default: configs/config.yaml")
+@click.option("--config_path", "-c", type=str, default="configs/config.yaml", show_default=True, help="config path")
 def binarize(config_path: str):
     with open(config_path, "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
