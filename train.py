@@ -24,7 +24,7 @@ import math
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
-    def __init__(self, config, vocab, model):
+    def __init__(self, config, vocab, model, init_type="kaiming_normal"):
         super().__init__()
         torch.autograd.set_detect_anomaly(True)
         # read configs
@@ -43,15 +43,26 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_loss_fn = CTCGHMLoss(alpha=0.999)
 
-        self.xavier_init(self.model)
+        self.init_type = init_type
+        self.apply(self.init_weights)
 
-    def xavier_init(self, model):
-        for name, param in model.named_parameters():
-            if name.endswith(".bias"):
-                param.data.fill_(0)
-            else:
-                bound = math.sqrt(6) / torch.sqrt(torch.sum(torch.tensor(param.shape)))
-                param.data.uniform_(-bound, bound)
+    def init_weights(self, m):
+        if self.init_type == "xavier_uniform":
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
+                nn.init.xavier_uniform_(m.weight)
+                m.bias.data.fill_(0.)
+        elif self.init_type == "xavier_normal":
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
+                nn.init.xavier_normal_(m.weight)
+                m.bias.data.fill_(0.)
+        elif self.init_type == "kaiming_normal":
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
+                nn.init.kaiming_normal_(m.weight)
+                m.bias.data.fill_(0.)
+        elif self.init_type == "kaiming_uniform":
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
+                nn.init.kaiming_uniform_(m.weight)
+                m.bias.data.fill_(0.)
 
     def _get_loss(
             self,
