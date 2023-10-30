@@ -19,9 +19,9 @@ class GHMLoss(torch.nn.Module):
     ):
         super().__init__()
         self.num_classes = num_classes
-        self.classes_ema = torch.ones(num_classes)
+        self.register_buffer("classes_ema", torch.ones(num_classes))
         self.num_loss_bins = num_loss_bins
-        self.loss_bins_ema = torch.ones(num_loss_bins)
+        self.register_buffer("loss_bins_ema", torch.ones(num_loss_bins))
         self.alpha = alpha
         self.loss_fn = nn.CrossEntropyLoss(
             reduction="none", label_smoothing=label_smoothing
@@ -31,6 +31,8 @@ class GHMLoss(torch.nn.Module):
         # pred: [B, C, T]
         assert len(pred.shape) == 3 and pred.shape[1] == self.num_classes
         # target: [B, T] or [B, C, T]
+        if len(target.shape) == 2:
+            target = target.long()
         assert len(target.shape) == 2 or (len(target.shape) == 3 and target.shape[1] == self.num_classes)
         # mask: [B, T]
         if mask is not None:
@@ -39,7 +41,8 @@ class GHMLoss(torch.nn.Module):
         raw_loss = self.loss_fn(pred, target)  # [B, T]
 
         if pred.shape != target.shape:
-            target_probs = (torch.zeros_like(pred).scatter_(1, target.unsqueeze(1), 1))  # [B, C, T]
+            target_probs = (torch.zeros_like(pred).to(pred.device)
+                            .scatter_(1, target.unsqueeze(1).to(torch.int64), 1))  # [B, C, T]
         else:
             target_probs = target  # [B, C, T]
         pred_probs = torch.softmax(pred, dim=1)  # [B, C, T]
@@ -70,8 +73,8 @@ class GHMLoss(torch.nn.Module):
         else:
             classes_hist = (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)  # [C]
         loss_hist = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
-        self.loss_bins_ema = update_ema(self.loss_bins_ema, self.num_loss_bins, loss_hist)
-        self.classes_ema = update_ema(self.classes_ema, self.num_classes, classes_hist)
+        self.loss_bins_ema = update_ema(self.loss_bins_ema, self.alpha, self.num_loss_bins, loss_hist)
+        self.classes_ema = update_ema(self.classes_ema, self.alpha, self.num_classes, classes_hist)
 
         return loss_final
 
@@ -81,7 +84,7 @@ class CTCGHMLoss(torch.nn.Module):
         super().__init__()
         self.ctc_loss_fn = nn.CTCLoss(reduction='none')
         self.num_bins = num_bins
-        self.ema = torch.ones(num_bins)
+        self.register_buffer("ema", torch.ones(num_bins))
         self.alpha = alpha
 
     def forward(self, log_probs, targets, input_lengths, target_lengths):
@@ -90,7 +93,7 @@ class CTCGHMLoss(torch.nn.Module):
         loss_weighted = raw_loss / (self.ema[torch.floor(loss_for_ema * self.num_bins).long()] + 1e-10)
         loss_final = loss_weighted.mean()
 
-        hist = torch.histogram(loss_for_ema, bins=self.num_bins, range=(0., 1.), weight=input_lengths.float()).hist
+        hist = torch.histc(loss_for_ema, bins=self.num_bins, min=0, max=1)
         self.ema = update_ema(self.ema, self.alpha, self.num_bins, hist)
 
         return loss_final
