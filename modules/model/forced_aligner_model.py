@@ -5,11 +5,12 @@ from modules.layer.block.conformer import ForwardBackwardConformerBlock
 
 
 class ForcedAlignmentModel(nn.Module):
-    def __init__(self, input_dims, output_dims_ph_frame, hidden_dims=64, init_type="xavier_uniform"):
+    def __init__(self, input_dims, output_dims_ph_frame, hidden_dims=64, init_type="xavier_uniform", **kwargs):
         super(ForcedAlignmentModel, self).__init__()
 
         self.init_type = init_type
-        self.backbone = UNetBackbone(input_dims, hidden_dims, hidden_dims, block=ForwardBackwardConformerBlock)
+        self.backbone = UNetBackbone(input_dims, hidden_dims, hidden_dims, block=ForwardBackwardConformerBlock,
+                                     **kwargs)
         self.ph_frame_head = nn.Sequential(
             nn.Linear(hidden_dims, hidden_dims),
             nn.Hardswish(),
@@ -36,7 +37,7 @@ class ForcedAlignmentModel(nn.Module):
         h = self.backbone(x)
         ph_frame = self.ph_frame_head(h)
         ph_edge = self.ph_edge_head(h)
-        ctc = torch.cat((ph_edge[:, [1], :], ph_frame[:, 1:, :]), dim=1)
+        ctc = torch.cat((ph_edge[:, :, [0]], ph_frame[:, :, 1:]), dim=-1)
         return ph_frame, ph_edge, ctc
 
 

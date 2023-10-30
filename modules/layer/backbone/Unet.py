@@ -71,7 +71,6 @@ class UNetBackbone(nn.Module):
         x = torch.cat((x, x1), dim=-1)
         x = self.residual_d1(x, self.decoder_1(x))
 
-        print(x.shape, x0.shape)
         x = torch.cat((x, x0), dim=-1)
         out = self.out(x)
 

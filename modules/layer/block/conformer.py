@@ -16,6 +16,7 @@ class ConformerBlock(nn.Module):
             kernel_size=3,
             dropout=0.1,
             num_heads=8,
+            max_seq_len=3200,
             mask="none",
     ):
         super(ConformerBlock, self).__init__()
@@ -29,7 +30,7 @@ class ConformerBlock(nn.Module):
         )
         self.multi_head_self_attention = nn.Sequential(
             nn.LayerNorm(hidden_dims),
-            MultiHeadSelfAttention(hidden_dims, num_heads=num_heads, mask=mask),
+            MultiHeadSelfAttention(hidden_dims, num_heads=num_heads, mask=mask, max_seq_len=max_seq_len),
         )
         self.convolution = nn.Sequential(
             nn.LayerNorm(hidden_dims),
@@ -96,6 +97,7 @@ class ForwardBackwardConformerBlock(nn.Module):
             kernel_size=3,
             dropout=0.1,
             num_heads=8,
+            max_seq_len=3200,
     ):
         super(ForwardBackwardConformerBlock, self).__init__()
         self.forward_block = ConformerBlock(input_dims,
@@ -104,14 +106,18 @@ class ForwardBackwardConformerBlock(nn.Module):
                                             kernel_size,
                                             dropout,
                                             num_heads,
-                                            mask='upper')
+                                            max_seq_len,
+                                            mask='upper',
+                                            )
         self.backward_block = ConformerBlock(hidden_dims,
                                              output_dims,
                                              hidden_dims,
                                              kernel_size,
                                              dropout,
                                              num_heads,
-                                             mask='lower')
+                                             max_seq_len,
+                                             mask='lower',
+                                             )
 
     def forward(self, x):
         x = self.forward_block(x)
@@ -121,8 +127,9 @@ class ForwardBackwardConformerBlock(nn.Module):
 
 if __name__ == "__main__":
     # test
-    bs, l, dims = 16, 320, 128
-    input_tensor = torch.randn(bs, l, dims)
-    model = ForwardBackwardConformerBlock(dims, 64)
-    y = model(input_tensor)
-    print(input_tensor.shape, y.shape)
+    # bs, l, dims = 16, 320, 128
+    # input_tensor = torch.randn(bs, l, dims)
+    # model = ForwardBackwardConformerBlock(dims, 64)
+    # y = model(input_tensor)
+    # print(input_tensor.shape, y.shape)
+    pass
