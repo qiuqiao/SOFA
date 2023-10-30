@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from einops import rearrange
+from einops import rearrange, repeat
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -46,9 +46,9 @@ class MultiHeadSelfAttention(nn.Module):
         self.linear = nn.Linear(model_dim, model_dim)
         self.dropout = nn.Dropout(dropout)
         self.register_buffer("theta_base", torch.Tensor([10000.0]))  # 常量tensor需要用register_buffer注册，否则.to(device)不起作用
-        self.register_buffer("rotation_complex_matrix",
-                             self.precompute_rotation_complex_matrix(max_seq_len,
-                                                                     self.theta_base))  # 常量tensor需要用register_buffer注册，否则.to(device)不起作用
+        cos, sin = self.precompute_rotation_matrix(max_seq_len, self.theta_base)
+        self.register_buffer("rotation_matrix_cos", cos)
+        self.register_buffer("rotation_matrix_sin", sin)
 
         self.init_type = init_type
         self.apply(self.init_weights)
@@ -66,34 +66,34 @@ class MultiHeadSelfAttention(nn.Module):
                 nn.init.kaiming_normal_(module.weight)
             nn.init.constant_(module.bias, 0)
 
-    def precompute_rotation_complex_matrix(self, seq_len: int, theta_base):
+    def precompute_rotation_matrix(self, seq_len: int, theta_base):
         dim = self.d_k
         power = torch.arange(dim // 2) * (-2) / dim
         theta_vector = torch.pow(theta_base, power).float()
         position_vector = torch.arange(seq_len).float()
         rotation_angle_matrix = torch.outer(position_vector, theta_vector)
-        rotation_complex_matrix = (
-            torch.polar(torch.ones_like(rotation_angle_matrix), rotation_angle_matrix)
-            .unsqueeze(0)
-            .unsqueeze(0)
-        )
-        return rotation_complex_matrix
+        rotation_angle_matrix = repeat(rotation_angle_matrix, "l d -> l (d repeat)", repeat=2)
+        rotation_matrix_cos = torch.cos(rotation_angle_matrix).unsqueeze(0).unsqueeze(0)
+        rotation_matrix_sin = torch.sin(rotation_angle_matrix).unsqueeze(0).unsqueeze(0)
+        return rotation_matrix_cos, rotation_matrix_sin
 
     def apply_rotary_emb(self, xq: torch.Tensor, xk: torch.Tensor):
         # xq.shape = [batch_size, num_heads, seq_len, d_k]
-        # xq_complex.shape = [batch_size, num_heads, seq_len, d_k // 2, 2]
-        xq_complex = rearrange(xq, "b h t (d c) -> b h t d c", c=2)
-        xk_complex = rearrange(xk, "b h t (d c) -> b h t d c", c=2)
+        def get_sin_weight(q):
+            q = rearrange(q, "b h t (d1 d2) -> b h t d2 d1", d2=2)
+            q = q.clone()
+            q[:, :, :, 1, :] = -1 * q[:, :, :, 1, :]
+            q = q[:, :, :, [1, 0], :]
+            q = rearrange(q, "b h t d2 d1 -> b h t (d1 d2)")
+            return q
 
-        xq_complex = torch.view_as_complex(xq_complex)
-        xk_complex = torch.view_as_complex(xk_complex)
-
-        rotation_complex_matrix = self.rotation_complex_matrix[:, :, xq_complex.shape[-2], :]
-        xq_out = torch.view_as_real(xq_complex * rotation_complex_matrix)
-        xk_out = torch.view_as_real(xk_complex * rotation_complex_matrix)
-
-        xq_out = rearrange(xq_out, "b h t d c -> b h t (d c)", c=2)
-        xk_out = rearrange(xk_out, "b h t d c -> b h t (d c)", c=2)
+        # print(xq.shape, self.rotation_matrix_cos.shape)
+        xq_ = get_sin_weight(xq)
+        xk_ = get_sin_weight(xk)
+        xq_out = (xq * self.rotation_matrix_cos[:, :, xq.shape[2], :, ] +
+                  xq_ * self.rotation_matrix_sin[:, :, xq.shape[2], :, ])
+        xk_out = (xk * self.rotation_matrix_cos[:, :, xk.shape[2], :, ] +
+                  xk_ * self.rotation_matrix_sin[:, :, xk.shape[2], :, ])
 
         return xq_out, xk_out
 
@@ -125,3 +125,10 @@ class MultiHeadSelfAttention(nn.Module):
 
         output = self.linear(output)  # size: (batch_size, seq_len, model_dim)
         return output
+
+
+if __name__ == "__main__":
+    model = MultiHeadSelfAttention(128, 8)
+    tensor_x = torch.randn(4, 32, 128)
+    y = model(tensor_x)
+    print(y.shape)
