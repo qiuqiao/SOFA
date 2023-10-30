@@ -28,6 +28,8 @@ class GHMLoss(torch.nn.Module):
         )
 
     def forward(self, pred, target, mask=None):
+        if len(pred) <= 0:
+            return torch.tensor(0.0).to(pred.device)
         # pred: [B, C, T]
         assert len(pred.shape) == 3 and pred.shape[1] == self.num_classes
         # target: [B, T] or [B, C, T]
@@ -45,17 +47,19 @@ class GHMLoss(torch.nn.Module):
                             .scatter_(1, target.unsqueeze(1).to(torch.int64), 1))  # [B, C, T]
         else:
             target_probs = target  # [B, C, T]
-        pred_probs = torch.softmax(pred, dim=1)  # [B, C, T]
+        pred_probs = torch.softmax(pred, dim=1).detach()  # [B, C, T]
 
         # calculate weighted loss
         # 这里与原版实现不同，这里用了L1 loss，而不是原版的“真实标签的概率”。这是为了兼容概率张量输入。
         # 这里的L1_loss值域是[0,2]，除以2以保证范围在[0,1]
         L1_loss = (pred_probs - target_probs).abs().sum(dim=1).clamp(1e-6, 2 - 1e-6) / 2  # [B, T]
-        loss_weighted = raw_loss / torch.sqrt(
+        weight = torch.sqrt(
             (self.classes_ema.unsqueeze(0).unsqueeze(-1) * torch.sqrt(pred_probs * target_probs)).sum(dim=1)
             * self.loss_bins_ema[torch.floor(L1_loss * self.num_loss_bins).long()]
             + 1e-10
         )  # [B, T]
+        # print(weight.mean(), weight.shape)
+        loss_weighted = raw_loss / weight  # [B, T]
 
         # apply mask
         if mask is not None:
@@ -88,6 +92,8 @@ class CTCGHMLoss(torch.nn.Module):
         self.alpha = alpha
 
     def forward(self, log_probs, targets, input_lengths, target_lengths):
+        if len(log_probs) <= 0:
+            return torch.tensor(0.0).to(log_probs.device)
         raw_loss = self.ctc_loss_fn(log_probs, targets, input_lengths, target_lengths)
         loss_for_ema = (- raw_loss / input_lengths).exp().clamp(1e-6, 1 - 1e-6)  # 值域为[0, 1]
         loss_weighted = raw_loss / (self.ema[torch.floor(loss_for_ema * self.num_bins).long()] + 1e-10)
