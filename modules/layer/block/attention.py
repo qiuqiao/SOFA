@@ -9,7 +9,7 @@ class MultiHeadSelfAttention(nn.Module):
             self,
             model_dim: int,
             num_heads: int,
-            max_seq_len: int = 512,
+            max_seq_len: int = 3200,
             dropout: float = 0.0,
             mask: str = "none",
             init_type: str = "xavier_uniform",
@@ -45,9 +45,10 @@ class MultiHeadSelfAttention(nn.Module):
         self.wv = nn.Linear(model_dim, model_dim)
         self.linear = nn.Linear(model_dim, model_dim)
         self.dropout = nn.Dropout(dropout)
-        self.rotation_complex_matrix = self.precompute_rotation_complex_matrix(
-            self.d_k, max_seq_len
-        )
+        self.register_buffer("theta_base", torch.Tensor([10000.0]))  # 常量tensor需要用register_buffer注册，否则.to(device)不起作用
+        self.register_buffer("rotation_complex_matrix",
+                             self.precompute_rotation_complex_matrix(max_seq_len,
+                                                                     self.theta_base))  # 常量tensor需要用register_buffer注册，否则.to(device)不起作用
 
         self.init_type = init_type
         self.apply(self.init_weights)
@@ -65,10 +66,8 @@ class MultiHeadSelfAttention(nn.Module):
                 nn.init.kaiming_normal_(module.weight)
             nn.init.constant_(module.bias, 0)
 
-    @staticmethod
-    def precompute_rotation_complex_matrix(
-            dim: int, seq_len: int, theta_base=torch.Tensor([10000.0])
-    ):
+    def precompute_rotation_complex_matrix(self, seq_len: int, theta_base):
+        dim = self.d_k
         power = torch.arange(dim // 2) * (-2) / dim
         theta_vector = torch.pow(theta_base, power).float()
         position_vector = torch.arange(seq_len).float()
@@ -80,10 +79,7 @@ class MultiHeadSelfAttention(nn.Module):
         )
         return rotation_complex_matrix
 
-    @staticmethod
-    def apply_rotary_emb(
-            xq: torch.Tensor, xk: torch.Tensor, rotation_complex_matrix: torch.Tensor
-    ):
+    def apply_rotary_emb(self, xq: torch.Tensor, xk: torch.Tensor):
         # xq.shape = [batch_size, num_heads, seq_len, d_k]
         # xq_complex.shape = [batch_size, num_heads, seq_len, d_k // 2, 2]
         xq_complex = rearrange(xq, "b h t (d c) -> b h t d c", c=2)
@@ -92,7 +88,7 @@ class MultiHeadSelfAttention(nn.Module):
         xq_complex = torch.view_as_complex(xq_complex)
         xk_complex = torch.view_as_complex(xk_complex)
 
-        rotation_complex_matrix = rotation_complex_matrix[:, :, xq_complex.shape[-2], :]
+        rotation_complex_matrix = self.rotation_complex_matrix[:, :, xq_complex.shape[-2], :]
         xq_out = torch.view_as_real(xq_complex * rotation_complex_matrix)
         xk_out = torch.view_as_real(xk_complex * rotation_complex_matrix)
 
@@ -110,7 +106,7 @@ class MultiHeadSelfAttention(nn.Module):
         xk = xk.view(batch_size, self.num_heads, seq_len, self.d_k)
         xv = xv.view(batch_size, self.num_heads, seq_len, self.d_k)
 
-        xq, xk = self.apply_rotary_emb(xq, xk, self.rotation_complex_matrix)
+        xq, xk = self.apply_rotary_emb(xq, xk)
 
         scores = torch.matmul(xq, xk.transpose(-2, -1)) / np.sqrt(
             self.d_k
