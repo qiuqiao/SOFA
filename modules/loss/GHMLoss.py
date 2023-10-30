@@ -56,18 +56,19 @@ class GHMLoss(torch.nn.Module):
 
         # apply mask
         if mask is not None:
-            loss_weighted = loss_weighted * mask
-            loss_final = torch.sum(loss_weighted) / torch.sum(mask)
+            loss_weighted = loss_weighted * (1 - mask)
+            loss_final = torch.sum(loss_weighted) / torch.sum(1 - mask)
         else:
             loss_final = torch.mean(loss_weighted)
 
         # update ema
         # "Elements lower than min and higher than max and NaN elements are ignored."
         if mask is not None:
-            L1_loss = L1_loss + 10 * (mask - 1)
-            classes_hist = (torch.sqrt(pred_probs * target_probs) * mask.unsqueeze(1)).sum(dim=0).sum(dim=-1)
+            L1_loss = L1_loss - 10 * mask
+            classes_hist = ((torch.sqrt(pred_probs * target_probs) * (1 - mask).unsqueeze(1))
+                            .sum(dim=0).sum(dim=-1))  # [C]
         else:
-            classes_hist = (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)
+            classes_hist = (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)  # [C]
         loss_hist = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
         self.loss_bins_ema = update_ema(self.loss_bins_ema, self.num_loss_bins, loss_hist)
         self.classes_ema = update_ema(self.classes_ema, self.num_classes, classes_hist)
@@ -76,7 +77,7 @@ class GHMLoss(torch.nn.Module):
 
 
 class CTCGHMLoss(torch.nn.Module):
-    def __init__(self, num_bins=10, alpha=0.99):
+    def __init__(self, num_bins=10, alpha=0.999):
         super().__init__()
         self.ctc_loss_fn = nn.CTCLoss(reduction='none')
         self.num_bins = num_bins
