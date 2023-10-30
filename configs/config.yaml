@@ -31,7 +31,23 @@ preprocessing:
   pitch_extractor: rmvpe # parselmouth
 
 train:
+  use_pretrained_model: False
+  pretrained_model_path: ''
+  num_hidden_dims: 64
+
   test_data_folder: data/test/
-  num_gpus: 1
-  precision: 32-true # bf16-mixed
-  batch_size: 32
+
+  accelerator: auto
+  devices: auto # num_devices
+  precision: 32-true #bf16-mixed , 32-true
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm #value
+
+  batch_size: 3
+  learning_rate: 0.001 #0.001
+  weight_decay: 0.1
+
+  max_steps: 10000
+  valid_intervals: 200
+  test_intervals: 1000
+  save_intervals: 1000
