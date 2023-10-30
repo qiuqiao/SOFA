@@ -201,6 +201,8 @@ def main(config_path: str):
     )
 
     trainer = pl.Trainer(accelerator=config["train"]["accelerator"],
+                         devices=config["train"]["devices"],
+                         precision=config["train"]["precision"],
                          gradient_clip_val=config["train"]["gradient_clip_val"],
                          gradient_clip_algorithm=config["train"]["gradient_clip_algorithm"])
     trainer.fit(model=lightning_alignment_model, train_dataloaders=train_dataloader)
