@@ -22,7 +22,8 @@ tensorboard
 tensorboardX
 torchmetrics
 tqdm~=4.66.1
+textgrid
 
-torch~=2.1.0+cu118
-torchaudio~=2.1.0+cu118
+torch
+torchaudio
 pandas~=2.0.3
