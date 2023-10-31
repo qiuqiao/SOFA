@@ -24,13 +24,15 @@ import math
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
-    def __init__(self, vocab_text, learning_rate, weight_decay, init_type, label_smoothing, n_mels, max_timestep):
+    def __init__(self, vocab_text, learning_rate, weight_decay, hidden_dims, init_type, label_smoothing, n_mels,
+                 max_timestep):
         super().__init__()
         # 为了能够推理，需要把config和vocab变为hparams，并且把model放进定义里，而不是外部传参model
         # hparams
         self.save_hyperparameters()
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
+        self.hidden_dims = hidden_dims
         self.init_type = init_type
         self.label_smoothing = label_smoothing
         self.n_mels = n_mels
@@ -41,7 +43,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # define model
         self.model = ForcedAlignmentModel(self.n_mels,
                                           self.vocab["<vocab_size>"],
-                                          hidden_dims=64,
+                                          hidden_dims=self.hidden_dims,
                                           max_seq_len=self.max_timestep + 32
                                           )
 
@@ -251,6 +253,7 @@ def main(config_path: str):
     lightning_alignment_model = LitForcedAlignmentModel(vocab_text,
                                                         config["train"]["learning_rate"],
                                                         config["train"]["weight_decay"],
+                                                        config["train"]["hidden_dims"],
                                                         config["train"]["init_type"],
                                                         config["train"]["label_smoothing"],
                                                         config["global"]["n_mels"],

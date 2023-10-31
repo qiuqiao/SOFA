@@ -30,19 +30,23 @@ preprocessing:
   pitch_extractor: rmvpe # parselmouth
 
 train:
+  # settings
+  float32_matmul_precision: high
+
+  # dataloader
+  batch_size: 3
+  dataloader_workers: 15
+
+  # model
   learning_rate: 0.001 #0.001
   weight_decay: 0.1
+  hidden_dims: 64
   init_type: kaiming_normal # kaiming_normal, kaiming_uniform, xavier_normal, xavier_uniform
   label_smoothing: 0.08
   # global: n_mels
   # global: max_timestep
 
-  use_pretrained_model: False
-  pretrained_model_path: ''
-  num_hidden_dims: 64
-
-  test_data_folder: data/test/
-
+  # trainer
   accelerator: gpu
   devices: auto # num_devices
   precision: 32-true # bf16-mixed , 32-true
@@ -50,11 +54,10 @@ train:
   gradient_clip_algorithm: norm #value
   val_check_interval: 500 # 0.25
 
-  dataloader_workers: 15
+  use_pretrained_model: False
+  pretrained_model_path: ''
 
-  float32_matmul_precision: high
-
-  batch_size: 3
+  test_data_folder: data/test/
 
   max_steps: 10000
   valid_intervals: 200
