@@ -13,11 +13,13 @@ class ForcedAlignmentModel(nn.Module):
                                      **kwargs)
         self.ph_frame_head = nn.Sequential(
             nn.Linear(hidden_dims, hidden_dims),
+            nn.LayerNorm(hidden_dims),
             nn.Hardswish(),
             nn.Linear(hidden_dims, output_dims_ph_frame)
         )
         self.ph_edge_head = nn.Sequential(
             nn.Linear(hidden_dims, hidden_dims),
+            nn.LayerNorm(hidden_dims),
             nn.Hardswish(),
             nn.Linear(hidden_dims, 2)
         )

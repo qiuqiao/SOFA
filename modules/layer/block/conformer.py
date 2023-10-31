@@ -12,7 +12,7 @@ class ConformerBlock(nn.Module):
             self,
             input_dims=128,
             output_dims=128,
-            hidden_dims=128,
+            hidden_dims=64,
             kernel_size=3,
             dropout=0.1,
             num_heads=8,
@@ -56,8 +56,8 @@ class ConformerBlock(nn.Module):
                 padding=kernel_size // 2,
                 groups=hidden_dims,
             ),
-            nn.Dropout(dropout),
             FuncModule(lambda x: rearrange(x, "b c t -> b t c")),
+            nn.Dropout(dropout),
         )
         self.feed_forward_2 = nn.Sequential(
             nn.LayerNorm(hidden_dims),
@@ -74,8 +74,6 @@ class ConformerBlock(nn.Module):
         self.residual_h_o = Residual(hidden_dims, output_dims)
 
     def forward(self, x):
-        # input and output shape should be:[B C T]
-        # Feed Forward
         x = self.residual_i_h(x, (1 / 2) * self.feed_forward_1(x))
         # Multi-head self-attention
         x = self.residual_h_h(x, self.multi_head_self_attention(x))

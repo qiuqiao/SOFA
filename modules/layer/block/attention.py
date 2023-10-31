@@ -69,8 +69,8 @@ class MultiHeadSelfAttention(nn.Module):
     def precompute_rotation_matrix(self, seq_len: int, theta_base):
         dim = self.d_k
         power = torch.arange(dim // 2) * (-2) / dim
-        theta_vector = torch.pow(theta_base, power).float()
-        position_vector = torch.arange(seq_len).float()
+        theta_vector = torch.pow(theta_base, power)
+        position_vector = torch.arange(seq_len)
         rotation_angle_matrix = torch.outer(position_vector, theta_vector)
         rotation_angle_matrix = repeat(rotation_angle_matrix, "l d -> l (d repeat)", repeat=2)
         rotation_matrix_cos = torch.cos(rotation_angle_matrix).unsqueeze(0).unsqueeze(0)
