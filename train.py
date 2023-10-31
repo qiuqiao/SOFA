@@ -76,6 +76,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             input_feature_lengths,  # (B)
             label_type,  # (B)
     ):
+        log_values = {}
         # drop according to label_type
         ph_frame_pred = ph_frame_pred[label_type >= 2, :, :]
         ph_frame = ph_frame[label_type >= 2, :]
@@ -90,36 +91,49 @@ class LitForcedAlignmentModel(pl.LightningModule):
         mask = repeat(mask, "T -> B T", B=ph_frame_pred.shape[0])
         mask = (mask >= input_lengths_strong.unsqueeze(1)).to(ph_frame_pred.dtype)  # (B, T)
 
-        # ph_frame_loss
-        ph_frame_pred = rearrange(ph_frame_pred, "B T C -> B C T")
-        ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(ph_frame_pred, ph_frame, mask)
+        if ph_frame_pred.shape[0] > 0:
+            # ph_frame_loss
+            ph_frame_pred = rearrange(ph_frame_pred, "B T C -> B C T")
+            ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(ph_frame_pred, ph_frame, mask)
+            log_values["ph_frame_GHM_loss"] = ph_frame_GHM_loss.detach()
 
-        # ph_edge loss
-        ph_edge_pred = rearrange(ph_edge_pred, "B T C -> B C T")
-        edge_prob = nn.functional.softmax(ph_edge_pred, dim=1)[:, 0, :]
+            # ph_edge loss
+            ph_edge_pred = rearrange(ph_edge_pred, "B T C -> B C T")
+            edge_prob = nn.functional.softmax(ph_edge_pred, dim=1)[:, 0, :]
 
-        ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(ph_edge_pred, ph_edge, mask)
+            ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(ph_edge_pred, ph_edge, mask)
+            log_values["ph_edge_GHM_loss"] = ph_edge_GHM_loss.detach()
 
-        ph_edge_EMD_loss = self.EMD_loss_fn(edge_prob, ph_edge[:, 0, :])
+            ph_edge_EMD_loss = self.EMD_loss_fn(edge_prob, ph_edge[:, 0, :])
+            log_values["ph_edge_EMD_loss"] = ph_edge_EMD_loss.detach()
 
-        edge_prob_diff = torch.diff(edge_prob, 1, dim=-1)
-        edge_gt_diff = torch.diff(ph_edge[:, 0, :], 1, dim=-1)
-        edge_diff_mask = (edge_gt_diff != 0).to(ph_frame_pred.dtype)
-        ph_edge_diff_loss = self.MSE_loss_fn(edge_prob_diff * edge_diff_mask, edge_gt_diff * edge_diff_mask)
+            edge_prob_diff = torch.diff(edge_prob, 1, dim=-1)
+            edge_gt_diff = torch.diff(ph_edge[:, 0, :], 1, dim=-1)
+            edge_diff_mask = (edge_gt_diff != 0).to(ph_frame_pred.dtype)
+            ph_edge_diff_loss = self.MSE_loss_fn(edge_prob_diff * edge_diff_mask, edge_gt_diff * edge_diff_mask)
+            log_values["ph_edge_diff_loss"] = ph_edge_diff_loss.detach()
 
-        ph_edge_loss = ph_edge_GHM_loss + 0.01 * ph_edge_EMD_loss + ph_edge_diff_loss
+            ph_edge_loss = ph_edge_GHM_loss + ph_edge_EMD_loss + ph_edge_diff_loss
+        else:
+            ph_edge_loss = ph_frame_GHM_loss = 0
 
-        # ctc loss
-        log_probs_pred = torch.nn.functional.log_softmax(ctc_pred, dim=-1)
-        log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
-        ctc_loss = 0.1 * self.CTC_loss_fn(log_probs_pred, ph_seq, input_lengths_weak, ph_seq_lengths)
+        if ctc_pred.shape[0] > 0:
+            # ctc loss
+            log_probs_pred = torch.nn.functional.log_softmax(ctc_pred, dim=-1)
+            log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
+            ctc_loss = self.CTC_loss_fn(log_probs_pred, ph_seq, input_lengths_weak, ph_seq_lengths)
+            log_values["ctc_loss"] = ctc_loss.detach()
+        else:
+            ctc_loss = 0
 
         # TODO: self supervised loss
 
         # total loss
         # TODO: 根据config来设置loss的权重
-        loss = ph_frame_GHM_loss + ph_edge_loss + ctc_loss
-        return loss
+        total_loss = ph_frame_GHM_loss + ph_edge_loss + ctc_loss
+        log_values["total_loss"] = total_loss.detach()
+
+        return total_loss, log_values
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -139,7 +153,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ctc_pred,  # (B, T, vocab_size)
         ) = self.model(input_feature.transpose(1, 2))
 
-        loss = self._get_loss(
+        loss, values = self._get_loss(
             ph_frame_pred,
             ph_edge_pred,
             ctc_pred,
@@ -150,7 +164,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             input_feature_lengths,
             label_type
         )
-
+        values = {str("train/" + k): v for k, v in values.items()}
+        self.log_dict(values)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -170,7 +185,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ctc_pred,  # (B, T, vocab_size)
         ) = self.model(input_feature.transpose(1, 2))
 
-        val_loss = self._get_loss(
+        val_loss, values = self._get_loss(
             ph_frame_pred,
             ph_edge_pred,
             ctc_pred,
@@ -181,8 +196,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             input_feature_lengths,
             label_type
         )
-
-        self.log("val_loss", val_loss, batch_size=self.config_train["batch_size"])
+        values = {str("valid/" + k): v for k, v in values.items()}
+        self.log_dict(values)
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -238,7 +253,11 @@ def main(config_path: str):
                          devices=config["train"]["devices"],
                          precision=config["train"]["precision"],
                          gradient_clip_val=config["train"]["gradient_clip_val"],
-                         gradient_clip_algorithm=config["train"]["gradient_clip_algorithm"])
+                         gradient_clip_algorithm=config["train"]["gradient_clip_algorithm"],
+                         default_root_dir=str(pathlib.Path("ckpt") / config["global"]["model_name"]),
+                         val_check_interval=config["train"]["val_check_interval"],
+                         check_val_every_n_epoch=None,
+                         )
     trainer.fit(model=lightning_alignment_model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
 
 

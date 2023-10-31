@@ -37,11 +37,16 @@ train:
 
   test_data_folder: data/test/
 
-  accelerator: auto
+  accelerator: gpu
   devices: auto # num_devices
-  precision: 32-true #bf16-mixed , 32-true
+  precision: 32-true # bf16-mixed , 32-true
   gradient_clip_val: 1.0
   gradient_clip_algorithm: norm #value
+  val_check_interval: 500 # 0.25
+
+  dataloader_workers: 15
+
+  float32_matmul_precision: high
 
   batch_size: 3
   learning_rate: 0.001 #0.001
