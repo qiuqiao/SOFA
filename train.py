@@ -24,18 +24,19 @@ import math
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
-    def __init__(self, config, vocab, init_type="kaiming_normal"):
+    def __init__(self, config, vocab_text, init_type="kaiming_normal"):
         super().__init__()
         # 为了能够推理，需要把config和vocab变为hparams，并且把model放进定义里，而不是外部传参model
         # read configs
         # TODO:把infer相关的都register buffer
+        self.save_hyperparameters()
         self.config_train = config["train"]
         self.config = config["global"]
-        self.vocab = vocab
+        self.vocab = yaml.safe_load(vocab_text)
 
         # define model
         self.model = ForcedAlignmentModel(self.config["n_mels"],
-                                          vocab["<vocab_size>"],
+                                          self.vocab["<vocab_size>"],
                                           hidden_dims=64,
                                           max_seq_len=self.config["max_timestep"] + 32
                                           )
@@ -220,7 +221,7 @@ def main(config_path: str):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     with open(pathlib.Path(config["global"]["binary_data_folder"]) / "vocab.yaml") as f:
-        vocab = yaml.safe_load(f)
+        vocab_text = f.read()
     torch.set_float32_matmul_precision(config["train"]["float32_matmul_precision"])
 
     # define dataset
@@ -246,7 +247,7 @@ def main(config_path: str):
     # model
     lightning_alignment_model = LitForcedAlignmentModel(
         config,
-        vocab,
+        vocab_text,
     )
 
     # trainer
