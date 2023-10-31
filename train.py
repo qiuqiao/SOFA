@@ -24,32 +24,35 @@ import math
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
-    def __init__(self, config, vocab_text, init_type="kaiming_normal"):
+    def __init__(self, vocab_text, learning_rate, weight_decay, init_type, label_smoothing, n_mels, max_timestep):
         super().__init__()
         # 为了能够推理，需要把config和vocab变为hparams，并且把model放进定义里，而不是外部传参model
-        # read configs
-        # TODO:把infer相关的都register buffer
+        # hparams
         self.save_hyperparameters()
-        self.config_train = config["train"]
-        self.config = config["global"]
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.init_type = init_type
+        self.label_smoothing = label_smoothing
+        self.n_mels = n_mels
+        self.max_timestep = max_timestep
+
         self.vocab = yaml.safe_load(vocab_text)
 
         # define model
-        self.model = ForcedAlignmentModel(self.config["n_mels"],
+        self.model = ForcedAlignmentModel(self.n_mels,
                                           self.vocab["<vocab_size>"],
                                           hidden_dims=64,
-                                          max_seq_len=self.config["max_timestep"] + 32
+                                          max_seq_len=self.max_timestep + 32
                                           )
 
         # define loss fn
         self.ph_frame_GHM_loss_fn = GHMLoss(self.vocab["<vocab_size>"], 10, 0.999,
-                                            label_smoothing=self.config["label_smoothing"], )
-        self.ph_edge_GHM_loss_fn = GHMLoss(2, 10, 0.999999, label_smoothing=self.config["label_smoothing"])
+                                            label_smoothing=self.label_smoothing, )
+        self.ph_edge_GHM_loss_fn = GHMLoss(2, 10, 0.999999, label_smoothing=self.label_smoothing)
         self.EMD_loss_fn = BinaryEMDLoss()
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_loss_fn = CTCGHMLoss(alpha=0.999)
 
-        self.init_type = init_type
         self.apply(self.init_weights)
 
     def init_weights(self, m):
@@ -208,8 +211,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             self.parameters(),
-            lr=self.config_train["learning_rate"],
-            weight_decay=self.config_train["weight_decay"],
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
         )
         return optimizer
 
@@ -245,10 +248,14 @@ def main(config_path: str):
     )
 
     # model
-    lightning_alignment_model = LitForcedAlignmentModel(
-        config,
-        vocab_text,
-    )
+    lightning_alignment_model = LitForcedAlignmentModel(vocab_text,
+                                                        config["train"]["learning_rate"],
+                                                        config["train"]["weight_decay"],
+                                                        config["train"]["init_type"],
+                                                        config["train"]["label_smoothing"],
+                                                        config["global"]["n_mels"],
+                                                        config["global"]["max_timestep"],
+                                                        )
 
     # trainer
     trainer = pl.Trainer(accelerator=config["train"]["accelerator"],

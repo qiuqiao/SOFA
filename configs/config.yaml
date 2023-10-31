@@ -10,7 +10,6 @@ global:
   hidden_dim_scaling: 1
   valid_length: 300
   max_timestep: 3000 # melspec_maxlength
-  label_smoothing: 0.08
 
   model_name: mandarin_opencpop-extension_singing
   random_seed: 114514
@@ -31,6 +30,13 @@ preprocessing:
   pitch_extractor: rmvpe # parselmouth
 
 train:
+  learning_rate: 0.001 #0.001
+  weight_decay: 0.1
+  init_type: kaiming_normal # kaiming_normal, kaiming_uniform, xavier_normal, xavier_uniform
+  label_smoothing: 0.08
+  # global: n_mels
+  # global: max_timestep
+
   use_pretrained_model: False
   pretrained_model_path: ''
   num_hidden_dims: 64
@@ -49,8 +55,6 @@ train:
   float32_matmul_precision: high
 
   batch_size: 3
-  learning_rate: 0.001 #0.001
-  weight_decay: 0.1
 
   max_steps: 10000
   valid_intervals: 200
