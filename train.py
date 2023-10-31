@@ -24,16 +24,21 @@ import math
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
-    def __init__(self, config, vocab, model, init_type="kaiming_normal"):
+    def __init__(self, config, vocab, init_type="kaiming_normal"):
         super().__init__()
-        torch.autograd.set_detect_anomaly(True)
+        # 为了能够推理，需要把config和vocab变为hparams，并且把model放进定义里，而不是外部传参model
         # read configs
+        # TODO:把infer相关的都register buffer
         self.config_train = config["train"]
         self.config = config["global"]
         self.vocab = vocab
 
         # define model
-        self.model = model
+        self.model = ForcedAlignmentModel(self.config["n_mels"],
+                                          vocab["<vocab_size>"],
+                                          hidden_dims=64,
+                                          max_seq_len=self.config["max_timestep"] + 32
+                                          )
 
         # define loss fn
         self.ph_frame_GHM_loss_fn = GHMLoss(self.vocab["<vocab_size>"], 10, 0.999,
@@ -238,17 +243,13 @@ def main(config_path: str):
         num_workers=config["train"]["dataloader_workers"],
     )
 
-    # train model
+    # model
     lightning_alignment_model = LitForcedAlignmentModel(
         config,
         vocab,
-        ForcedAlignmentModel(config["global"]["n_mels"],
-                             vocab["<vocab_size>"],
-                             hidden_dims=64,
-                             max_seq_len=config["global"]["max_timestep"] + 32
-                             )
     )
 
+    # trainer
     trainer = pl.Trainer(accelerator=config["train"]["accelerator"],
                          devices=config["train"]["devices"],
                          precision=config["train"]["precision"],
@@ -258,7 +259,13 @@ def main(config_path: str):
                          val_check_interval=config["train"]["val_check_interval"],
                          check_val_every_n_epoch=None,
                          )
-    trainer.fit(model=lightning_alignment_model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
+    # resume training state
+    ckpt_path_list = (pathlib.Path("ckpt") / config["global"]["model_name"]).rglob("*.ckpt")
+    ckpt_path_list = sorted(ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True)
+    trainer.fit(model=lightning_alignment_model,
+                train_dataloaders=train_dataloader,
+                val_dataloaders=valid_dataloader,
+                ckpt_path=str(ckpt_path_list[0]) if len(ckpt_path_list) > 0 else None)
 
 
 if __name__ == "__main__":
