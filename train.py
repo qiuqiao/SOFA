@@ -88,8 +88,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # calculate mask matrix
         mask = torch.arange(ph_frame_pred.size(1)).to(self.device)
         mask = repeat(mask, "T -> B T", B=ph_frame_pred.shape[0])
-        mask = mask >= input_lengths_strong.unsqueeze(1)
-        mask = mask.to(torch.float32)  # (B, T)
+        mask = (mask >= input_lengths_strong.unsqueeze(1)).to(ph_frame_pred.dtype)  # (B, T)
 
         # ph_frame_loss
         ph_frame_pred = rearrange(ph_frame_pred, "B T C -> B C T")
@@ -105,7 +104,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         edge_prob_diff = torch.diff(edge_prob, 1, dim=-1)
         edge_gt_diff = torch.diff(ph_edge[:, 0, :], 1, dim=-1)
-        edge_diff_mask = (edge_gt_diff != 0).to(torch.float32)
+        edge_diff_mask = (edge_gt_diff != 0).to(ph_frame_pred.dtype)
         ph_edge_diff_loss = self.MSE_loss_fn(edge_prob_diff * edge_diff_mask, edge_gt_diff * edge_diff_mask)
 
         ph_edge_loss = ph_edge_GHM_loss + 0.01 * ph_edge_EMD_loss + ph_edge_diff_loss
@@ -154,6 +153,37 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        (
+            input_feature,  # (B, n_mels, T)
+            input_feature_lengths,  # (B)
+            ph_seq,  # (sum of ph_seq_lengths)
+            ph_seq_lengths,  # (B)
+            ph_edge,  # (B, 2, T)
+            ph_frame,  # (B, T)
+            label_type,  # (B)
+        ) = batch
+
+        (
+            ph_frame_pred,  # (B, T, vocab_size)
+            ph_edge_pred,  # (B, T, 2)
+            ctc_pred,  # (B, T, vocab_size)
+        ) = self.model(input_feature.transpose(1, 2))
+
+        val_loss = self._get_loss(
+            ph_frame_pred,
+            ph_edge_pred,
+            ctc_pred,
+            ph_frame,
+            ph_edge,
+            ph_seq,
+            ph_seq_lengths,
+            input_feature_lengths,
+            label_type
+        )
+
+        self.log("val_loss", val_loss, batch_size=self.config_train["batch_size"])
+
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             self.parameters(),
@@ -166,10 +196,12 @@ class LitForcedAlignmentModel(pl.LightningModule):
 @click.command()
 @click.option("--config_path", "-c", type=str, default="configs/config.yaml", show_default=True, help="config path")
 def main(config_path: str):
+    os.environ['TORCH_CUDNN_V8_API_ENABLED'] = '1'  # Prevent unacceptable slowdowns when using 16 precision
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     with open(pathlib.Path(config["global"]["binary_data_folder"]) / "vocab.yaml") as f:
         vocab = yaml.safe_load(f)
+    torch.set_float32_matmul_precision(config["train"]["float32_matmul_precision"])
 
     # define dataset
     train_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="train")
@@ -178,6 +210,7 @@ def main(config_path: str):
         batch_size=config["train"]["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
+        num_workers=config["train"]["dataloader_workers"],
     )
 
     valid_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="valid")
@@ -187,6 +220,7 @@ def main(config_path: str):
         shuffle=False,
         collate_fn=collate_fn,
         drop_last=True,
+        num_workers=config["train"]["dataloader_workers"],
     )
 
     # train model
@@ -205,7 +239,7 @@ def main(config_path: str):
                          precision=config["train"]["precision"],
                          gradient_clip_val=config["train"]["gradient_clip_val"],
                          gradient_clip_algorithm=config["train"]["gradient_clip_algorithm"])
-    trainer.fit(model=lightning_alignment_model, train_dataloaders=train_dataloader)
+    trainer.fit(model=lightning_alignment_model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
 
 
 if __name__ == "__main__":
