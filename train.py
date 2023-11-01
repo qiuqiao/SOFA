@@ -27,7 +27,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
     def __init__(self, vocab_text, learning_rate, weight_decay, hidden_dims, init_type, label_smoothing, n_mels,
                  max_timestep):
         super().__init__()
-        # 为了能够推理，需要把config和vocab变为hparams，并且把model放进定义里，而不是外部传参model
+        # vocab
+        self.vocab = yaml.safe_load(vocab_text)
+
         # hparams
         self.save_hyperparameters()
         self.learning_rate = learning_rate
@@ -38,16 +40,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.n_mels = n_mels
         self.max_timestep = max_timestep
 
-        self.vocab = yaml.safe_load(vocab_text)
-
-        # define model
+        # model
         self.model = ForcedAlignmentModel(self.n_mels,
                                           self.vocab["<vocab_size>"],
                                           hidden_dims=self.hidden_dims,
                                           max_seq_len=self.max_timestep + 32
                                           )
 
-        # define loss fn
+        # loss function
         self.ph_frame_GHM_loss_fn = GHMLoss(self.vocab["<vocab_size>"], 10, 0.999,
                                             label_smoothing=self.label_smoothing, )
         self.ph_edge_GHM_loss_fn = GHMLoss(2, 10, 0.999999, label_smoothing=self.label_smoothing)
@@ -55,6 +55,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_loss_fn = CTCGHMLoss(alpha=0.999)
 
+        # init weights
         self.apply(self.init_weights)
 
     def init_weights(self, m):
@@ -273,6 +274,10 @@ def main(config_path: str):
     # resume training state
     ckpt_path_list = (pathlib.Path("ckpt") / config["global"]["model_name"]).rglob("*.ckpt")
     ckpt_path_list = sorted(ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True)
+    if len(ckpt_path_list) > 0:
+        print(f"Resume training from {ckpt_path_list[0]}")
+
+    # start training
     trainer.fit(model=lightning_alignment_model,
                 train_dataloaders=train_dataloader,
                 val_dataloaders=valid_dataloader,
