@@ -10,10 +10,9 @@ import importlib
 import h5py
 import click
 import torchaudio
+from modules.utils.load_wav import load_wav
 
 melspec_transform = None
-resample_transform_dict = {}
-rmvpe = None
 
 
 def check_and_import(package_name):
@@ -31,7 +30,6 @@ class ForcedAlignmentBinarizer:
     def __init__(self, config: dict):
         self.config = config["global"]
         self.config["timestep"] = self.config["hop_length"] / self.config["sample_rate"]
-        self.installed_torchaudio = check_and_import("torchaudio")
 
         self.data_folder_path = config["preprocessing"]["data_folder"]
         self.ignored_phonemes = config["preprocessing"]["ignored_phonemes"]
@@ -100,30 +98,6 @@ class ForcedAlignmentBinarizer:
             self.binary_data_folder,
         )
 
-    def load_wav(self, path):
-        if self.installed_torchaudio:
-            waveform, sample_rate = torchaudio.load(path)
-            if self.config["sample_rate"] != sample_rate:
-                global resample_transform_dict
-                if sample_rate not in resample_transform_dict:
-                    resample_transform_dict[
-                        sample_rate
-                    ] = torchaudio.transforms.Resample(
-                        sample_rate, self.config["sample_rate"]
-                    )
-
-                waveform = resample_transform_dict[sample_rate](waveform)
-
-            waveform = waveform[0].to(self.config["device"])
-
-        else:
-            waveform, _ = librosa.load(
-                path, sr=self.config["sample_rate"], mono=True
-            )
-            waveform = torch.from_numpy(waveform).to(self.config["device"])
-
-        return waveform
-
     def get_melspec(self, waveform):
         global melspec_transform
         if melspec_transform is None:
@@ -166,7 +140,7 @@ class ForcedAlignmentBinarizer:
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
             # input_feature: [input_dim,T]
-            waveform = self.load_wav(item.wav_path)
+            waveform = load_wav(item.wav_path, self.config["device"], self.config["sample_rate"])
             input_feature = self.get_melspec(waveform)
 
             T = input_feature.shape[-1]
