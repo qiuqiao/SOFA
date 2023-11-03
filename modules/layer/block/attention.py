@@ -97,8 +97,8 @@ class MultiHeadSelfAttention(nn.Module):
 
         return xq_out, xk_out
 
-    def forward(self, x: torch.Tensor):
-        # input: Tensor[batch_size seq_len, hidden_dims]
+    def forward(self, x: torch.Tensor):  # , lengths=None
+        # input: Tensor[batch_size seq_len, hidden_dims], lengths: Tensor[batch_size]
         # output: Tensor[batch_size seq_len, hidden_dims]
         batch_size, seq_len, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -117,6 +117,10 @@ class MultiHeadSelfAttention(nn.Module):
         elif self.mask == "lower":
             mask = torch.tril(torch.ones_like(scores[0, 0]), diagonal=-1)
             scores.masked_fill_(mask == 1, -1e9)
+        # if lengths is not None:
+        #     mask = torch.arange(seq_len).to(x.device)[None, :] >= lengths[:, None]
+        #     scores.masked_fill_(mask[:, None, None, :] == 1, -1e9)
+        #     scores.masked_fill_(mask[:, None, :, None] == 1, -1e9)
         scores = torch.nn.functional.softmax(scores, dim=-1)
         scores = self.dropout(scores)
 
