@@ -37,12 +37,17 @@ class ForcedAlignmentModelInferer:
         # forward
         waveform = load_wav(wav_path, self.device, self.sample_rate)
         melspec = self.get_melspec(waveform).unsqueeze(0)
-        padding_length = 32 - (melspec.shape[-1] % 32)
+        melspec = torch.nn.functional.pad(
+            melspec,
+            (0, 32 - (melspec.shape[-1] % 32)),
+            "constant",
+            0,
+        )
         (
             ph_frame_pred,  # (B, T, vocab_size)
             ph_edge_pred,  # (B, T, 2)
             ctc_pred,  # (B, T, vocab_size)
-        ) = self.model(melspec)
+        ) = self.model(melspec.transpose(1, 2))
         print(ph_frame_pred.shape, ph_edge_pred.shape, ctc_pred.shape)
         # decode
 
