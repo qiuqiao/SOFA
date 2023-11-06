@@ -237,6 +237,7 @@ def main(config_path: str):
     with open(pathlib.Path(config["global"]["binary_data_folder"]) / "vocab.yaml") as f:
         vocab_text = f.read()
     torch.set_float32_matmul_precision(config["train"]["float32_matmul_precision"])
+    pl.seed_everything(config["train"]["random_seed"], workers=True)
 
     # define dataset
     train_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="train")

@@ -9,14 +9,11 @@ mel_spec:
   clamp: 0.00001
 
 global:
+  model_name: mandarin_opencpop-extension_singing
   binary_data_folder: data/binary/
   max_frame_num: 3000 # melspec_maxlength
-  device: cuda
-
   input_feature_dims: 128 # usually equals to n_mels
-
-  model_name: mandarin_opencpop-extension_singing
-  random_seed: 114514
+  device: cuda
 
 preprocessing:
   data_folder: data/
@@ -33,6 +30,7 @@ preprocessing:
 train:
   # settings
   float32_matmul_precision: high
+  random_seed: 114514
 
   # dataloader
   batch_size: 3
