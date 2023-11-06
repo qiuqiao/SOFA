@@ -2,7 +2,6 @@ import pathlib
 import librosa
 import numpy as np
 import torch
-import modules.rmvpe
 import yaml
 from tqdm import tqdm
 import pandas as pd
@@ -11,19 +10,7 @@ import h5py
 import click
 import torchaudio
 from modules.utils.load_wav import load_wav
-
-melspec_transform = None
-
-
-def check_and_import(package_name):
-    try:
-        importlib.import_module(package_name)
-        globals()[package_name] = importlib.import_module(package_name)
-        print(f"'{package_name}' installed and imported.")
-        return True
-    except ImportError:
-        print(f"'{package_name}' not installed.")
-        return False
+from modules.utils.get_melspec import MelSpecExtractor
 
 
 class ForcedAlignmentBinarizer:
@@ -36,6 +23,15 @@ class ForcedAlignmentBinarizer:
         self.binary_data_folder = config["global"]["binary_data_folder"]
         self.valid_set_size = config["preprocessing"]["valid_set_size"]
         self.data_folder = config["preprocessing"]["data_folder"]
+
+        self.get_melspec = MelSpecExtractor(n_mels=self.config["n_mels"],
+                                            sample_rate=self.config["sample_rate"],
+                                            win_length=self.config["win_length"],
+                                            hop_length=self.config["hop_length"],
+                                            fmin=self.config["fmin"],
+                                            fmax=self.config["fmax"],
+                                            device=self.config["device"],
+                                            )
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
@@ -97,20 +93,6 @@ class ForcedAlignmentBinarizer:
             vocab,
             self.binary_data_folder,
         )
-
-    def get_melspec(self, waveform):
-        global melspec_transform
-        if melspec_transform is None:
-            melspec_transform = modules.rmvpe.MelSpectrogram(
-                n_mel_channels=self.config["n_mels"],
-                sampling_rate=self.config["sample_rate"],
-                win_length=self.config["win_length"],
-                hop_length=self.config["hop_length"],
-                mel_fmin=self.config["fmin"],
-                mel_fmax=self.config["fmax"],
-            ).to(self.config["device"])
-
-        return melspec_transform(waveform.unsqueeze(0)).squeeze(0)
 
     def binarize(
             self,
