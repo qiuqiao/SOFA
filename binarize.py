@@ -129,7 +129,7 @@ class ForcedAlignmentBinarizer:
             input_feature = self.get_melspec(waveform)
 
             T = input_feature.shape[-1]
-            if self.max_frame_num is not None and T > self.max_frame_num:
+            if T > self.max_frame_num:
                 print(f"Item {item.path} has a length of{T * self.max_frame_num} is too long, skip it.")
                 continue
 
@@ -242,9 +242,7 @@ def binarize(config_path: str):
                              valid_set_size=config["preprocessing"]["valid_set_size"],
                              ignored_phonemes=config["preprocessing"]["ignored_phonemes"],
                              melspec_config=config["mel_spec"],
-                             max_frame_num=(config["global"]["max_frame_num"]
-                                            if config["global"]["max_frame_num"] is not None
-                                            else None),
+                             max_frame_num=config["global"]["max_frame_num"],
                              device=(config["global"]["device"]
                                      if config["global"]["device"] is not None
                                      else None),
