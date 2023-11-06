@@ -5,7 +5,7 @@ melspec_transform = None
 
 
 class MelSpecExtractor:
-    def __init__(self, n_mels, sample_rate, win_length, hop_length, fmin, fmax, device=None):
+    def __init__(self, n_mels, sample_rate, win_length, hop_length, n_fft, fmin, fmax, clamp, device=None):
         global melspec_transform
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -15,8 +15,10 @@ class MelSpecExtractor:
                 sampling_rate=sample_rate,
                 win_length=win_length,
                 hop_length=hop_length,
+                n_fft=n_fft,
                 mel_fmin=fmin,
                 mel_fmax=fmax,
+                clamp=clamp,
             ).to(device)
 
     def __call__(self, waveform):

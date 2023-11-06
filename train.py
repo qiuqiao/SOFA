@@ -24,27 +24,35 @@ import math
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
-    def __init__(self, vocab_text, learning_rate, weight_decay, hidden_dims, init_type, label_smoothing, n_mels,
-                 max_timestep):
+    def __init__(self,
+                 vocab_text,
+                 melspec_config,
+                 input_feature_dims,
+                 max_frame_num,
+                 learning_rate,
+                 weight_decay,
+                 hidden_dims,
+                 init_type,
+                 label_smoothing,
+                 ):
         super().__init__()
         # vocab
         self.vocab = yaml.safe_load(vocab_text)
 
         # hparams
         self.save_hyperparameters()
+        self.melspec_config = melspec_config  # Required for inference, but not for training
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.hidden_dims = hidden_dims
         self.init_type = init_type
         self.label_smoothing = label_smoothing
-        self.n_mels = n_mels
-        self.max_timestep = max_timestep
 
         # model
-        self.model = ForcedAlignmentModel(self.n_mels,
+        self.model = ForcedAlignmentModel(input_feature_dims,
                                           self.vocab["<vocab_size>"],
                                           hidden_dims=self.hidden_dims,
-                                          max_seq_len=self.max_timestep + 32
+                                          max_seq_len=max_frame_num + 32
                                           )
 
         # loss function
@@ -252,13 +260,14 @@ def main(config_path: str):
 
     # model
     lightning_alignment_model = LitForcedAlignmentModel(vocab_text,
+                                                        config["mel_spec"],
+                                                        config["global"]["input_feature_dims"],
+                                                        config["global"]["max_frame_num"],
                                                         config["train"]["learning_rate"],
                                                         config["train"]["weight_decay"],
                                                         config["train"]["hidden_dims"],
                                                         config["train"]["init_type"],
                                                         config["train"]["label_smoothing"],
-                                                        config["global"]["n_mels"],
-                                                        config["global"]["max_timestep"],
                                                         )
 
     # trainer

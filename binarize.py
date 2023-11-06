@@ -16,22 +16,15 @@ from modules.utils.get_melspec import MelSpecExtractor
 class ForcedAlignmentBinarizer:
     def __init__(self, config: dict):
         self.config = config["global"]
-        self.config["timestep"] = self.config["hop_length"] / self.config["sample_rate"]
-
+        self.melspec_config = config["mel_spec"]
+        self.frame_length = self.melspec_config["hop_length"] / self.melspec_config["sample_rate"]
         self.data_folder_path = config["preprocessing"]["data_folder"]
         self.ignored_phonemes = config["preprocessing"]["ignored_phonemes"]
         self.binary_data_folder = config["global"]["binary_data_folder"]
         self.valid_set_size = config["preprocessing"]["valid_set_size"]
         self.data_folder = config["preprocessing"]["data_folder"]
 
-        self.get_melspec = MelSpecExtractor(n_mels=self.config["n_mels"],
-                                            sample_rate=self.config["sample_rate"],
-                                            win_length=self.config["win_length"],
-                                            hop_length=self.config["hop_length"],
-                                            fmin=self.config["fmin"],
-                                            fmax=self.config["fmax"],
-                                            device=self.config["device"],
-                                            )
+        self.get_melspec = MelSpecExtractor(**config["mel_spec"], device=self.config["device"])
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
@@ -122,12 +115,12 @@ class ForcedAlignmentBinarizer:
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
             # input_feature: [input_dim,T]
-            waveform = load_wav(item.wav_path, self.config["device"], self.config["sample_rate"])
+            waveform = load_wav(item.wav_path, self.config["device"], self.melspec_config["sample_rate"])
             input_feature = self.get_melspec(waveform)
 
             T = input_feature.shape[-1]
-            if T > self.config["max_timestep"]:
-                print(f"Item {item.path} has a length of{T * self.config['max_timestep']} is too long, skip it.")
+            if T > self.config["max_frame_num"]:
+                print(f"Item {item.path} has a length of{T * self.config['max_frame_num']} is too long, skip it.")
                 continue
 
             else:
@@ -156,7 +149,7 @@ class ForcedAlignmentBinarizer:
             else:
                 ph_edge = np.zeros([2, T], dtype="float32")
                 ph_edge_int = np.zeros(T, dtype="int32")  # for ph_frame
-                ph_time = (np.array(item.ph_dur).cumsum() / self.config["timestep"])[:-1]
+                ph_time = (np.array(item.ph_dur).cumsum() / self.frame_length)[:-1]
                 if ph_time[0] < 0.5 + 1e-3:
                     ph_time = ph_time[1:]
                 ph_time_int = ph_time.round().astype("int32")
@@ -185,7 +178,7 @@ class ForcedAlignmentBinarizer:
 
         h5py_file.create_dataset("label_type_ids", data=np.array(label_type_ids).astype("int32"))
         h5py_file.close()
-        total_time = total_timestep * self.config["timestep"]
+        total_time = total_timestep * self.frame_length
         print(
             f"Successfully binarized {prefix} set, total time {total_time:.2f}s, saved to {h5py_file_path}"
         )

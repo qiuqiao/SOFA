@@ -1,15 +1,19 @@
-global:
+mel_spec:
   n_mels: 128
   sample_rate: 48000
   win_length: 1024
   hop_length: 480
+  n_fft: 1024
   fmin: 40
   fmax: 8000
-  n_fft: 1024
+  clamp: 0.00001
+global:
   chromagram_n_fft: 8192
   hidden_dim_scaling: 1
   valid_length: 300
-  max_timestep: 3000 # melspec_maxlength
+
+  input_feature_dims: 128 # usually equals to n_mels
+  max_frame_num: 3000 # melspec_maxlength
 
   model_name: mandarin_opencpop-extension_singing
   random_seed: 114514
@@ -44,7 +48,7 @@ train:
   init_type: kaiming_normal # kaiming_normal, kaiming_uniform, xavier_normal, xavier_uniform
   label_smoothing: 0.08
   # global: n_mels
-  # global: max_timestep
+  # global: max_frame_num
 
   # trainer
   accelerator: gpu
