@@ -129,7 +129,7 @@ class ForcedAlignmentBinarizer:
             input_feature = self.get_melspec(waveform)
 
             T = input_feature.shape[-1]
-            if T > self.max_frame_num:
+            if self.max_frame_num is not None and T > self.max_frame_num:
                 print(f"Item {item.path} has a length of{T * self.max_frame_num} is too long, skip it.")
                 continue
 
