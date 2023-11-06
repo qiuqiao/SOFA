@@ -1,4 +1,6 @@
 import os
+from typing import Any
+
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -155,6 +157,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         return total_loss, log_values
 
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        return self.model(*args, **kwargs)
+
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
         (
@@ -171,7 +176,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_frame_pred,  # (B, T, vocab_size)
             ph_edge_pred,  # (B, T, 2)
             ctc_pred,  # (B, T, vocab_size)
-        ) = self.model(input_feature.transpose(1, 2))
+        ) = self.forward(input_feature.transpose(1, 2))
 
         loss, values = self._get_loss(
             ph_frame_pred,
