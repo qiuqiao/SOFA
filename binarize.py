@@ -15,16 +15,19 @@ from modules.utils.get_melspec import MelSpecExtractor
 
 class ForcedAlignmentBinarizer:
     def __init__(self, config: dict):
-        self.config = config["global"]
         self.melspec_config = config["mel_spec"]
-        self.frame_length = self.melspec_config["hop_length"] / self.melspec_config["sample_rate"]
+
+        self.device = config["global"]["device"]
+        self.max_frame_num = config["global"]["max_frame_num"]
+        self.sample_rate = self.melspec_config["sample_rate"]
+        self.frame_length = self.melspec_config["hop_length"] / self.sample_rate
         self.data_folder_path = config["preprocessing"]["data_folder"]
         self.ignored_phonemes = config["preprocessing"]["ignored_phonemes"]
         self.binary_data_folder = config["global"]["binary_data_folder"]
         self.valid_set_size = config["preprocessing"]["valid_set_size"]
         self.data_folder = config["preprocessing"]["data_folder"]
 
-        self.get_melspec = MelSpecExtractor(**config["mel_spec"], device=self.config["device"])
+        self.get_melspec = MelSpecExtractor(**config["mel_spec"], device=self.device)
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
@@ -115,12 +118,12 @@ class ForcedAlignmentBinarizer:
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
             # input_feature: [input_dim,T]
-            waveform = load_wav(item.wav_path, self.config["device"], self.melspec_config["sample_rate"])
+            waveform = load_wav(item.wav_path, self.device, self.sample_rate)
             input_feature = self.get_melspec(waveform)
 
             T = input_feature.shape[-1]
-            if T > self.config["max_frame_num"]:
-                print(f"Item {item.path} has a length of{T * self.config['max_frame_num']} is too long, skip it.")
+            if T > self.max_frame_num:
+                print(f"Item {item.path} has a length of{T * self.max_frame_num} is too long, skip it.")
                 continue
 
             else:
