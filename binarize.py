@@ -1,33 +1,40 @@
 import pathlib
-import librosa
 import numpy as np
 import torch
 import yaml
 from tqdm import tqdm
 import pandas as pd
-import importlib
 import h5py
 import click
-import torchaudio
 from modules.utils.load_wav import load_wav
 from modules.utils.get_melspec import MelSpecExtractor
 
 
 class ForcedAlignmentBinarizer:
-    def __init__(self, config: dict):
-        self.melspec_config = config["mel_spec"]
+    def __init__(self,
+                 data_folder,
+                 binary_data_folder,
+                 valid_set_size,
+                 ignored_phonemes,
+                 melspec_config,
+                 max_frame_num,
+                 device,
+                 ):
 
-        self.device = config["global"]["device"]
-        self.max_frame_num = config["global"]["max_frame_num"]
+        self.data_folder = data_folder
+        self.binary_data_folder = binary_data_folder
+        self.valid_set_size = valid_set_size
+        self.ignored_phonemes = ignored_phonemes
+        self.melspec_config = melspec_config
+        self.max_frame_num = max_frame_num
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = device
+
         self.sample_rate = self.melspec_config["sample_rate"]
         self.frame_length = self.melspec_config["hop_length"] / self.sample_rate
-        self.data_folder_path = config["preprocessing"]["data_folder"]
-        self.ignored_phonemes = config["preprocessing"]["ignored_phonemes"]
-        self.binary_data_folder = config["global"]["binary_data_folder"]
-        self.valid_set_size = config["preprocessing"]["valid_set_size"]
-        self.data_folder = config["preprocessing"]["data_folder"]
 
-        self.get_melspec = MelSpecExtractor(**config["mel_spec"], device=self.device)
+        self.get_melspec = MelSpecExtractor(**melspec_config, device=self.device)
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
@@ -58,7 +65,7 @@ class ForcedAlignmentBinarizer:
         return vocab
 
     def process(self):
-        vocab = self.get_vocab(self.data_folder_path, self.ignored_phonemes)
+        vocab = self.get_vocab(self.data_folder, self.ignored_phonemes)
         with open(pathlib.Path(self.binary_data_folder) / "vocab.yaml", "w") as file:
             yaml.dump(vocab, file)
 
@@ -228,9 +235,20 @@ class ForcedAlignmentBinarizer:
 @click.option("--config_path", "-c", type=str, default="configs/config.yaml", show_default=True, help="config path")
 def binarize(config_path: str):
     with open(config_path, "r") as f:
-        cfg = yaml.load(f, Loader=yaml.FullLoader)
-    # print(cfg)
-    ForcedAlignmentBinarizer(config=cfg).process()
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    # print(config)
+    ForcedAlignmentBinarizer(data_folder=config["preprocessing"]["data_folder"],
+                             binary_data_folder=config["global"]["binary_data_folder"],
+                             valid_set_size=config["preprocessing"]["valid_set_size"],
+                             ignored_phonemes=config["preprocessing"]["ignored_phonemes"],
+                             melspec_config=config["mel_spec"],
+                             max_frame_num=(config["global"]["max_frame_num"]
+                                            if config["global"]["max_frame_num"] != 'None'
+                                            else None),
+                             device=(config["global"]["device"]
+                                     if (config["global"]["device"] != 'None' and config["global"]["device"] != 'auto')
+                                     else None),
+                             ).process()
 
 
 if __name__ == "__main__":
