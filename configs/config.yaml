@@ -7,21 +7,20 @@ mel_spec:
   fmin: 40
   fmax: 8000
   clamp: 0.00001
+
 global:
-  chromagram_n_fft: 8192
-  hidden_dim_scaling: 1
-  valid_length: 300
+  binary_data_folder: data/binary/
+  max_frame_num: 3000 # melspec_maxlength
+  device: cuda
 
   input_feature_dims: 128 # usually equals to n_mels
-  max_frame_num: 3000 # melspec_maxlength
 
   model_name: mandarin_opencpop-extension_singing
   random_seed: 114514
-  device: cuda
-  binary_data_folder: data/binary/
 
 preprocessing:
   data_folder: data/
+  valid_set_size: 100
   ignored_phonemes:
     - AP
     - SP
@@ -30,8 +29,6 @@ preprocessing:
     - ''
     - pau
     - cl
-  valid_set_size: 100
-  pitch_extractor: rmvpe # parselmouth
 
 train:
   # settings
@@ -67,3 +64,6 @@ train:
   valid_intervals: 200
   test_intervals: 1000
   save_intervals: 1000
+
+infer:
+  chromagram_n_fft: 8192

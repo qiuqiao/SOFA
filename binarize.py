@@ -243,10 +243,10 @@ def binarize(config_path: str):
                              ignored_phonemes=config["preprocessing"]["ignored_phonemes"],
                              melspec_config=config["mel_spec"],
                              max_frame_num=(config["global"]["max_frame_num"]
-                                            if config["global"]["max_frame_num"] != 'None'
+                                            if config["global"]["max_frame_num"] is not None
                                             else None),
                              device=(config["global"]["device"]
-                                     if (config["global"]["device"] != 'None' and config["global"]["device"] != 'auto')
+                                     if config["global"]["device"] is not None
                                      else None),
                              ).process()
 
