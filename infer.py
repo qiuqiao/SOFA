@@ -2,7 +2,7 @@ import click
 from train import LitForcedAlignmentModel
 import pathlib
 import torch
-import textgrid
+# import textgrid
 from modules.utils.load_wav import load_wav
 from modules.utils.get_melspec import MelSpecExtractor
 import numpy as np
@@ -95,11 +95,11 @@ class ForcedAlignmentModelInferer:
         ph_dur_pred = np.diff(ph_time_pred)
 
         # ctc decode
-        ctc_pred = None
+        ctc = None
         if return_ctc:
-            ctc_pred = torch.argmax(ctc_pred, dim=-1).cpu().numpy()
-            ctc_pred = np.unique(ctc_pred)
-            ctc_pred = np.array([self.model.vocab[ph] for ph in ctc_pred if ph != 0])
+            ctc = torch.argmax(ctc_pred, dim=-1).cpu().numpy()
+            ctc = np.unique(ctc)
+            ctc = np.array([self.model.vocab[ph] for ph in ctc if ph != 0])
 
         # plot
         fig = None
@@ -120,7 +120,7 @@ class ForcedAlignmentModelInferer:
             }
             fig = plot_for_test(**raw)
 
-        return ph_seq_pred, ph_dur_pred, ctc_pred, fig
+        return ph_seq_pred, ph_dur_pred, ctc, fig
 
     def decode(self, ph_seq_id, ph_prob_log, edge_prob):
         # ph_seq_id: (T)
