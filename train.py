@@ -1,28 +1,12 @@
 import os
-from typing import Any
-
-import torch
-from torch import nn
-from torch.utils.data import DataLoader
 import lightning.pytorch as pl
-from modules.model.forced_aligner_model import ForcedAlignmentModel
 import pathlib
 from dataset import MixedDataset, collate_fn
 from torch.utils.data import DataLoader
 import lightning as pl
 import yaml
-from modules.loss.GHMLoss import GHMLoss, CTCGHMLoss
-from modules.loss.BinaryEMDLoss import BinaryEMDLoss
-from modules.model.forced_aligner_model import ForcedAlignmentModel
-import torch.nn as nn
-from torch.optim.lr_scheduler import OneCycleLR
-from modules.scheduler.gaussian_ramp_up_scheduler import GaussianRampUpScheduler
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 import torch
 import click
-from einops import rearrange, repeat
-import math
 from modules.model.lightning_model import LitForcedAlignmentModel
 
 
