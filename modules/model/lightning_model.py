@@ -203,9 +203,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_seq_pred = np.array([self.vocab[ph] for ph in ph_seq_id_pred])
         ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
         ph_time_pred = ph_time_int_pred.astype("float64") + ph_time_fractional
-        ph_time_pred = ph_time_pred * (self.melspec_config["hop_length"] / self.melspec_config["sample_rate"])
         ph_time_pred = np.concatenate([ph_time_pred, [ph_frame_pred.shape[0]]])
-        ph_dur_pred = np.diff(ph_time_pred)
+        ph_time_pred = ph_time_pred * (self.melspec_config["hop_length"] / self.melspec_config["sample_rate"])
+        ph_time_interval = np.stack([ph_time_pred[:-1], ph_time_pred[1:]], axis=1)
 
         # ctc decode
         ctc = None
@@ -233,11 +233,11 @@ class LitForcedAlignmentModel(pl.LightningModule):
             }
             fig = plot_for_test(**args)
 
-        return ph_seq_pred, ph_dur_pred, ctc, fig
+        return ph_seq_pred, ph_time_interval, ctc, fig
 
     def predict_step(self, batch, batch_idx):
-        ph_seq, ph_dur, _, _ = self._infer_once(batch, False, False)
-        return ph_seq, ph_dur
+        ph_seq, ph_time_interval, _, _ = self._infer_once(batch, False, False)
+        return ph_seq, ph_time_interval
 
     def _get_loss(
             self,
