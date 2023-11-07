@@ -3,7 +3,7 @@ mel_spec:
   sample_rate: 48000
   win_length: 1024
   hop_length: 480
-  n_fft: 1024
+  n_fft: 2048
   fmin: 40
   fmax: 8000
   clamp: 0.00001
