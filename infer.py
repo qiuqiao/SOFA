@@ -6,6 +6,7 @@ import textgrid
 from modules.utils.load_wav import load_wav
 from modules.utils.get_melspec import MelSpecExtractor
 import numpy as np
+from modules.utils.plot import plot_for_test
 
 
 class ForcedAlignmentModelInferer:
@@ -39,7 +40,7 @@ class ForcedAlignmentModelInferer:
     def get_textgrid(self, ph_seq, ph_dur):
         pass
 
-    def infer_once(self, wav_path, return_raw=False):
+    def infer_once(self, wav_path, return_ctc=False, return_plot=False):
 
         lab_path = wav_path.parent / f"{wav_path.stem}.lab"
         if not lab_path.exists():
@@ -56,7 +57,6 @@ class ForcedAlignmentModelInferer:
 
         # forward
         waveform = load_wav(wav_path, self.device, self.sample_rate)
-        wav_time = (len(waveform) + self.model.hparams.melspec_config["hop_length"]) / self.sample_rate
         melspec = self.get_melspec(waveform).unsqueeze(0)
         melspec = (melspec - melspec.mean()) / melspec.std()
         with torch.no_grad():
@@ -71,43 +71,66 @@ class ForcedAlignmentModelInferer:
         ctc_pred = ctc_pred.squeeze(0)
 
         # decode
-        (
-            ph_seq_pred,
-            ph_time_pred,
-            frame_confidence,
-        ) = self.decode(ph_seq_id, ph_frame_pred, ph_edge_pred)
-        ph_time_pred = np.concatenate([ph_time_pred, [wav_time]])
-        ph_dur_pred = np.diff(ph_time_pred)
-
-        # ctc decode
-        ctc_pred = torch.argmax(ctc_pred, dim=-1).cpu().numpy()
-        ctc_pred = np.unique(ctc_pred)
-        ctc_pred = np.array([self.model.vocab[ph] for ph in ctc_pred if ph != 0])
-
-        raw = None
-        if return_raw:
-            raw = {
-                "melspec": melspec,
-                "ph_frame_pred": ph_frame_pred,
-                "ph_edge_pred": ph_edge_pred,
-                "frame_confidence": frame_confidence,
-            }
-
-        return ph_seq_pred, ph_dur_pred, ctc_pred, raw
-
-    def decode(self, ph_seq_id, ph_frame_pred, ph_edge_pred):
-        # ph_seq_id: (T)
-        # ph_frame_pred: (T, vocab_size)
-        # ph_edge_pred: (T, 2)
-        T = ph_frame_pred.shape[0]
-        S = len(ph_seq_id)
-        ph_prob_log = torch.log_softmax(ph_frame_pred, dim=-1).cpu().numpy().astype("float64")
         edge = torch.softmax(ph_edge_pred, dim=-1).cpu().numpy().astype("float64")
         edge_diff = np.pad(np.diff(edge[:, 0]), (1, 0), "constant", constant_values=0)
         edge_prob = np.pad(edge[1:, 0] + edge[:-1, 0], (1, 0), "constant", constant_values=edge[0, 0] * 2).clip(0, 1)
+
+        ph_prob_log = torch.log_softmax(ph_frame_pred, dim=-1).cpu().numpy().astype("float64")
+        (
+            ph_seq_id_pred,
+            ph_time_int_pred,
+            frame_confidence,
+        ) = self.decode(
+            ph_seq_id,
+            ph_prob_log,
+            edge_prob,
+        )
+
+        # postprocess
+        ph_seq_pred = np.array([self.model.vocab[ph] for ph in ph_seq_id_pred])
+        ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
+        ph_time_pred = ph_time_int_pred.astype("float64") + ph_time_fractional
+        ph_time_pred = ph_time_pred * (self.model.hparams.melspec_config["hop_length"] / self.sample_rate)
+        ph_time_pred = np.concatenate([ph_time_pred, [ph_frame_pred.shape[0]]])
+        ph_dur_pred = np.diff(ph_time_pred)
+
+        # ctc decode
+        ctc_pred = None
+        if return_ctc:
+            ctc_pred = torch.argmax(ctc_pred, dim=-1).cpu().numpy()
+            ctc_pred = np.unique(ctc_pred)
+            ctc_pred = np.array([self.model.vocab[ph] for ph in ctc_pred if ph != 0])
+
+        # plot
+        fig = None
+        if return_plot:
+            ph_frame_idx = np.zeros(ph_frame_pred.shape[0], dtype="int32")
+            ph_frame_idx[ph_time_int_pred] = 1
+            ph_frame_idx = ph_frame_idx.cumsum() - 1
+            ph_frame_id_gt = ph_seq_id_pred[ph_frame_idx]
+            raw = {
+                "melspec": melspec.cpu().numpy(),
+                "ph_seq": ph_seq_pred,
+                "ph_time": ph_time_int_pred.astype("float64") + ph_time_fractional,
+                "frame_confidence": frame_confidence,
+
+                "ph_frame_prob": torch.softmax(ph_frame_pred, dim=-1).cpu().numpy(),
+                "ph_frame_id_gt": ph_frame_id_gt,
+                "edge_prob": edge_prob,
+            }
+            fig = plot_for_test(**raw)
+
+        return ph_seq_pred, ph_dur_pred, ctc_pred, fig
+
+    def decode(self, ph_seq_id, ph_prob_log, edge_prob):
+        # ph_seq_id: (T)
+        # ph_prob_log: (T, vocab_size)
+        # edge_prob: (T,2)
+        T = ph_prob_log.shape[0]
+        S = len(ph_seq_id)
+
         edge_prob_log = np.log(edge_prob).astype("float64")
         not_edge_prob_log = np.log(1 - edge_prob).astype("float64")
-
         # 乘上is_phoneme正确分类的概率 TODO: enable this
         # ph_prob_log[:, 0] += ph_prob_log[:, 0]
         # ph_prob_log[:, 1:] += 1 / ph_prob_log[:, [0]]
@@ -152,18 +175,11 @@ class ForcedAlignmentModelInferer:
         ph_seq_id_pred.reverse()
         ph_time_int.reverse()
         frame_confidence.reverse()
-        frame_confidence = np.exp(np.diff(frame_confidence, 1))
-
-        # postprocess
-        ph_seq_pred = [self.model.vocab[ph] for ph in ph_seq_id_pred]
-
-        ph_time_fractional = (edge_diff[ph_time_int] / 2).clip(-0.5, 0.5)
-        ph_time_pred = np.array(ph_time_int).astype("float64") + ph_time_fractional
-        ph_time_pred = ph_time_pred * (self.model.hparams.melspec_config["hop_length"] / self.sample_rate)
+        frame_confidence = np.exp(np.diff(np.pad(frame_confidence, (1, 0), 'constant', constant_values=0.), 1))
 
         return (
-            np.array(ph_seq_pred),
-            np.array(ph_time_pred),
+            np.array(ph_seq_id_pred),
+            np.array(ph_time_int),
             np.array(frame_confidence),
         )
 
