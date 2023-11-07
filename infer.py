@@ -31,18 +31,21 @@ class ForcedAlignmentModelInferer:
         # load dataset list
         wav_path_list = pathlib.Path(input_folder).rglob('*.wav')
         for wav_path in wav_path_list:
-            tg = self.infer_once(wav_path)
-            if tg is None:
+            ph_seq_pred, ph_dur_pred, ctc_pred, _ = self.infer_once(wav_path)
+            if ph_seq_pred is None:
                 continue
-            # save textgrid to output folder
+            # self.get_textgrid()
 
-    def infer_once(self, wav_path, return_tg=False, return_plot=False, return_ctc=False):
+    def get_textgrid(self, ph_seq, ph_dur):
+        pass
+
+    def infer_once(self, wav_path, return_raw=False):
 
         lab_path = wav_path.parent / f"{wav_path.stem}.lab"
         if not lab_path.exists():
-            return None
+            return None, None, None, None
 
-        # TODO: add phoneme mode, add maching mode
+        # TODO: add phoneme mode, add matching mode
         with open(lab_path, 'r') as f:
             word_seq = f.read().strip().split(' ')
         ph_seq = [0]
@@ -53,6 +56,7 @@ class ForcedAlignmentModelInferer:
 
         # forward
         waveform = load_wav(wav_path, self.device, self.sample_rate)
+        wav_time = len(waveform) / self.sample_rate
         melspec = self.get_melspec(waveform).unsqueeze(0)
         melspec = torch.nn.functional.pad(
             melspec,
@@ -73,13 +77,32 @@ class ForcedAlignmentModelInferer:
 
         # decode
         (
-            ph_seq_id_pred,
+            ph_seq_pred,
             ph_time_pred,
             frame_confidence,
         ) = self.decode(ph_seq_id, ph_frame_pred, ph_edge_pred)
-        print(ph_time_pred)
+        if ph_time_pred[-1] > wav_time:
+            ph_time_pred[-1] = wav_time
+            ph_seq_pred = ph_seq_pred[:-1]
+        else:
+            ph_time_pred = np.concatenate([ph_time_pred, [wav_time]])
+        ph_dur_pred = np.diff(ph_time_pred)
 
-        # plot
+        # ctc decode
+        ctc_pred = torch.argmax(ctc_pred, dim=-1).cpu().numpy()
+        ctc_pred = np.unique(ctc_pred)
+        ctc_pred = np.array([self.model.vocab[ph] for ph in ctc_pred if ph != 0])
+
+        raw = None
+        if return_raw:
+            raw = {
+                "melspec": melspec,
+                "ph_frame_pred": ph_frame_pred,
+                "ph_edge_pred": ph_edge_pred,
+                "frame_confidence": frame_confidence,
+            }
+
+        return ph_seq_pred, ph_dur_pred, ctc_pred, raw
 
     def decode(self, ph_seq_id, ph_frame_pred, ph_edge_pred):
         # ph_seq_id: (T)
@@ -93,7 +116,7 @@ class ForcedAlignmentModelInferer:
         edge_prob = np.pad(edge[1:, 0] + edge[:-1, 0], (1, 0), "constant", constant_values=edge[0, 0] * 2).clip(0, 1)
         edge_prob_log = np.log(edge_prob).astype("float64")
 
-        # 乘上is_phoneme正确分类的概率
+        # 乘上is_phoneme正确分类的概率 TODO: enable this
         ph_prob_log[:, 0] += ph_prob_log[:, 0]
         ph_prob_log[:, 1:] += 1 / ph_prob_log[:, [0]]
 
@@ -127,7 +150,6 @@ class ForcedAlignmentModelInferer:
             s = S - 2
         else:
             s = S - 1
-        ph_seq_id_pred.append(ph_seq_id[s])
         for t in np.arange(T - 1, -1, -1):
             assert backtrack_s[t, s] >= 0 or t == 0
             frame_confidence.append(dp[t, s])
@@ -141,12 +163,14 @@ class ForcedAlignmentModelInferer:
         frame_confidence = np.exp(np.diff(frame_confidence, 1))
 
         # postprocess
+        ph_seq_pred = [self.model.vocab[ph] for ph in ph_seq_id_pred]
+
         ph_time_fractional = (edge_diff[ph_time_int] / 2).clip(-0.5, 0.5)
         ph_time_pred = np.array(ph_time_int).astype("float64") + ph_time_fractional
         ph_time_pred = ph_time_pred * (self.model.hparams.melspec_config["hop_length"] / self.sample_rate)
 
         return (
-            np.array(ph_seq_id_pred),
+            np.array(ph_seq_pred),
             np.array(ph_time_pred),
             np.array(frame_confidence),
         )
