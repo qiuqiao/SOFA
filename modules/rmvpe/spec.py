@@ -45,8 +45,8 @@ class MelSpectrogram(torch.nn.Module):
         if keyshift_key not in self.hann_window:
             self.hann_window[keyshift_key] = torch.hann_window(win_length_new).to(audio.device)
         if center:
-            pad_left = win_length_new // 2
-            pad_right = (win_length_new + 1) // 2
+            pad_left = n_fft_new // 2
+            pad_right = (n_fft_new + 1) // 2
             audio = F.pad(audio, (pad_left, pad_right))
 
         fft = torch.stft(
