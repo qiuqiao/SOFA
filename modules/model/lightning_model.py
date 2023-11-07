@@ -148,7 +148,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             np.array(frame_confidence),
         )
 
-    def _infer_once(self, wav_path, return_ctc=True, return_plot=True):
+    def _infer_once(self, wav_path, return_ctc=False, return_plot=False):
 
         lab_path = wav_path.parent / f"{wav_path.stem}.lab"
         if not lab_path.exists():
@@ -221,7 +221,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_frame_idx[ph_time_int_pred] = 1
             ph_frame_idx = ph_frame_idx.cumsum() - 1
             ph_frame_id_gt = ph_seq_id_pred[ph_frame_idx]
-            raw = {
+            args = {
                 "melspec": melspec.cpu().numpy(),
                 "ph_seq": ph_seq_pred,
                 "ph_time": ph_time_int_pred.astype("float64") + ph_time_fractional,
@@ -231,12 +231,13 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 "ph_frame_id_gt": ph_frame_id_gt,
                 "edge_prob": edge_prob,
             }
-            fig = plot_for_test(**raw)
+            fig = plot_for_test(**args)
 
         return ph_seq_pred, ph_dur_pred, ctc, fig
 
     def predict_step(self, batch, batch_idx):
-        return self._infer_once(batch)
+        ph_seq, ph_dur, _, _ = self._infer_once(batch, False, False)
+        return ph_seq, ph_dur
 
     def _get_loss(
             self,
