@@ -54,7 +54,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.model = ForcedAlignmentModel(input_feature_dims,
                                           self.vocab["<vocab_size>"],
                                           hidden_dims=self.hidden_dims,
-                                          max_seq_len=max_frame_num + 32
+                                          max_seq_len=max_frame_num
                                           )
 
         # loss function

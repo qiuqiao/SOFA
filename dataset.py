@@ -52,7 +52,7 @@ class MixedDataset(torch.utils.data.Dataset):
 def collate_fn(batch):
     input_feature_lengths = torch.tensor([i[0].shape[-1] for i in batch])
     max_len = max(input_feature_lengths)
-    max_len = max_len + 32 - max_len % 32
+    max_len = max_len
     # padding
     for i, item in enumerate(batch):
         item = list(item)
