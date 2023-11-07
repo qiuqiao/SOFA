@@ -56,11 +56,12 @@ class ForcedAlignmentModelInferer:
 
         # forward
         waveform = load_wav(wav_path, self.device, self.sample_rate)
-        wav_time = len(waveform) / self.sample_rate
+        wav_time = len(waveform) + self.model.hparams.melspec_config["hop_length"] / self.sample_rate
         melspec = self.get_melspec(waveform).unsqueeze(0)
+        padding_length = 32 - (melspec.shape[-1] % 32)
         melspec = torch.nn.functional.pad(
             melspec,
-            (0, 32 - (melspec.shape[-1] % 32)),
+            (0, padding_length),
             "constant",
             0,
         )
@@ -71,9 +72,10 @@ class ForcedAlignmentModelInferer:
                 ctc_pred,  # (B, T, vocab_size)
             ) = self.model(melspec.transpose(1, 2))
 
-        ph_frame_pred = ph_frame_pred.squeeze(0)
-        ph_edge_pred = ph_edge_pred.squeeze(0)
-        ctc_pred = ctc_pred.squeeze(0)
+        ph_frame_pred = ph_frame_pred.squeeze(0)[:-padding_length, :]
+        print(ph_frame_pred.shape)
+        ph_edge_pred = ph_edge_pred.squeeze(0)[:-padding_length, :]
+        ctc_pred = ctc_pred.squeeze(0)[:-padding_length, :]
 
         # decode
         (
@@ -81,11 +83,7 @@ class ForcedAlignmentModelInferer:
             ph_time_pred,
             frame_confidence,
         ) = self.decode(ph_seq_id, ph_frame_pred, ph_edge_pred)
-        if ph_time_pred[-1] > wav_time:
-            ph_time_pred[-1] = wav_time
-            ph_seq_pred = ph_seq_pred[:-1]
-        else:
-            ph_time_pred = np.concatenate([ph_time_pred, [wav_time]])
+        ph_time_pred = np.concatenate([ph_time_pred, [wav_time]])
         ph_dur_pred = np.diff(ph_time_pred)
 
         # ctc decode
@@ -117,8 +115,8 @@ class ForcedAlignmentModelInferer:
         edge_prob_log = np.log(edge_prob).astype("float64")
 
         # 乘上is_phoneme正确分类的概率 TODO: enable this
-        ph_prob_log[:, 0] += ph_prob_log[:, 0]
-        ph_prob_log[:, 1:] += 1 / ph_prob_log[:, [0]]
+        # ph_prob_log[:, 0] += ph_prob_log[:, 0]
+        # ph_prob_log[:, 1:] += 1 / ph_prob_log[:, [0]]
 
         # init
         dp = np.zeros([T, S]).astype("float64") - np.inf  # (T, S)
@@ -165,6 +163,7 @@ class ForcedAlignmentModelInferer:
         # postprocess
         ph_seq_pred = [self.model.vocab[ph] for ph in ph_seq_id_pred]
 
+        print(ph_time_int)
         ph_time_fractional = (edge_diff[ph_time_int] / 2).clip(-0.5, 0.5)
         ph_time_pred = np.array(ph_time_int).astype("float64") + ph_time_fractional
         ph_time_pred = ph_time_pred * (self.model.hparams.melspec_config["hop_length"] / self.sample_rate)
