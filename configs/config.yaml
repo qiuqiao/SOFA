@@ -5,7 +5,7 @@ mel_spec:
   hop_length: 480
   n_fft: 2048
   fmin: 40
-  fmax: 8000
+  fmax: 32000
   clamp: 0.00001
 
 global:

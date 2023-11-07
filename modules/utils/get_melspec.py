@@ -21,5 +21,5 @@ class MelSpecExtractor:
                 clamp=clamp,
             ).to(device)
 
-    def __call__(self, waveform):
-        return melspec_transform(waveform.unsqueeze(0)).squeeze(0)
+    def __call__(self, waveform, key_shift=0):
+        return melspec_transform(waveform.unsqueeze(0), key_shift).squeeze(0)
