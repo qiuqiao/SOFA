@@ -106,6 +106,7 @@ class ForcedAlignmentModelInferer:
         edge_diff = np.pad(np.diff(edge[:, 0]), (1, 0), "constant", constant_values=0)
         edge_prob = np.pad(edge[1:, 0] + edge[:-1, 0], (1, 0), "constant", constant_values=edge[0, 0] * 2).clip(0, 1)
         edge_prob_log = np.log(edge_prob).astype("float64")
+        not_edge_prob_log = np.log(1 - edge_prob).astype("float64")
 
         # 乘上is_phoneme正确分类的概率 TODO: enable this
         # ph_prob_log[:, 0] += ph_prob_log[:, 0]
@@ -120,7 +121,7 @@ class ForcedAlignmentModelInferer:
         # forward
         for t in range(1, T):
             # [t-1,s] -> [t,s]
-            prob1 = dp[t - 1, :] + ph_prob_log[t, ph_seq_id[:]] + (1 - edge_prob_log[t])
+            prob1 = dp[t - 1, :] + ph_prob_log[t, ph_seq_id[:]] + not_edge_prob_log[t]
             # [t-1,s-1] -> [t,s]
             prob2 = dp[t - 1, :-1] + ph_prob_log[t, ph_seq_id[:-1]] + edge_prob_log[t]
             prob2 = np.pad(prob2, (1, 0), "constant", constant_values=-np.inf)
