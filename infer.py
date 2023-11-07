@@ -195,7 +195,6 @@ class ForcedAlignmentModelInferer:
               help='path to the dictionary')
 @click.option('--phoneme', '-p', default=False, is_flag=True, help='use phoneme mode')
 @click.option("--matching", "-m", default=False, is_flag=True, help="use lyric matching mode")
-@click.option('--device', '-d', default=None, type=str, help='device to use')
 def main(ckpt, input, output, **kwargs):  # dictionary, phoneme, matching, device
     torch.set_grad_enabled(False)
     model = LitForcedAlignmentModel.load_from_checkpoint(ckpt)
@@ -203,7 +202,6 @@ def main(ckpt, input, output, **kwargs):  # dictionary, phoneme, matching, devic
     wav_path_array = np.array(list(pathlib.Path(input).rglob('*.wav')))
     trainer = pl.Trainer()
     predictions = trainer.predict(model, dataloaders=wav_path_array, return_predictions=True)
-    print(predictions)
     # save_textgrids(predictions, output)
     # save_htk(predictions, output)
     # save_transcriptions(predictions, output)
