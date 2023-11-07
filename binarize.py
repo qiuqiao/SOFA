@@ -127,6 +127,7 @@ class ForcedAlignmentBinarizer:
             # input_feature: [input_dim,T]
             waveform = load_wav(item.wav_path, self.device, self.sample_rate)
             input_feature = self.get_melspec(waveform)
+            input_feature = (input_feature - input_feature.mean()) / input_feature.std()
 
             T = input_feature.shape[-1]
             if T > self.max_frame_num:

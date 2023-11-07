@@ -58,6 +58,7 @@ class ForcedAlignmentModelInferer:
         waveform = load_wav(wav_path, self.device, self.sample_rate)
         wav_time = (len(waveform) + self.model.hparams.melspec_config["hop_length"]) / self.sample_rate
         melspec = self.get_melspec(waveform).unsqueeze(0)
+        melspec = (melspec - melspec.mean()) / melspec.std()
         with torch.no_grad():
             (
                 ph_frame_pred,  # (B, T, vocab_size)
@@ -75,7 +76,6 @@ class ForcedAlignmentModelInferer:
             ph_time_pred,
             frame_confidence,
         ) = self.decode(ph_seq_id, ph_frame_pred, ph_edge_pred)
-        print(wav_time)
         ph_time_pred = np.concatenate([ph_time_pred, [wav_time]])
         ph_dur_pred = np.diff(ph_time_pred)
 
