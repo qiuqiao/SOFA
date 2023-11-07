@@ -58,13 +58,6 @@ class ForcedAlignmentModelInferer:
         waveform = load_wav(wav_path, self.device, self.sample_rate)
         wav_time = len(waveform) + self.model.hparams.melspec_config["hop_length"] / self.sample_rate
         melspec = self.get_melspec(waveform).unsqueeze(0)
-        padding_length = 32 - (melspec.shape[-1] % 32)
-        melspec = torch.nn.functional.pad(
-            melspec,
-            (0, padding_length),
-            "constant",
-            0,
-        )
         with torch.no_grad():
             (
                 ph_frame_pred,  # (B, T, vocab_size)
@@ -72,10 +65,9 @@ class ForcedAlignmentModelInferer:
                 ctc_pred,  # (B, T, vocab_size)
             ) = self.model(melspec.transpose(1, 2))
 
-        ph_frame_pred = ph_frame_pred.squeeze(0)[:-padding_length, :]
-        print(ph_frame_pred.shape)
-        ph_edge_pred = ph_edge_pred.squeeze(0)[:-padding_length, :]
-        ctc_pred = ctc_pred.squeeze(0)[:-padding_length, :]
+        ph_frame_pred = ph_frame_pred.squeeze(0)
+        ph_edge_pred = ph_edge_pred.squeeze(0)
+        ctc_pred = ctc_pred.squeeze(0)
 
         # decode
         (
@@ -163,7 +155,6 @@ class ForcedAlignmentModelInferer:
         # postprocess
         ph_seq_pred = [self.model.vocab[ph] for ph in ph_seq_id_pred]
 
-        print(ph_time_int)
         ph_time_fractional = (edge_diff[ph_time_int] / 2).clip(-0.5, 0.5)
         ph_time_pred = np.array(ph_time_int).astype("float64") + ph_time_fractional
         ph_time_pred = ph_time_pred * (self.model.hparams.melspec_config["hop_length"] / self.sample_rate)
