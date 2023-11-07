@@ -1,28 +1,13 @@
-import os
 from typing import Any
-
-import torch
-from torch import nn
-from torch.utils.data import DataLoader
-import lightning.pytorch as pl
-from modules.model.forced_aligner_model import ForcedAlignmentModel
-import pathlib
-from dataset import MixedDataset, collate_fn
-from torch.utils.data import DataLoader
 import lightning as pl
 import yaml
 from modules.loss.GHMLoss import GHMLoss, CTCGHMLoss
 from modules.loss.BinaryEMDLoss import BinaryEMDLoss
 from modules.model.forced_aligner_model import ForcedAlignmentModel
 import torch.nn as nn
-from torch.optim.lr_scheduler import OneCycleLR
-from modules.scheduler.gaussian_ramp_up_scheduler import GaussianRampUpScheduler
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 import torch
-import click
 from einops import rearrange, repeat
-import math
+from modules.utils.get_melspec import MelSpecExtractor
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
@@ -49,6 +34,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.hidden_dims = hidden_dims
         self.init_type = init_type
         self.label_smoothing = label_smoothing
+
+        self.infer_params = None
 
         # model
         self.model = ForcedAlignmentModel(input_feature_dims,
@@ -85,6 +72,17 @@ class LitForcedAlignmentModel(pl.LightningModule):
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
                 nn.init.kaiming_uniform_(m.weight)
                 m.bias.data.fill_(0.)
+
+    def set_infer_params(self, kwargs):
+        self.infer_params = kwargs
+
+        with open(kwargs["dictionary"], 'r') as f:
+            dictionary = f.read().strip().split('\n')
+        self.infer_params["dictionary"] = {item.split('\t')[0].strip(): item.split('\t')[1].strip().split(' ')
+                                           for item in dictionary}
+
+        self.infer_params["get_melspec"] = MelSpecExtractor(**self.hparams.melspec_config,
+                                                            device=self.infer_params["device"])
 
     def _get_loss(
             self,
