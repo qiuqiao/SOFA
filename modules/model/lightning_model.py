@@ -84,6 +84,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.infer_params["get_melspec"] = MelSpecExtractor(**self.hparams.melspec_config,
                                                             device=self.infer_params["device"])
 
+    def predict_step(self, batch, batch_idx):
+        pass
+
     def _get_loss(
             self,
             ph_frame_pred,  # (B, T, vocab_size)
