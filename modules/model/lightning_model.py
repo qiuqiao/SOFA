@@ -87,7 +87,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.infer_params["get_melspec"] = MelSpecExtractor(**self.hparams.melspec_config,
                                                             device=self.device)
 
-    def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
+    @staticmethod
+    def _decode(ph_seq_id, ph_prob_log, edge_prob):
         # ph_seq_id: (T)
         # ph_prob_log: (T, vocab_size)
         # edge_prob: (T,2)
@@ -158,10 +159,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         with open(lab_path, 'r') as f:
             word_seq = f.read().strip().split(' ')
         ph_seq = [0]
+        ph_word_idx = [-1]
         if not self.infer_params["phoneme"]:
             for idx, word in enumerate(word_seq):
-                ph_seq.extend(self.infer_params["dictionary"][word])
+                phones = self.infer_params["dictionary"][word]
+                ph_seq.extend(phones)
+                ph_word_idx.extend([idx] * len(phones))
                 ph_seq.append(0)
+                ph_word_idx.append(-1)
         else:
             for ph in word_seq:
                 ph_seq.append(ph)
