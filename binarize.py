@@ -53,7 +53,7 @@ class ForcedAlignmentBinarizer:
             if p in phonemes:
                 phonemes.remove(p)
         phonemes = sorted(phonemes)
-        phonemes = ["<EMPTY>", *phonemes]
+        phonemes = ["SP", *phonemes]
 
         vocab = dict(zip(phonemes, range(len(phonemes))))
         vocab.update(dict(zip(range(len(phonemes)), phonemes)))

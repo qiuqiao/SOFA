@@ -104,7 +104,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # init
         dp = np.zeros([T, S]).astype("float64") - np.inf  # (T, S)
         backtrack_s = np.zeros_like(dp).astype("int32") - 1
-        # 只能从<EMPTY>开始或者从第一个音素开始
+        # 只能从SP开始或者从第一个音素开始
         dp[0, 0] = ph_prob_log[0, 0]
         dp[0, 1] = ph_prob_log[0, ph_seq_id[1]]
         # forward
@@ -116,7 +116,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             prob2 = np.pad(prob2, (1, 0), "constant", constant_values=-np.inf)
             # [t-1,s-2] -> [t,s]
             prob3 = dp[t - 1, :-2] + ph_prob_log[t, ph_seq_id[:-2]] + edge_prob_log[t]
-            prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过<EMPTY>
+            prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过SP
             prob3 = np.pad(prob3, (2, 0), "constant", constant_values=-np.inf)
 
             backtrack_s[t, :] = np.argmax(np.stack([prob1, prob2, prob3]), axis=0)
@@ -126,7 +126,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_seq_id_pred = []
         ph_time_int = []
         frame_confidence = []
-        # 只能从最后一个音素或者<EMPTY>结束
+        # 只能从最后一个音素或者SP结束
         if dp[-1, -2] > dp[-1, -1]:
             s = S - 2
         else:

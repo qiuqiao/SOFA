@@ -87,9 +87,9 @@ def get_chroma_fbank(sample_rate, n_fft, n_mels=12):
     for i in range(n_fft // 2 + 1):
         chroma_fbank[i] = get_chroma_vec_from_freq(freq[i], n_mels)
     return (
-        chroma_fbank
-        * ((sample_rate / 2 - freq.unsqueeze(1)) / (sample_rate / 2) + 0.1)
-        / 1.1
+            chroma_fbank
+            * ((sample_rate / 2 - freq.unsqueeze(1)) / (sample_rate / 2) + 0.1)
+            / 1.1
     )
 
 
@@ -140,13 +140,13 @@ def pad_to_divisible_length(input_tensor, factor=32):
 
 
 def plot_spectrogram_and_phonemes(
-    specgram,
-    ph_seq=None,
-    ph_dur=None,
-    target_gt=None,
-    target_pred=None,
-    title=None,
-    ylabel="freq_bin",
+        specgram,
+        ph_seq=None,
+        ph_dur=None,
+        target_gt=None,
+        target_pred=None,
+        title=None,
+        ylabel="freq_bin",
 ):
     fig, axs = plt.subplots(1, 1)
     axs.set_title(title or " ")
@@ -161,10 +161,10 @@ def plot_spectrogram_and_phonemes(
         for i in ph_time:
             plt.axvline(i, color="r", linewidth=1)
         for i in range(0, len(ph_seq), 2):
-            if ph_seq[i] != "<EMPTY>":
+            if ph_seq[i] != "SP":
                 plt.text(ph_time[i] - ph_dur[i], len(specgram), ph_seq[i], fontsize=11)
         for i in range(1, len(ph_seq), 2):
-            if ph_seq[i] != "<EMPTY>":
+            if ph_seq[i] != "SP":
                 plt.text(
                     ph_time[i], len(specgram) - 5, ph_seq[i], fontsize=11, color="white"
                 )
@@ -195,14 +195,14 @@ class SinScheduler:
             return 0
         elif self.curr_steps < self.end_steps:
             return (
-                np.sin(
-                    -np.pi / 2
-                    + np.pi
-                    * (self.curr_steps - self.start_steps)
-                    / (self.end_steps - self.start_steps)
-                )
-                / 2
-                + 0.5
+                    np.sin(
+                        -np.pi / 2
+                        + np.pi
+                        * (self.curr_steps - self.start_steps)
+                        / (self.end_steps - self.start_steps)
+                    )
+                    / 2
+                    + 0.5
             )
         else:
             return 1
@@ -225,9 +225,9 @@ class GaussianRampUpScheduler:
             return np.exp(
                 -5
                 * (
-                    1
-                    - (self.curr_steps - self.start_steps)
-                    / (self.end_steps - self.start_steps)
+                        1
+                        - (self.curr_steps - self.start_steps)
+                        / (self.end_steps - self.start_steps)
                 )
                 ** 2
             )
@@ -282,12 +282,12 @@ class BinaryEMDLoss(torch.nn.Module):
 
 class GHMLoss(torch.nn.Module):
     def __init__(
-        self,
-        num_classes,
-        num_prob_bins=10,
-        alpha=0.99,
-        label_smoothing=0.0,
-        enable_prob_input=False,
+            self,
+            num_classes,
+            num_prob_bins=10,
+            alpha=0.99,
+            label_smoothing=0.0,
+            enable_prob_input=False,
     ):
         super().__init__()
         self.enable_prob_input = enable_prob_input
@@ -319,17 +319,17 @@ class GHMLoss(torch.nn.Module):
             # print(len(self.classes_ema),loss_classes.min().cpu().numpy(),loss_classes.max().cpu().numpy(),len(self.prob_bins_ema),torch.floor(pred_prob*self.num_prob_bins).long().min().cpu().numpy(),torch.floor(pred_prob*self.num_prob_bins-1e-10).long().max().cpu().numpy())
             loss_weighted = loss / torch.sqrt(
                 (
-                    self.classes_ema[loss_classes]
-                    * self.prob_bins_ema[
-                        torch.floor(pred_prob * self.num_prob_bins - 1e-6).long()
-                    ]
-                    + 1e-10
+                        self.classes_ema[loss_classes]
+                        * self.prob_bins_ema[
+                            torch.floor(pred_prob * self.num_prob_bins - 1e-6).long()
+                        ]
+                        + 1e-10
                 )
             )
         else:
             loss_weighted = loss / (
-                self.prob_bins_ema[torch.floor(pred_prob * self.num_prob_bins).long()]
-                + 1e-10
+                    self.prob_bins_ema[torch.floor(pred_prob * self.num_prob_bins).long()]
+                    + 1e-10
             )
         loss = torch.mean(loss_weighted)
 
@@ -338,12 +338,12 @@ class GHMLoss(torch.nn.Module):
         )
         prob_bins = prob_bins / (torch.sum(prob_bins) + 1e-10) * self.num_prob_bins
         self.prob_bins_ema = (
-            self.prob_bins_ema * self.alpha + (1 - self.alpha) * prob_bins
+                self.prob_bins_ema * self.alpha + (1 - self.alpha) * prob_bins
         )
         self.prob_bins_ema = (
-            self.prob_bins_ema
-            / (torch.sum(self.prob_bins_ema) + 1e-10)
-            * self.num_prob_bins
+                self.prob_bins_ema
+                / (torch.sum(self.prob_bins_ema) + 1e-10)
+                * self.num_prob_bins
         )
 
         if not self.enable_prob_input:
@@ -352,12 +352,12 @@ class GHMLoss(torch.nn.Module):
             ).to(config.device)
             classes = classes / (torch.sum(classes) + 1e-10) * self.num_classes
             self.classes_ema = (
-                self.classes_ema * self.alpha + (1 - self.alpha) * classes
+                    self.classes_ema * self.alpha + (1 - self.alpha) * classes
             )
             self.classes_ema = (
-                self.classes_ema
-                / (torch.sum(self.classes_ema) + 1e-10)
-                * self.num_classes
+                    self.classes_ema
+                    / (torch.sum(self.classes_ema) + 1e-10)
+                    * self.num_classes
             )
 
         return loss

@@ -18,7 +18,7 @@ def plot_for_test(
 
     for i, t in enumerate(ph_time):
         ax1.axvline(t, color="r", linewidth=1)
-        if ph_seq[i] != "<EMPTY>":
+        if ph_seq[i] != "SP":
             if i % 2:
                 ax1.text(ph_time[i], melspec.shape[-2], ph_seq[i], fontsize=11)
             else:
