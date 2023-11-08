@@ -216,7 +216,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ctc = None
         if return_ctc:
             ctc = torch.argmax(ctc_pred, dim=-1).cpu().numpy()
-            ctc = np.unique(ctc)
+            ctc_index = np.concatenate([[0], ctc])
+            ctc_index = (ctc_index[1:] != ctc_index[:-1]) * ctc != 0
+            ctc = ctc[ctc_index]
             ctc = np.array([self.vocab[ph] for ph in ctc if ph != 0])
 
         # plot
