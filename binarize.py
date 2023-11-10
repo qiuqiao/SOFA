@@ -146,38 +146,60 @@ class ForcedAlignmentBinarizer:
             h5py_item_data["label_type"] = label_type_id
             label_type_ids.append(label_type_id)
 
-            # ph_seq: [S]
             if label_type_id < 1:
-                ph_seq = np.array([])
-            else:
-                ph_seq = np.array(item.ph_seq)
+                # ph_seq: [S]
+                ph_seq = np.array([]).astype("int32")
 
-            h5py_item_data["ph_seq"] = ph_seq.astype("int32")
+                # ph_edge: [2,T]
+                ph_edge = np.zeros([2, T], dtype="float32")
 
-            # ph_edge: [2,T]
-            if label_type_id < 2:
+                # ph_frame: [T]
+                ph_frame = np.zeros(T, dtype="int32")
+            elif label_type_id < 2:
+                # ph_seq: [S]
+                ph_seq = ph_seq.astype("int32")
+
+                # ph_edge: [2,T]
                 ph_edge = np.zeros([2, T], dtype="float32")
+                # ph_frame: [T]
+                ph_frame = np.zeros(T, dtype="int32")
             else:
+                ph_seq = np.array(item.ph_seq).astype("int32")
+                ph_dur = np.array(item.ph_dur).astype("float32")
+                ph_time = (np.array(np.concatenate(([0], ph_dur))).cumsum() / self.frame_length)
+                ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
+
+                ph_interval = ph_interval[:, ph_seq != 0]
+                ph_seq = ph_seq[ph_seq != 0]
+                ph_time = np.unique(ph_interval.flatten())
+
+                # ph_seq: [S]
+                ph_seq = ph_seq.astype("int32")
+
+                # ph_edge: [2,T]
                 ph_edge = np.zeros([2, T], dtype="float32")
-                ph_edge_int = np.zeros(T, dtype="int32")  # for ph_frame
-                ph_time = (np.array(item.ph_dur).cumsum() / self.frame_length)[:-1]
-                if ph_time[0] < 0.5 + 1e-3:
+                if ph_time[-1] + 0.5 > T:
+                    ph_time = ph_time[:-1]
+                if ph_time[0] - 0.5 < 0:
                     ph_time = ph_time[1:]
-                ph_time_int = ph_time.round().astype("int32")
+                ph_time_int = np.round(ph_time).astype("int32")
                 ph_time_fractional = ph_time - ph_time_int
-                ph_edge_int[ph_time_int] = 1
+
                 ph_edge[0, ph_time_int] = 0.5 + ph_time_fractional
                 ph_edge[0, ph_time_int - 1] = 0.5 - ph_time_fractional
                 ph_edge[1, :] = 1 - ph_edge[0, :]
 
-            h5py_item_data["ph_edge"] = ph_edge.astype("float32")
-
-            # ph_frame: [T]
-            if label_type_id < 2:
+                # ph_frame: [T]
                 ph_frame = np.zeros(T, dtype="int32")
-            else:
-                ph_frame = ph_seq[ph_edge_int.cumsum().astype("int32")]
+                for ph_id, st, ed in zip(ph_seq, ph_interval[0], ph_interval[1]):
+                    if st < 0:
+                        st = 0
+                    if ed > T:
+                        ed = T
+                    ph_frame[int(np.round(st)):int(np.round(ed))] = ph_id
 
+            h5py_item_data["ph_seq"] = ph_seq.astype("int32")
+            h5py_item_data["ph_edge"] = ph_edge.astype("float32")
             h5py_item_data["ph_frame"] = ph_frame.astype("int32")
 
             # print(h5py_item_data["input_feature"].shape,
