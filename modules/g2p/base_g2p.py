@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 class BaseG2P:
     def __init__(self, **kwargs):
         # args: list of str
@@ -18,14 +21,15 @@ class BaseG2P:
         return ph_seq, word_seq, ph_idx_to_word_idx
 
     def get_dataset(self, wav_paths):
-        # dataset is a list of tuples (wav_path, ph_seq, word_seq, ph_idx_to_word_idx)
+        # dataset is a pandas dataframe with columns: wav_path, ph_seq, word_seq, ph_idx_to_word_idx
         dataset = []
         for wav_path in wav_paths:
             if wav_path.with_suffix('.lab').exists():
                 with open(wav_path.with_suffix('.lab'), 'r') as f:
                     lab_text = f.read().strip()
                 ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)
-
                 dataset.append((wav_path, ph_seq, word_seq, ph_idx_to_word_idx))
+
+        dataset = pd.DataFrame(dataset, columns=['wav_path', 'ph_seq', 'word_seq', 'ph_idx_to_word_idx'])
 
         return dataset
