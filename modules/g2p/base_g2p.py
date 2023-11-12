@@ -1,5 +1,5 @@
 class BaseG2P:
-    def __init__(self, *args):
+    def __init__(self, **kwargs):
         # args: list of str
         pass
 

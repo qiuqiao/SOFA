@@ -2,7 +2,7 @@ from modules.g2p.base_g2p import BaseG2P
 
 
 class PhonemeG2P(BaseG2P):
-    def __init__(self, *args):
+    def __init__(self, **kwargs):
         pass
 
     def _g2p(self, input_text):
