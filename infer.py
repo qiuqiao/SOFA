@@ -3,11 +3,8 @@ from train import LitForcedAlignmentModel
 import pathlib
 import torch
 # import textgrid
-from modules.utils.load_wav import load_wav
-from modules.utils.get_melspec import MelSpecExtractor
-import numpy as np
-from modules.utils.plot import plot_for_test
 import lightning as pl
+import modules.g2p
 
 
 @click.command()
@@ -16,20 +13,28 @@ import lightning as pl
               type=str, help='path to the checkpoint')
 @click.option('--input', '-i', default='segments', type=str, help='path to the input folder')
 @click.option('--output', '-o', default='segments', type=str, help='path to the output folder')
+@click.option("--mode", "-m", default="force", type=click.Choice(["force", "match"]))  # TODO: add asr mode
+@click.option('--g2p', '-g', default='Dictionary', type=str, help='name of the g2p class')
 @click.option('--dictionary', '-d', default='dictionary/opencpop-extension.txt', type=str,
               help='path to the dictionary')
-@click.option('--phoneme', '-p', default=False, is_flag=True, help='use phoneme mode')
-@click.option("--matching", "-m", default=False, is_flag=True, help="use lyric matching mode")
-def main(ckpt, input, output, **kwargs):  # dictionary, phoneme, matching, device
+def main(ckpt, input, output, mode, g2p, **g2p_kwargs):
+    if not g2p.endswith('G2P'):
+        g2p += 'G2P'
+    g2p_class = getattr(modules.g2p, g2p)
+    grapheme_to_phoneme = g2p_class(**g2p_kwargs)
+    (
+        ph_seq_list,
+        word_seq_list,
+        ph_idx_to_word_idx_list
+    ) = grapheme_to_phoneme.get_dataset(pathlib.Path(input).rglob('*.wav'))
     torch.set_grad_enabled(False)
     model = LitForcedAlignmentModel.load_from_checkpoint(ckpt)
-    model.set_infer_params(kwargs)
-    wav_path_array = np.array(list(pathlib.Path(input).rglob('*.wav')))
+    # model.set_infer_params(kwargs)
     trainer = pl.Trainer()
-    predictions = trainer.predict(model, dataloaders=wav_path_array, return_predictions=True)
-    # save_textgrids(predictions, output)
-    # save_htk(predictions, output)
-    # save_transcriptions(predictions, output)
+    predictions = trainer.predict(model, dataloaders=ph_seq_list, return_predictions=True)
+    # save_textgrids(output, predictions, word_seq_list, ph_idx_to_word_idx_list)
+    # save_htk(output, predictions, word_seq_list, ph_idx_to_word_idx_list)
+    # save_transcriptions(output, predictions, word_seq_list, ph_idx_to_word_idx_list)
 
 
 if __name__ == "__main__":
