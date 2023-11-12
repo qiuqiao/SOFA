@@ -111,7 +111,7 @@ SP ay SP ae m SP ah SP s t uw d ah n t SP
 
 
 @click.option('--my_param', type=str, default=None, help='My parameter for my g2p module')
-def main(ckpt, input, output, g2p, match_mode, **g2p_kwargs):
+def main(ckpt, folder, g2p, match_mode, **g2p_kwargs):
     ...
 ```
 

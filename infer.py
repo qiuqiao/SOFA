@@ -13,18 +13,18 @@ def save_textgrids(predictions):
     for wav_path, ph_seq, ph_intervals, word_seq, word_intervals in predictions:
 
         tg = textgrid.TextGrid()
-        ph_tier = textgrid.IntervalTier(name='phones')
         word_tier = textgrid.IntervalTier(name='words')
-
-        for ph, (start, end) in zip(ph_seq, ph_intervals):
-            if len(ph_tier) > 0 and ph_tier[-1].maxTime < start:
-                ph_tier.add(minTime=ph_tier[-1].maxTime, maxTime=start, mark='SP')
-            ph_tier.add(minTime=start, maxTime=end, mark=ph)
+        ph_tier = textgrid.IntervalTier(name='phones')
 
         for word, (start, end) in zip(word_seq, word_intervals):
             if len(word_tier) > 0 and word_tier[-1].maxTime < start:
                 word_tier.add(word_tier[-1].maxTime, start, 'SP')
             word_tier.add(start, end, word)
+        
+        for ph, (start, end) in zip(ph_seq, ph_intervals):
+            if len(ph_tier) > 0 and ph_tier[-1].maxTime < start:
+                ph_tier.add(minTime=ph_tier[-1].maxTime, maxTime=start, mark='SP')
+            ph_tier.add(minTime=start, maxTime=end, mark=ph)
 
         tg.append(ph_tier)
         tg.append(word_tier)

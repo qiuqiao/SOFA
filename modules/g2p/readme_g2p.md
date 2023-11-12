@@ -121,7 +121,7 @@ Example: If you want to use an additional parameter `--my_param`, you would add 
 
 
 @click.option('--my_param', type=str, default=None, help='My parameter for my g2p module')
-def main(ckpt, input, output, g2p, match_mode, **g2p_kwargs):
+def main(ckpt, folder, g2p, match_mode, **g2p_kwargs):
     ...
 ```
 
