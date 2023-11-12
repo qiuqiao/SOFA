@@ -1,4 +1,16 @@
 import pandas as pd
+import torch
+
+
+class DataFrameDataset(torch.utils.data.Dataset):
+    def __init__(self, dataframe):
+        self.dataset = dataframe
+
+    def __getitem__(self, index):
+        return tuple(self.dataset.iloc[index])
+
+    def __len__(self):
+        return len(self.dataset)
 
 
 class BaseG2P:
@@ -29,7 +41,6 @@ class BaseG2P:
                     lab_text = f.read().strip()
                 ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)
                 dataset.append((wav_path, ph_seq, word_seq, ph_idx_to_word_idx))
-
         dataset = pd.DataFrame(dataset, columns=['wav_path', 'ph_seq', 'word_seq', 'ph_idx_to_word_idx'])
-
+        dataset = DataFrameDataset(dataset)
         return dataset
