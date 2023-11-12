@@ -251,7 +251,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
                              ph_idx_to_word_idx,
                              False,
                              False)
-        return ph_seq, ph_intervals, word_seq, word_intervals
+        return wav_path, ph_seq, ph_intervals, word_seq, word_intervals
 
     def _get_loss(
             self,
