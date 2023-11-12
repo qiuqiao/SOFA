@@ -113,7 +113,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
             dp[t, :] = np.max(np.stack([prob1, prob2, prob3]), axis=0)
 
         # backward
-        # ph_seq_id_pred = []
         ph_idx_seq = []
         ph_time_int = []
         frame_confidence = []
@@ -126,7 +125,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
             assert backtrack_s[t, s] >= 0 or t == 0
             frame_confidence.append(dp[t, s])
             if backtrack_s[t, s] != 0:
-                # ph_seq_id_pred.append(ph_seq_id[s])
                 ph_idx_seq.append(s)
                 ph_time_int.append(t)
                 s -= backtrack_s[t, s]
@@ -222,6 +220,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_frame_idx = np.zeros(ph_frame_pred.shape[0], dtype="int32")
             ph_frame_idx[ph_time_int_pred] = 1
             ph_frame_idx = ph_frame_idx.cumsum() - 1
+            ph_seq_id_pred = [self.vocab[i] for i in ph_seq_pred]
             ph_frame_id_gt = ph_seq_id_pred[ph_frame_idx]
             args = {
                 "melspec": melspec.cpu().numpy(),
