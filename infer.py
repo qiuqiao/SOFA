@@ -23,6 +23,7 @@ def main(ckpt, input, output, mode, g2p, **g2p_kwargs):
     g2p_class = getattr(modules.g2p, g2p)
     grapheme_to_phoneme = g2p_class(**g2p_kwargs)
     (
+        wav_path_list,
         ph_seq_list,
         word_seq_list,
         ph_idx_to_word_idx_list

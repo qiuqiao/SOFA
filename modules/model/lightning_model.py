@@ -38,8 +38,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.init_type = init_type
         self.label_smoothing = label_smoothing
 
-        self.infer_params = None
-
         # model
         self.model = ForcedAlignmentModel(input_feature_dims,
                                           self.vocab["<vocab_size>"],
@@ -75,17 +73,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
                 nn.init.kaiming_uniform_(m.weight)
                 m.bias.data.fill_(0.)
-
-    def set_infer_params(self, kwargs):
-        self.infer_params = kwargs
-        if not self.infer_params["phoneme"]:
-            with open(kwargs["dictionary"], 'r') as f:
-                dictionary = f.read().strip().split('\n')
-            self.infer_params["dictionary"] = {item.split('\t')[0].strip(): item.split('\t')[1].strip().split(' ')
-                                               for item in dictionary}
-
-        self.infer_params["get_melspec"] = MelSpecExtractor(**self.hparams.melspec_config,
-                                                            device=self.device)
 
     @staticmethod
     def _decode(ph_seq_id, ph_prob_log, edge_prob):
@@ -149,28 +136,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             np.array(frame_confidence),
         )
 
-    def _infer_once(self, wav_path, return_ctc=False, return_plot=False):
+    def _infer_once(self, wav_path, ph_seq, return_ctc=False, return_plot=False):
 
-        lab_path = wav_path.parent / f"{wav_path.stem}.lab"
-        if not lab_path.exists():
-            return None, None, None, None
-
-        # TODO: add matching mode
-        with open(lab_path, 'r') as f:
-            word_seq = f.read().strip().split(' ')
-        ph_seq = [0]
-        ph_word_idx = [-1]
-        if not self.infer_params["phoneme"]:
-            for idx, word in enumerate(word_seq):
-                phones = self.infer_params["dictionary"][word]
-                ph_seq.extend(phones)
-                ph_word_idx.extend([idx] * len(phones))
-                ph_seq.append(0)
-                ph_word_idx.append(-1)
-        else:
-            for ph in word_seq:
-                ph_seq.append(ph)
-                ph_seq.append(0)
         ph_seq_id = np.array([self.vocab[ph] if ph != 0 else 0 for ph in ph_seq])
 
         # forward
