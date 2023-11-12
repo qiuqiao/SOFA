@@ -190,7 +190,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         word_intervals_pred = []
         word_idx_last = -1
         for i, ph_idx in enumerate(ph_idx_seq):
-            if ph_idx == 0:
+            if ph_seq[ph_idx] == 'SP':
                 continue
             ph_seq_pred.append(ph_seq[ph_idx])
 
