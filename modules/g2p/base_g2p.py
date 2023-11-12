@@ -18,17 +18,14 @@ class BaseG2P:
         return ph_seq, word_seq, ph_idx_to_word_idx
 
     def get_dataset(self, wav_paths):
-        wav_path_list = []
-        ph_seq_list = []
-        word_seq_list = []
-        ph_idx_to_word_idx_list = []
+        # dataset is a list of tuples (wav_path, ph_seq, word_seq, ph_idx_to_word_idx)
+        dataset = []
         for wav_path in wav_paths:
             if wav_path.with_suffix('.lab').exists():
-                wav_path_list.append(wav_path)
                 with open(wav_path.with_suffix('.lab'), 'r') as f:
                     lab_text = f.read().strip()
                 ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)
-                ph_seq_list.append(ph_seq)
-                word_seq_list.append(word_seq)
-                ph_idx_to_word_idx_list.append(ph_idx_to_word_idx)
-        return wav_path_list, ph_seq_list, word_seq_list, ph_idx_to_word_idx_list
+
+                dataset.append((wav_path, ph_seq, word_seq, ph_idx_to_word_idx))
+
+        return dataset

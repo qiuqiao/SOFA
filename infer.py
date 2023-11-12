@@ -22,17 +22,12 @@ def main(ckpt, input, output, mode, g2p, **g2p_kwargs):
         g2p += 'G2P'
     g2p_class = getattr(modules.g2p, g2p)
     grapheme_to_phoneme = g2p_class(**g2p_kwargs)
-    (
-        wav_path_list,
-        ph_seq_list,
-        word_seq_list,
-        ph_idx_to_word_idx_list
-    ) = grapheme_to_phoneme.get_dataset(pathlib.Path(input).rglob('*.wav'))
+    dataset = grapheme_to_phoneme.get_dataset(pathlib.Path(input).rglob('*.wav'))
     torch.set_grad_enabled(False)
     model = LitForcedAlignmentModel.load_from_checkpoint(ckpt)
     # model.set_infer_params(kwargs)
     trainer = pl.Trainer()
-    predictions = trainer.predict(model, dataloaders=ph_seq_list, return_predictions=True)
+    predictions = trainer.predict(model, dataloaders=dataset, return_predictions=True)
     # save_textgrids(output, predictions, word_seq_list, ph_idx_to_word_idx_list)
     # save_htk(output, predictions, word_seq_list, ph_idx_to_word_idx_list)
     # save_transcriptions(output, predictions, word_seq_list, ph_idx_to_word_idx_list)
