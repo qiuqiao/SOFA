@@ -56,6 +56,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # init weights
         self.apply(self.init_weights)
 
+        # get_melspec
+        self.get_melspec = None
+
     def init_weights(self, m):
         if self.init_type == "xavier_uniform":
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
@@ -110,7 +113,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             dp[t, :] = np.max(np.stack([prob1, prob2, prob3]), axis=0)
 
         # backward
-        ph_seq_id_pred = []
+        # ph_seq_id_pred = []
+        ph_idx_seq = []
         ph_time_int = []
         frame_confidence = []
         # 只能从最后一个音素或者SP结束
@@ -122,28 +126,32 @@ class LitForcedAlignmentModel(pl.LightningModule):
             assert backtrack_s[t, s] >= 0 or t == 0
             frame_confidence.append(dp[t, s])
             if backtrack_s[t, s] != 0:
-                ph_seq_id_pred.append(ph_seq_id[s])
+                # ph_seq_id_pred.append(ph_seq_id[s])
+                ph_idx_seq.append(s)
                 ph_time_int.append(t)
                 s -= backtrack_s[t, s]
-        ph_seq_id_pred.reverse()
+        ph_idx_seq.reverse()
         ph_time_int.reverse()
         frame_confidence.reverse()
         frame_confidence = np.exp(np.diff(np.pad(frame_confidence, (1, 0), 'constant', constant_values=0.), 1))
 
         return (
-            np.array(ph_seq_id_pred),
+            np.array(ph_idx_seq),
             np.array(ph_time_int),
             np.array(frame_confidence),
         )
 
-    def _infer_once(self, wav_path, ph_seq, return_ctc=False, return_plot=False):
+    def _infer_once(self, wav_path, ph_seq, word_seq, ph_idx_to_word_idx, return_ctc=False, return_plot=False):
+        if self.get_melspec is None:
+            self.get_melspec = MelSpecExtractor(**self.melspec_config)
 
         ph_seq_id = np.array([self.vocab[ph] if ph != 0 else 0 for ph in ph_seq])
 
-        # forward
         waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
-        melspec = self.infer_params["get_melspec"](waveform).unsqueeze(0)
+        melspec = self.get_melspec(waveform).unsqueeze(0)
         melspec = (melspec - melspec.mean()) / melspec.std()
+
+        # forward
         with torch.no_grad():
             (
                 ph_frame_pred,  # (B, T, vocab_size)
@@ -162,7 +170,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         ph_prob_log = torch.log_softmax(ph_frame_pred, dim=-1).cpu().numpy().astype("float64")
         (
-            ph_seq_id_pred,
+            ph_idx_seq,
             ph_time_int_pred,
             frame_confidence,
         ) = self._decode(
@@ -172,12 +180,32 @@ class LitForcedAlignmentModel(pl.LightningModule):
         )
 
         # postprocess
-        ph_seq_pred = np.array([self.vocab[ph] for ph in ph_seq_id_pred])
         ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
         ph_time_pred = ph_time_int_pred.astype("float64") + ph_time_fractional
         ph_time_pred = np.concatenate([ph_time_pred, [ph_frame_pred.shape[0]]])
         ph_time_pred = ph_time_pred * (self.melspec_config["hop_length"] / self.melspec_config["sample_rate"])
-        ph_time_interval = np.stack([ph_time_pred[:-1], ph_time_pred[1:]], axis=1)
+        ph_intervals = np.stack([ph_time_pred[:-1], ph_time_pred[1:]], axis=1)
+
+        ph_intervals_pred = ph_intervals  # indecate the start and end time of each item from ph_idx_seq
+        ph_seq_pred = []
+        word_seq_pred = []
+        word_intervals_pred = []
+        word_idx_last = -1
+        for i, ph_idx in enumerate(ph_idx_seq):
+            if ph_idx == 0:
+                continue
+            ph_seq_pred.append(ph_seq[ph_idx])
+
+            word_idx = ph_idx_to_word_idx[ph_idx]
+            if word_idx == word_idx_last:
+                word_intervals_pred[-1][1] = ph_intervals[i, 1]
+            else:
+                word_seq_pred.append(word_seq[word_idx])
+                word_intervals_pred.append([ph_intervals[i, 0], ph_intervals[i, 1]])
+                word_idx_last = word_idx
+        ph_seq_pred = np.array(ph_seq_pred)
+        word_seq_pred = np.array(word_seq_pred)
+        word_intervals_pred = np.array(word_intervals_pred)
 
         # ctc decode
         ctc = None
@@ -188,7 +216,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ctc = ctc[ctc_index]
             ctc = np.array([self.vocab[ph] for ph in ctc if ph != 0])
 
-        # plot
+        # plot TODO
         fig = None
         if return_plot:
             ph_frame_idx = np.zeros(ph_frame_pred.shape[0], dtype="int32")
@@ -207,11 +235,24 @@ class LitForcedAlignmentModel(pl.LightningModule):
             }
             fig = plot_for_test(**args)
 
-        return ph_seq_pred, ph_time_interval, ctc, fig
+        return ph_seq_pred, ph_intervals_pred, word_seq_pred, word_intervals_pred, ctc, fig
 
     def predict_step(self, batch, batch_idx):
-        ph_seq, ph_time_interval, _, _ = self._infer_once(batch, False, False)
-        return ph_seq, ph_time_interval
+        wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
+        (
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
+            _,
+            _
+        ) = self._infer_once(wav_path,
+                             ph_seq,
+                             word_seq,
+                             ph_idx_to_word_idx,
+                             False,
+                             False)
+        return ph_seq, ph_intervals, word_seq, word_intervals
 
     def _get_loss(
             self,
