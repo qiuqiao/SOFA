@@ -115,13 +115,14 @@ class ForcedAlignmentBinarizer:
 
         h5py_file_path = pathlib.Path(binary_data_folder) / (prefix + ".h5py")
         h5py_file = h5py.File(h5py_file_path, "w")
+        h5py_meta_data = h5py_file.create_group("meta_data")
+        items_meta_data = {"idx": [], "label_type": [], "wav_length": []}
         h5py_items = h5py_file.create_group("items")
 
         label_type_to_id = {"no_label": 0, "weak_label": 1, "full_label": 2}
-        label_type_ids = []
 
         idx = 0
-        total_timestep = 0
+        total_time = 0.
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
             # input_feature: [input_dim,T]
@@ -136,15 +137,18 @@ class ForcedAlignmentBinarizer:
 
             else:
                 h5py_item_data = h5py_items.create_group(str(idx))
+                items_meta_data["idx"].append(idx)
+                wav_length = T * self.frame_length
+                items_meta_data["wav_length"].append(wav_length)
                 idx += 1
-                total_timestep += T
+                total_time += wav_length
 
             h5py_item_data["input_feature"] = input_feature.cpu().numpy().astype("float32")
 
             # label_type: []
             label_type_id = label_type_to_id[item.label_type]
             h5py_item_data["label_type"] = label_type_id
-            label_type_ids.append(label_type_id)
+            items_meta_data["label_type"].append(label_type_id)
 
             if label_type_id < 1:
                 # ph_seq: [S]
@@ -209,9 +213,9 @@ class ForcedAlignmentBinarizer:
             #       h5py_item_data["ph_frame"].shape
             #       )
 
-        h5py_file.create_dataset("label_type_ids", data=np.array(label_type_ids).astype("int32"))
+        for k, v in items_meta_data.items():
+            h5py_meta_data[k] = np.array(v)
         h5py_file.close()
-        total_time = total_timestep * self.frame_length
         print(
             f"Successfully binarized {prefix} set, total time {total_time:.2f}s, saved to {h5py_file_path}"
         )
