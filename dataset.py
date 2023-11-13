@@ -9,9 +9,22 @@ class MixedDataset(torch.utils.data.Dataset):
     def __init__(self, binary_data_folder="data/binary", prefix="train", binning_length=1800):
         # do not open hdf5 here
         self.h5py_items = None
+        self.label_types = None
+        self.wav_lengths = None
+
         self.binary_data_folder = binary_data_folder
         self.prefix = prefix
         self.binning_length = binning_length
+
+    def get_label_types(self):
+        if self.label_types is None:
+            self._open_h5py_file()
+        return self.label_types
+
+    def get_wav_lengths(self):
+        if self.wav_lengths is None:
+            self._open_h5py_file()
+        return self.wav_lengths
 
     def _open_h5py_file(self):
         h5py_file = h5py.File(str(pathlib.Path(self.binary_data_folder) / (self.prefix + ".h5py")), 'r')
@@ -46,6 +59,37 @@ class MixedDataset(torch.utils.data.Dataset):
         ph_frame = np.array(item["ph_frame"])
 
         return input_feature, ph_seq, ph_edge, ph_frame, label_type
+
+
+class WeightedBinningAudioSampler(torch.utils.data.Sampler):
+    def __init__(self, type_ids, wav_lengths, weights_of_types, max_length=100, binning_length=1000):
+        assert len(weights_of_types) == max(type_ids) + 1
+        assert min(type_ids) >= 0
+        assert len(type_ids) == len(wav_lengths)
+        assert max_length > 0
+        assert binning_length > 0
+
+        meta_data = pd.DataFrame(
+            {
+                "dataset_index": range(len(type_ids)),
+                "type_id": type_ids,
+                "wav_length": wav_lengths
+            }
+        )
+        meta_data = meta_data.sort_values(by=["wav_length"], ascending=False).reset_index(drop=True)
+
+        self.bins = []
+        curr_bin_max_item_length = meta_data.loc[0, "wav_length"]
+        curr_bin_start_index = 0
+        for i in range(len(meta_data)):
+            if curr_bin_max_item_length * (i - curr_bin_start_index) > binning_length:
+                bin_data = meta_data.loc[curr_bin_start_index:i - 1, ].to_dict(orient="list")
+                self.bins.append(bin_data)
+
+                curr_bin_start_index = i
+                curr_bin_max_item_length = meta_data.loc[i, "wav_length"]
+
+        print(len(self.bins))
 
 
 def collate_fn(batch):
@@ -87,5 +131,4 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
     dataset = MixedDataset()
-    print(len(dataset))
-    print(dataset.wav_lengths)
+    sampler = WeightedBinningAudioSampler(dataset.get_label_types(), dataset.get_wav_lengths(), [1, 1, 1])
