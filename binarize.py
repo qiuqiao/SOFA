@@ -116,7 +116,7 @@ class ForcedAlignmentBinarizer:
         h5py_file_path = pathlib.Path(binary_data_folder) / (prefix + ".h5py")
         h5py_file = h5py.File(h5py_file_path, "w")
         h5py_meta_data = h5py_file.create_group("meta_data")
-        items_meta_data = {"idx": [], "label_type": [], "wav_length": []}
+        items_meta_data = {"label_types": [], "wav_lengths": []}
         h5py_items = h5py_file.create_group("items")
 
         label_type_to_id = {"no_label": 0, "weak_label": 1, "full_label": 2}
@@ -137,9 +137,8 @@ class ForcedAlignmentBinarizer:
 
             else:
                 h5py_item_data = h5py_items.create_group(str(idx))
-                items_meta_data["idx"].append(idx)
                 wav_length = T * self.frame_length
-                items_meta_data["wav_length"].append(wav_length)
+                items_meta_data["wav_lengths"].append(wav_length)
                 idx += 1
                 total_time += wav_length
 
@@ -148,7 +147,7 @@ class ForcedAlignmentBinarizer:
             # label_type: []
             label_type_id = label_type_to_id[item.label_type]
             h5py_item_data["label_type"] = label_type_id
-            items_meta_data["label_type"].append(label_type_id)
+            items_meta_data["label_types"].append(label_type_id)
 
             if label_type_id < 1:
                 # ph_seq: [S]
