@@ -219,12 +219,13 @@ class ForcedAlignmentBinarizer:
         weak_label_ratio = items_meta_data["label_types"].count(1) / len(items_meta_data["label_types"])
         no_label_ratio = items_meta_data["label_types"].count(0) / len(items_meta_data["label_types"])
         print(
-            "Data compression ratio: \n" \
-            f"    full label data: {100 * full_label_ratio:.2f}%,\n" \
-            f"    weak label data: {100 * weak_label_ratio:.2f}%,\n"
-            f"    no label data: {100 * no_label_ratio:.2f}%")
+            "Data compression ratio: \n"
+            f"    full label data: {100 * full_label_ratio:.2f} %,\n"
+            f"    weak label data: {100 * weak_label_ratio:.2f} %,\n"
+            f"    no label data: {100 * no_label_ratio:.2f} %.")
         print(
-            f"Successfully binarized {prefix} set, total time {total_time:.2f}s, saved to {h5py_file_path}"
+            f"Successfully binarized {prefix} set, "
+            f"total time {total_time:.2f}s, saved to {h5py_file_path}"
         )
 
     @staticmethod
