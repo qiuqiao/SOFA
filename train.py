@@ -73,6 +73,8 @@ def main(config_path: str):
                          default_root_dir=str(pathlib.Path("ckpt") / config["global"]["model_name"]),
                          val_check_interval=config["train"]["val_check_interval"],
                          check_val_every_n_epoch=None,
+                         max_epochs=-1,
+                         max_steps=config["train"]["max_steps"],
                          )
     # resume training state
     ckpt_path_list = (pathlib.Path("ckpt") / config["global"]["model_name"]).rglob("*.ckpt")

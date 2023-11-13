@@ -55,6 +55,7 @@ train:
   gradient_clip_val: 1.0
   gradient_clip_algorithm: norm #value
   val_check_interval: 500 # 0.25
+  max_steps: 10000
 
   use_pretrained_model: False
   pretrained_model_path: ''
