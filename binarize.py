@@ -117,7 +117,7 @@ class ForcedAlignmentBinarizer:
         h5py_file = h5py.File(h5py_file_path, "w")
         h5py_items = h5py_file.create_group("items")
 
-        label_type_to_id = {"no_label": 0, "weak_label": 1, "strong_label": 2}
+        label_type_to_id = {"no_label": 0, "weak_label": 1, "full_label": 2}
         label_type_ids = []
 
         idx = 0
@@ -234,8 +234,8 @@ class ForcedAlignmentBinarizer:
             )
             df["label_type"] = df["wav_path"].apply(
                 lambda path_: (
-                    "strong_label"
-                    if "strong_label" in path_
+                    "full_label"
+                    if "full_label" in path_
                     else "weak_label"
                     if "weak_label" in path_
                     else "no_label"

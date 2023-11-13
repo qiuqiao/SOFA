@@ -3,7 +3,7 @@ __*__
 data/binary/*
 data/no_label/*
 data/weak_label/*
-data/strong_label/*
+data/full_label/*
 ckpt/*
 segments/*
 

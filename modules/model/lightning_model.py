@@ -271,14 +271,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_frame = ph_frame[label_type >= 2, :]
         ph_edge = ph_edge[label_type >= 2, :, :]
         ph_edge_pred = ph_edge_pred[label_type >= 2, :, :]
-        input_lengths_strong = input_feature_lengths[label_type >= 2]
+        input_lengths_full = input_feature_lengths[label_type >= 2]
         ctc_pred = ctc_pred[label_type >= 1, :, :]
         input_lengths_weak = input_feature_lengths[label_type >= 1]
 
         # calculate mask matrix
         mask = torch.arange(ph_frame_pred.size(1)).to(self.device)
         mask = repeat(mask, "T -> B T", B=ph_frame_pred.shape[0])
-        mask = (mask >= input_lengths_strong.unsqueeze(1)).to(ph_frame_pred.dtype)  # (B, T)
+        mask = (mask >= input_lengths_full.unsqueeze(1)).to(ph_frame_pred.dtype)  # (B, T)
 
         if ph_frame_pred.shape[0] > 0:
             # ph_frame_loss
