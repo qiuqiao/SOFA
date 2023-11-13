@@ -2,34 +2,33 @@ import torch
 import h5py
 import numpy as np
 import pathlib
+import pandas as pd
 
 
 class MixedDataset(torch.utils.data.Dataset):
-    def __init__(self, binary_data_folder="data/binary", prefix="train"):
+    def __init__(self, binary_data_folder="data/binary", prefix="train", binning_length=1800):
         # do not open hdf5 here
-        self.h5py_file = None
         self.h5py_items = None
-        self.label_type_ids = None
-        self.keys = None
         self.binary_data_folder = binary_data_folder
         self.prefix = prefix
+        self.binning_length = binning_length
 
-    def open_h5py_file(self):
-        self.h5py_file = h5py.File(str(pathlib.Path(self.binary_data_folder) / (self.prefix + ".h5py")), 'r')
-        self.h5py_items = self.h5py_file["items"]
-        self.label_type_ids = np.array(self.h5py_file["label_type_ids"])
-        self.keys = list(self.h5py_items.keys())
+    def _open_h5py_file(self):
+        h5py_file = h5py.File(str(pathlib.Path(self.binary_data_folder) / (self.prefix + ".h5py")), 'r')
+        self.h5py_items = h5py_file["items"]
+        self.label_types = np.array(h5py_file["meta_data"]["label_types"])
+        self.wav_lengths = np.array(h5py_file["meta_data"]["wav_lengths"])
 
     def __len__(self):
         if self.h5py_items is None:
-            self.open_h5py_file()
-        return len(self.keys)
+            self._open_h5py_file()
+        return len(self.h5py_items)
 
     def __getitem__(self, index):
         if self.h5py_items is None:
-            self.open_h5py_file()
+            self._open_h5py_file()
 
-        item = self.h5py_items[self.keys[index]]
+        item = self.h5py_items[str(index)]
 
         # input_feature
         input_feature = np.array(item["input_feature"])
@@ -84,3 +83,9 @@ def collate_fn(batch):
         ph_frame,
         label_type,
     )
+
+
+if __name__ == "__main__":
+    dataset = MixedDataset()
+    print(len(dataset))
+    print(dataset.wav_lengths)
