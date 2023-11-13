@@ -1,7 +1,7 @@
 import os
 import lightning.pytorch as pl
 import pathlib
-from dataset import MixedDataset, collate_fn
+from dataset import MixedDataset, collate_fn, WeightedBinningAudioBatchSampler
 from torch.utils.data import DataLoader
 import lightning as pl
 import yaml
@@ -23,21 +23,32 @@ def main(config_path: str):
 
     # define dataset
     train_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="train")
+    train_sampler = WeightedBinningAudioBatchSampler(train_dataset.get_label_types(),
+                                                     train_dataset.get_wav_lengths(),
+                                                     config["train"]["oversampling_weights"],
+                                                     config["train"]["batch_max_length"],
+                                                     config["train"]["binning_length"],
+                                                     config["train"]["drop_last"],
+                                                     )
     train_dataloader = DataLoader(
         dataset=train_dataset,
-        batch_size=config["train"]["batch_size"],
-        shuffle=True,
+        batch_sampler=train_sampler,
         collate_fn=collate_fn,
         num_workers=config["train"]["dataloader_workers"],
     )
 
     valid_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="valid")
+    valid_sampler = WeightedBinningAudioBatchSampler(valid_dataset.get_label_types(),
+                                                     valid_dataset.get_wav_lengths(),
+                                                     config["train"]["oversampling_weights"],
+                                                     config["train"]["batch_max_length"],
+                                                     len(valid_dataset.get_label_types()),
+                                                     config["train"]["drop_last"],
+                                                     )
     valid_dataloader = DataLoader(
         dataset=valid_dataset,
-        batch_size=config["train"]["batch_size"],
-        shuffle=False,
+        batch_sampler=valid_sampler,
         collate_fn=collate_fn,
-        drop_last=True,
         num_workers=config["train"]["dataloader_workers"],
     )
 

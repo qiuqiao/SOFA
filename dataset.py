@@ -73,7 +73,7 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
 
         if oversampling_weights is None:
             oversampling_weights = [1] * (max(type_ids) + 1)
-        oversampling_weights = np.array(oversampling_weights)
+        oversampling_weights = np.array(oversampling_weights).astype(np.float32)
 
         assert min(oversampling_weights) > 0
         assert len(oversampling_weights) == max(type_ids) + 1

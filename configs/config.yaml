@@ -33,8 +33,11 @@ train:
   random_seed: 114514
 
   # dataloader
-  batch_size: 3
   dataloader_workers: 15
+  oversampling_weights: [ 1, 1, 1 ]
+  batch_max_length: 40 # unit: seconds
+  binning_length: 1000 # unit: seconds
+  drop_last: False
 
   # model
   learning_rate: 0.001 #0.001
@@ -57,11 +60,6 @@ train:
   pretrained_model_path: ''
 
   test_data_folder: data/test/
-
-  max_steps: 10000
-  valid_intervals: 200
-  test_intervals: 1000
-  save_intervals: 1000
 
 infer:
   chromagram_n_fft: 8192
