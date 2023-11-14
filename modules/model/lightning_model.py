@@ -59,6 +59,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # get_melspec
         self.get_melspec = None
 
+        # validation_step_outputs
+        self.validation_step_outputs = []
+
     def init_weights(self, m):
         if self.init_type == "xavier_uniform":
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
@@ -389,7 +392,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
             label_type
         )
         values = {str("valid/" + k): v for k, v in values.items()}
-        self.log_dict(values, batch_size=input_feature.shape[0])
+        # self.log_dict(values, batch_size=input_feature.shape[0])
+        self.validation_step_outputs.append(values)
+        return values
+
+    def on_validation_epoch_end(self):
+        outputs = self.validation_step_outputs
+        outputs = {k: torch.stack([i[k] for i in outputs]).mean() for k in outputs[0].keys()}
+        self.log_dict(outputs)
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
