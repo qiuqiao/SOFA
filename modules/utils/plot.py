@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_for_test(
+def plot_for_valid(
         melspec,
         ph_seq,
         ph_time,
@@ -39,8 +39,9 @@ def plot_for_test(
     ax2.plot(x, edge_prob * ph_frame_prob.shape[-1], color="black", linewidth=1)
     ax2.fill_between(x, edge_prob * ph_frame_prob.shape[-1], color="black", alpha=0.3)
 
-    fig.set_size_inches(15, 10)
+    fig.set_size_inches(13, 7)
     ax1.tick_params(axis='x', which='both', bottom=False, top=False)
     plt.subplots_adjust(hspace=0)
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 
     return fig

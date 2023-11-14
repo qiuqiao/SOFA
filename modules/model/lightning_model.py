@@ -10,7 +10,7 @@ from einops import rearrange, repeat
 from modules.utils.get_melspec import MelSpecExtractor
 import numpy as np
 from modules.utils.load_wav import load_wav
-from modules.utils.plot import plot_for_test
+from modules.utils.plot import plot_for_valid
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
@@ -231,7 +231,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 "ph_frame_id_gt": ph_frame_id_gt,
                 "edge_prob": edge_prob,
             }
-            fig = plot_for_test(**args)
+            fig = plot_for_valid(**args)
 
         return ph_seq_pred, ph_intervals_pred, word_seq_pred, word_intervals_pred, ctc, fig
 
