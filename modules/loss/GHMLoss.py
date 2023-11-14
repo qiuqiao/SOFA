@@ -87,6 +87,7 @@ class CTCGHMLoss(torch.nn.Module):
     def __init__(self, num_bins=10, alpha=0.999):
         super().__init__()
         self.ctc_loss_fn = nn.CTCLoss(reduction='none')
+        self.ctc_loss_fn_cpu = nn.CTCLoss(reduction='none').cpu()
         self.num_bins = num_bins
         self.register_buffer("ema", torch.ones(num_bins))
         self.alpha = alpha
@@ -94,7 +95,11 @@ class CTCGHMLoss(torch.nn.Module):
     def forward(self, log_probs, targets, input_lengths, target_lengths):
         if len(log_probs) <= 0:
             return torch.tensor(0.0).to(log_probs.device)
-        raw_loss = self.ctc_loss_fn(log_probs, targets, input_lengths, target_lengths)
+        try:
+            raw_loss = self.ctc_loss_fn(log_probs, targets, input_lengths, target_lengths)
+        except RuntimeError:
+            raw_loss = self.ctc_loss_fn_cpu(log_probs.cpu(), targets.cpu(), input_lengths.cpu(),
+                                            target_lengths.cpu()).to(log_probs.device)
         loss_for_ema = (- raw_loss / input_lengths).exp().clamp(1e-6, 1 - 1e-6)  # 值域为[0, 1]
         loss_weighted = raw_loss / (self.ema[torch.floor(loss_for_ema * self.num_bins).long()] + 1e-10)
         loss_final = loss_weighted.mean()
