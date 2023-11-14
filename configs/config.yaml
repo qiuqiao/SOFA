@@ -60,7 +60,5 @@ train:
   use_pretrained_model: False
   pretrained_model_path: ''
 
-  test_data_folder: data/test/
-
 infer:
   chromagram_n_fft: 8192
