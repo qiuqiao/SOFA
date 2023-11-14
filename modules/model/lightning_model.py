@@ -392,7 +392,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
             label_type
         )
         values = {str("valid/" + k): v for k, v in values.items()}
-        # self.log_dict(values, batch_size=input_feature.shape[0])
         self.validation_step_outputs.append(values)
         return values
 
