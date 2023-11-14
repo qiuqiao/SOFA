@@ -56,6 +56,7 @@ def main(config_path: str):
                                                         config["train"]["hidden_dims"],
                                                         config["train"]["init_type"],
                                                         config["train"]["label_smoothing"],
+                                                        config["train"]["losses_schedules"],
                                                         )
 
     # trainer
@@ -73,8 +74,6 @@ def main(config_path: str):
     # resume training state
     ckpt_path_list = (pathlib.Path("ckpt") / config["global"]["model_name"]).rglob("*.ckpt")
     ckpt_path_list = sorted(ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True)
-    if len(ckpt_path_list) > 0:
-        print(f"Resume training from {ckpt_path_list[0]}")
 
     # start training
     trainer.fit(model=lightning_alignment_model,

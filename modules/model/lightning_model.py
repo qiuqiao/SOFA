@@ -24,6 +24,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
                  hidden_dims,
                  init_type,
                  label_smoothing,
+                 losses_schedules,
                  ):
         super().__init__()
         # vocab
@@ -60,7 +61,18 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.get_melspec = None
 
         # validation_step_outputs
-        self.validation_step_outputs = {"losses": [], "losses_names": []}
+        self.validation_step_outputs = {"losses": []}
+
+        # losses_weights
+        self.losses_names = ["ph_frame_GHM_loss", "ph_edge_GHM_loss", "ph_edge_EMD_loss", "ph_edge_diff_loss",
+                             "ctc_loss", "loss_total"]
+        self.losses_weights = []
+        for k in self.losses_names[:-1]:
+            self.losses_weights.append(losses_schedules[k]["weight"])
+        self.losses_weights = torch.tensor(self.losses_weights)
+
+    def on_train_start(self):
+        self.losses_weights = self.losses_weights.to(self.device)
 
     def init_weights(self, m):
         if self.init_type == "xavier_uniform":
@@ -318,13 +330,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         # TODO: semi supervised loss
 
-        losses_names = ["ph_frame_GHM_loss", "ph_edge_GHM_loss", "ph_edge_EMD_loss", "ph_edge_diff_loss", "ctc_loss"]
         losses = [ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss, ctc_loss]
 
-        # total loss
-        # TODO: 根据config来设置loss的权重
-
-        return losses, losses_names
+        return losses
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         return self.model(*args, **kwargs)
@@ -347,7 +355,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ctc_pred,  # (B, T, vocab_size)
         ) = self.forward(input_feature.transpose(1, 2))
 
-        losses, losses_names = self._get_loss(
+        losses = self._get_loss(
             ph_frame_pred,
             ph_edge_pred,
             ctc_pred,
@@ -358,10 +366,10 @@ class LitForcedAlignmentModel(pl.LightningModule):
             input_feature_lengths,
             label_type
         )
-        loss_total = torch.stack(losses).sum()
+
+        loss_total = (torch.stack(losses) * self.losses_weights).sum()
         losses.append(loss_total)
-        losses_names.append("loss_total")
-        self.log_dict({f"train/{k}": v for k, v in zip(losses_names, losses) if v != 0})
+        self.log_dict({f"train/{k}": v for k, v in zip(self.losses_names, losses) if v != 0})
         return loss_total
 
     def validation_step(self, batch, batch_idx):
@@ -387,7 +395,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ctc_pred,  # (B, T, vocab_size)
         ) = self.model(input_feature.transpose(1, 2))
 
-        losses, losses_names = self._get_loss(
+        losses = self._get_loss(
             ph_frame_pred,
             ph_edge_pred,
             ctc_pred,
@@ -398,17 +406,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
             input_feature_lengths,
             label_type
         )
-        loss_total = torch.stack(losses).sum()
+
+        loss_total = (torch.stack(losses) * self.losses_weights).sum()
         losses.append(loss_total)
-        losses_names.append("loss_total")
         losses = torch.stack(losses)
 
         self.validation_step_outputs["losses"].append(losses)
-        self.validation_step_outputs["losses_names"] = losses_names
 
     def on_validation_epoch_end(self):
         # TODO: weighted loss
-        names = self.validation_step_outputs["losses_names"]
+        names = self.losses_names
         losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
         losses = (losses / (losses > 0).sum(dim=0, keepdim=True)).sum(dim=0)
         self.log_dict({f"valid/{k}": v for k, v in zip(names, losses) if v != 0})
