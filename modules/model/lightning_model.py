@@ -44,18 +44,30 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.lr_schedule = lr_schedule
 
         self.losses_names = ["ph_frame_GHM_loss", "ph_edge_GHM_loss", "ph_edge_EMD_loss", "ph_edge_diff_loss",
-                             "ctc_GHM_loss", "loss_total"]
+                             "ctc_GHM_loss", "total_loss"]
         self.losses_weights = []
         for k in self.losses_names[:-1]:
             self.losses_weights.append(losses_schedules[k]["weight"])
         self.losses_weights = torch.tensor(self.losses_weights)
 
+        self.losses_schedulers = []
+        for k in self.losses_names[:-1]:
+            scheduler_type = losses_schedules[k]["scheduler"]["type"]
+            scheduler_kwargs = losses_schedules[k]["scheduler"]["kwargs"]
+            if scheduler_type is None:
+                self.losses_schedulers.append(getattr(scheduler_module, "NoneScheduler")())
+            else:
+                self.losses_schedulers.append(getattr(scheduler_module, scheduler_type)(
+                    **scheduler_kwargs
+                ))
+
         # model
-        self.model = ForcedAlignmentModel(input_feature_dims,
-                                          self.vocab["<vocab_size>"],
-                                          hidden_dims=self.hidden_dims,
-                                          max_seq_len=max_frame_num
-                                          )
+        self.model = ForcedAlignmentModel(
+            input_feature_dims,
+            self.vocab["<vocab_size>"],
+            hidden_dims=self.hidden_dims,
+            max_seq_len=max_frame_num
+        )
 
         # loss function
         self.ph_frame_GHM_loss_fn = GHMLoss(self.vocab["<vocab_size>"], 10, 0.999,
@@ -79,6 +91,13 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
     def on_train_start(self):
         self.losses_weights = self.losses_weights.to(self.device)
+
+    def _losses_schedulers_step(self):
+        for scheduler in self.losses_schedulers:
+            scheduler.step()
+
+    def _losses_schedulers_call(self):
+        return torch.tensor([scheduler() for scheduler in self.losses_schedulers]).to(self.device)
 
     def init_weights(self, m):
         if self.init_type == "xavier_uniform":
@@ -373,13 +392,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
             label_type
         )
 
-        loss_total = (torch.stack(losses) * self.losses_weights).sum()
-        losses.append(loss_total)
+        schedule_weight = self._losses_schedulers_call()
+        self._losses_schedulers_step()
+        total_loss = (torch.stack(losses) * self.losses_weights * schedule_weight).sum()
+        losses.append(total_loss)
 
         log_dict = {f"train/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
         log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
+        log_dict.update({f"scheduler/{k}": v for k, v in zip(self.losses_names, schedule_weight) if v != 1})
         self.log_dict(log_dict)
-        return loss_total
+        return total_loss
 
     def validation_step(self, batch, batch_idx):
         (
@@ -416,8 +438,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             label_type
         )
 
-        loss_total = (torch.stack(losses) * self.losses_weights).sum()
-        losses.append(loss_total)
+        total_loss = (torch.stack(losses) * self.losses_weights).sum()
+        losses.append(total_loss)
         losses = torch.stack(losses)
 
         self.validation_step_outputs["losses"].append(losses)

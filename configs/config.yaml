@@ -67,18 +67,29 @@ train:
     ph_frame_GHM_loss:
       weight: 1.0
       scheduler:
+        type:
+        kwargs:
     ph_edge_GHM_loss:
       weight: 1.0
       scheduler:
+        type:
+        kwargs:
     ph_edge_EMD_loss:
       weight: 1.0
       scheduler:
+        type:
+        kwargs:
     ph_edge_diff_loss:
       weight: 1.0
       scheduler:
+        type:
+        kwargs:
     ctc_GHM_loss:
       weight: 1.0
       scheduler:
+        type: GaussianRampUpScheduler
+        kwargs:
+          max_steps: 10000
 
   use_pretrained_model: False
   pretrained_model_path: ''
