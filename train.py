@@ -38,16 +38,10 @@ def main(config_path: str):
     )
 
     valid_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="valid")
-    valid_sampler = WeightedBinningAudioBatchSampler(valid_dataset.get_label_types(),
-                                                     valid_dataset.get_wav_lengths(),
-                                                     config["train"]["oversampling_weights"],
-                                                     config["train"]["batch_max_length"],
-                                                     len(valid_dataset.get_label_types()),
-                                                     config["train"]["drop_last"],
-                                                     )
     valid_dataloader = DataLoader(
         dataset=valid_dataset,
-        batch_sampler=valid_sampler,
+        batch_size=1,
+        shuffle=False,
         collate_fn=collate_fn,
         num_workers=config["train"]["dataloader_workers"],
     )

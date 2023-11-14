@@ -17,7 +17,7 @@ global:
 
 preprocessing:
   data_folder: data/
-  valid_set_size: 100
+  valid_set_size: 15
   ignored_phonemes:
     - AP
     - SP
@@ -49,12 +49,12 @@ train:
   # global: max_frame_num
 
   # trainer
-  accelerator: gpu
+  accelerator: auto
   devices: auto # num_devices
   precision: 32-true # bf16-mixed , 32-true
   gradient_clip_val: 1.0
   gradient_clip_algorithm: norm #value
-  val_check_interval: 500 # 0.25
+  val_check_interval: 50 # 0.25
   max_steps: 10000
 
   use_pretrained_model: False
