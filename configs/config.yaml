@@ -18,6 +18,8 @@ global:
 preprocessing:
   data_folder: data/
   valid_set_size: 15
+  valid_set_preferred_folders:
+    - baishuo_0
   ignored_phonemes:
     - AP
     - SP

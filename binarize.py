@@ -15,6 +15,7 @@ class ForcedAlignmentBinarizer:
                  data_folder,
                  binary_data_folder,
                  valid_set_size,
+                 valid_set_preferred_folders,
                  ignored_phonemes,
                  melspec_config,
                  max_frame_num,
@@ -24,6 +25,7 @@ class ForcedAlignmentBinarizer:
         self.data_folder = data_folder
         self.binary_data_folder = binary_data_folder
         self.valid_set_size = valid_set_size
+        self.valid_set_preferred_folders = valid_set_preferred_folders
         self.ignored_phonemes = ignored_phonemes
         self.melspec_config = melspec_config
         self.max_frame_num = max_frame_num
@@ -76,7 +78,9 @@ class ForcedAlignmentBinarizer:
         valid_set_size = int(self.valid_set_size)
         meta_data_valid = (
             meta_data_df[meta_data_df["label_type"] != "no_label"]
-            .sample(valid_set_size)
+            .sample(frac=1)
+            .sort_values(by="preferred", ascending=False)
+            .iloc[:valid_set_size, :]
         )
         meta_data_train = meta_data_df.drop(meta_data_valid.index).reset_index(drop=True)
         meta_data_valid = meta_data_valid.reset_index(drop=True)
@@ -228,12 +232,10 @@ class ForcedAlignmentBinarizer:
             f"total time {total_time:.2f}s, saved to {h5py_file_path}"
         )
 
-    @staticmethod
-    def get_meta_data(data_folder):
+    def get_meta_data(self, data_folder):
         path = pathlib.Path(data_folder)
         trans_path_list = [
-            i
-            for i in path.rglob("transcriptions.csv")
+            i for i in path.rglob("transcriptions.csv")
             if i.name == "transcriptions.csv"
         ]
 
@@ -243,6 +245,12 @@ class ForcedAlignmentBinarizer:
             df = pd.read_csv(trans_path)
             df["wav_path"] = df["name"].apply(
                 lambda name: str(trans_path.parent / "wavs" / (str(name) + ".wav")),
+            )
+            df["preferred"] = df["wav_path"].apply(
+                lambda path_: (
+                    True if any([i in pathlib.Path(path_).parts for i in self.valid_set_preferred_folders])
+                    else False
+                ),
             )
             df["label_type"] = df["wav_path"].apply(
                 lambda path_: (
@@ -275,6 +283,7 @@ def binarize(config_path: str):
     ForcedAlignmentBinarizer(data_folder=config["preprocessing"]["data_folder"],
                              binary_data_folder=config["global"]["binary_data_folder"],
                              valid_set_size=config["preprocessing"]["valid_set_size"],
+                             valid_set_preferred_folders=config["preprocessing"]["valid_set_preferred_folders"],
                              ignored_phonemes=config["preprocessing"]["ignored_phonemes"],
                              melspec_config=config["mel_spec"],
                              max_frame_num=config["global"]["max_frame_num"],
