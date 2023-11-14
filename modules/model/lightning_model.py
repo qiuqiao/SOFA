@@ -142,15 +142,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             np.array(frame_confidence),
         )
 
-    def _infer_once(self, wav_path, ph_seq, word_seq, ph_idx_to_word_idx, return_ctc=False, return_plot=False):
-        if self.get_melspec is None:
-            self.get_melspec = MelSpecExtractor(**self.melspec_config)
-
+    def _infer_once(self, melspec, ph_seq, word_seq, ph_idx_to_word_idx, return_ctc=False, return_plot=False):
         ph_seq_id = np.array([self.vocab[ph] if ph != 0 else 0 for ph in ph_seq])
-
-        waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
-        melspec = self.get_melspec(waveform).unsqueeze(0)
-        melspec = (melspec - melspec.mean()) / melspec.std()
 
         # forward
         with torch.no_grad():
@@ -241,6 +234,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx):
         wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
+        if self.get_melspec is None:
+            self.get_melspec = MelSpecExtractor(**self.melspec_config)
+
+        ph_seq_id = np.array([self.vocab[ph] if ph != 0 else 0 for ph in ph_seq])
+
+        waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
+        melspec = self.get_melspec(waveform).unsqueeze(0)
+        melspec = (melspec - melspec.mean()) / melspec.std()
         (
             ph_seq,
             ph_intervals,
@@ -248,7 +249,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             word_intervals,
             _,
             _
-        ) = self._infer_once(wav_path,
+        ) = self._infer_once(melspec,
                              ph_seq,
                              word_seq,
                              ph_idx_to_word_idx,

@@ -33,7 +33,7 @@ def save_textgrids(predictions):
 
 @click.command()
 @click.option('--ckpt', '-c',
-              default='ckpt/mandarin_opencpop-extension_singing/lightning_logs/version_0/checkpoints/epoch=0-step=500.ckpt',
+              default='ckpt/mandarin_opencpop-extension_singing/lightning_logs/version_15/checkpoints/epoch=1-step=1100.ckpt',
               type=str, help='path to the checkpoint')
 @click.option('--folder', '-f', default='segments', type=str, help='path to the input folder')
 @click.option("--mode", "-m", default="force", type=click.Choice(["force", "match"]))  # TODO: add asr mode
