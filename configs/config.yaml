@@ -54,9 +54,15 @@ train:
   precision: 32-true # bf16-mixed , 32-true
   gradient_clip_val: 1.0
   gradient_clip_algorithm: norm #value
-  val_check_interval: 50 # 0.25
+  val_check_interval: 500 # 0.25
   max_steps: 10000
 
+  lr_schedule:
+    type: OneCycleLR # should be imported in modules/schedulers/__init__.py
+    kwargs:
+      max_lr: 0.001
+      total_steps: 10000
+  
   losses_schedules:
     ph_frame_GHM_loss:
       weight: 1.0
@@ -70,7 +76,7 @@ train:
     ph_edge_diff_loss:
       weight: 1.0
       scheduler:
-    ctc_loss:
+    ctc_GHM_loss:
       weight: 1.0
       scheduler:
 

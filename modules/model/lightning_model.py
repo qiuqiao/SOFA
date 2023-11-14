@@ -11,6 +11,8 @@ from modules.utils.get_melspec import MelSpecExtractor
 import numpy as np
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
+import importlib
+import modules.scheduler as scheduler_module
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
@@ -24,6 +26,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
                  hidden_dims,
                  init_type,
                  label_smoothing,
+                 lr_schedule,
                  losses_schedules,
                  ):
         super().__init__()
@@ -38,6 +41,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.hidden_dims = hidden_dims
         self.init_type = init_type
         self.label_smoothing = label_smoothing
+        self.lr_schedule = lr_schedule
+
+        self.losses_names = ["ph_frame_GHM_loss", "ph_edge_GHM_loss", "ph_edge_EMD_loss", "ph_edge_diff_loss",
+                             "ctc_GHM_loss", "loss_total"]
+        self.losses_weights = []
+        for k in self.losses_names[:-1]:
+            self.losses_weights.append(losses_schedules[k]["weight"])
+        self.losses_weights = torch.tensor(self.losses_weights)
 
         # model
         self.model = ForcedAlignmentModel(input_feature_dims,
@@ -52,7 +63,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.ph_edge_GHM_loss_fn = GHMLoss(2, 10, 0.999999, label_smoothing=self.label_smoothing)
         self.EMD_loss_fn = BinaryEMDLoss()
         self.MSE_loss_fn = nn.MSELoss()
-        self.CTC_loss_fn = CTCGHMLoss(alpha=0.999)
+        self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=0.999)
 
         # init weights
         self.apply(self.init_weights)
@@ -63,13 +74,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # validation_step_outputs
         self.validation_step_outputs = {"losses": []}
 
-        # losses_weights
-        self.losses_names = ["ph_frame_GHM_loss", "ph_edge_GHM_loss", "ph_edge_EMD_loss", "ph_edge_diff_loss",
-                             "ctc_loss", "loss_total"]
-        self.losses_weights = []
-        for k in self.losses_names[:-1]:
-            self.losses_weights.append(losses_schedules[k]["weight"])
-        self.losses_weights = torch.tensor(self.losses_weights)
+    def on_validation_start(self):
+        self.on_train_start()
 
     def on_train_start(self):
         self.losses_weights = self.losses_weights.to(self.device)
@@ -324,13 +330,13 @@ class LitForcedAlignmentModel(pl.LightningModule):
             # ctc loss
             log_probs_pred = torch.nn.functional.log_softmax(ctc_pred, dim=-1)
             log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
-            ctc_loss = self.CTC_loss_fn(log_probs_pred, ph_seq, input_lengths_weak, ph_seq_lengths)
+            ctc_GHM_loss = self.CTC_GHM_loss_fn(log_probs_pred, ph_seq, input_lengths_weak, ph_seq_lengths)
         else:
-            ctc_loss = torch.tensor(0).to(self.device)
+            ctc_GHM_loss = torch.tensor(0).to(self.device)
 
         # TODO: semi supervised loss
 
-        losses = [ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss, ctc_loss]
+        losses = [ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss, ctc_GHM_loss]
 
         return losses
 
@@ -369,7 +375,10 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         loss_total = (torch.stack(losses) * self.losses_weights).sum()
         losses.append(loss_total)
-        self.log_dict({f"train/{k}": v for k, v in zip(self.losses_names, losses) if v != 0})
+
+        log_dict = {f"train/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
+        log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
+        self.log_dict(log_dict)
         return loss_total
 
     def validation_step(self, batch, batch_idx):
@@ -426,4 +435,12 @@ class LitForcedAlignmentModel(pl.LightningModule):
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
         )
-        return optimizer
+        scheduler = {
+            'scheduler': getattr(scheduler_module, self.lr_schedule["type"])(
+                optimizer,
+                **self.lr_schedule["kwargs"]
+            ),
+            'interval': 'step'
+        }
+
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
