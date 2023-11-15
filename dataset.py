@@ -12,7 +12,10 @@ class MixedDataset(torch.utils.data.Dataset):
         self.h5py_items = None
         self.label_types = None
         self.wav_lengths = None
-        self.augmentation_indexes = np.arange(augmentation_size + 1)
+        if augmentation_size > 0:
+            self.augmentation_indexes = np.arange(augmentation_size + 1)
+        else:
+            self.augmentation_indexes = None
 
         self.binary_data_folder = binary_data_folder
         self.prefix = prefix
@@ -46,8 +49,11 @@ class MixedDataset(torch.utils.data.Dataset):
         item = self.h5py_items[str(index)]
 
         # input_feature
-        indexes = np.random.choice(self.augmentation_indexes, 2)
-        input_feature = np.array(item["input_feature"])[indexes, :, :]
+        if self.augmentation_indexes is None:
+            input_feature = np.array(item["input_feature"])
+        else:
+            indexes = np.random.choice(self.augmentation_indexes, 2)
+            input_feature = np.array(item["input_feature"])[indexes, :, :]
 
         # label_type
         label_type = np.array(item["label_type"])
