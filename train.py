@@ -1,21 +1,38 @@
 import os
 import pathlib
-from dataset import MixedDataset, collate_fn, WeightedBinningAudioBatchSampler
-from torch.utils.data import DataLoader
-import lightning as pl
-import yaml
-import torch
+
 import click
+import lightning as pl
+import torch
+import yaml
+from torch.utils.data import DataLoader
+
+from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
 from modules.model.lightning_model import LitForcedAlignmentModel
 
 
 @click.command()
-@click.option("--config_path", "-c", type=str, default="configs/train_config.yaml", show_default=True,
-              help="training config path")
-@click.option("--data_folder", "-d", type=str, default="data", show_default=True, help="data folder path")
+@click.option(
+    "--config_path",
+    "-c",
+    type=str,
+    default="configs/train_config.yaml",
+    show_default=True,
+    help="training config path",
+)
+@click.option(
+    "--data_folder",
+    "-d",
+    type=str,
+    default="data",
+    show_default=True,
+    help="data folder path",
+)
 def main(config_path: str, data_folder: str):
     data_folder = pathlib.Path(data_folder)
-    os.environ['TORCH_CUDNN_V8_API_ENABLED'] = '1'  # Prevent unacceptable slowdowns when using 16 precision
+    os.environ[
+        "TORCH_CUDNN_V8_API_ENABLED"
+    ] = "1"  # Prevent unacceptable slowdowns when using 16 precision
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
@@ -29,7 +46,9 @@ def main(config_path: str, data_folder: str):
     pl.seed_everything(config["random_seed"], workers=True)
 
     # define dataset
-    train_dataset = MixedDataset(config["data_augmentation_size"], data_folder / "binary", prefix="train")
+    train_dataset = MixedDataset(
+        config["data_augmentation_size"], data_folder / "binary", prefix="train"
+    )
     train_sampler = WeightedBinningAudioBatchSampler(
         train_dataset.get_label_types(),
         train_dataset.get_wav_lengths(),
@@ -85,14 +104,16 @@ def main(config_path: str, data_folder: str):
     )
     # resume training state
     ckpt_path_list = (pathlib.Path("ckpt") / config["model_name"]).rglob("*.ckpt")
-    ckpt_path_list = sorted(ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True)
+    ckpt_path_list = sorted(
+        ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True
+    )
 
     # start training
     trainer.fit(
         model=lightning_alignment_model,
         train_dataloaders=train_dataloader,
         val_dataloaders=valid_dataloader,
-        ckpt_path=str(ckpt_path_list[0]) if len(ckpt_path_list) > 0 else None
+        ckpt_path=str(ckpt_path_list[0]) if len(ckpt_path_list) > 0 else None,
     )
 
 
