@@ -21,7 +21,7 @@ class ForcedAlignmentBinarizer:
                  max_frame_num,
                  ):
 
-        self.data_folder = data_folder
+        self.data_folder = pathlib.Path(data_folder)
         self.valid_set_size = valid_set_size
         self.valid_set_preferred_folders = valid_set_preferred_folders
         self.data_augmentation = data_augmentation
@@ -40,7 +40,7 @@ class ForcedAlignmentBinarizer:
     def get_vocab(data_folder_path, ignored_phonemes):
         print("Generating vocab...")
         phonemes = []
-        trans_path_list = pathlib.Path(data_folder_path).rglob("transcriptions.csv")
+        trans_path_list = data_folder_path.rglob("transcriptions.csv")
 
         for trans_path in trans_path_list:
             if trans_path.name == "transcriptions.csv":
@@ -66,7 +66,7 @@ class ForcedAlignmentBinarizer:
 
     def process(self):
         vocab = self.get_vocab(self.data_folder, self.ignored_phonemes)
-        with open(pathlib.Path("data/binary/") / "vocab.yaml", "w") as file:
+        with open(self.data_folder / "binary" / "vocab.yaml", "w") as file:
             yaml.dump(vocab, file)
 
         # load metadata of each item
@@ -88,7 +88,7 @@ class ForcedAlignmentBinarizer:
             "valid",
             meta_data_valid,
             vocab,
-            "data/binary/",
+            self.data_folder / "binary",
             False,
         )
 
@@ -97,7 +97,7 @@ class ForcedAlignmentBinarizer:
             "train",
             meta_data_train,
             vocab,
-            "data/binary/",
+            self.data_folder / "binary",
             self.data_augmentation["size"] > 0,
         )
 
@@ -247,7 +247,7 @@ class ForcedAlignmentBinarizer:
         )
 
     def get_meta_data(self, data_folder):
-        path = pathlib.Path(data_folder)
+        path = data_folder
         trans_path_list = [
             i for i in path.rglob("transcriptions.csv")
             if i.name == "transcriptions.csv"
@@ -303,7 +303,7 @@ def binarize(config_path: str):
     with open(pathlib.Path("data/binary/") / "global_config.yaml", "w") as file:
         yaml.dump(global_config, file)
 
-    ForcedAlignmentBinarizer(**config).process()
+    ForcedAlignmentBinarizer(data_folder="data/", **config).process()
 
 
 if __name__ == "__main__":
