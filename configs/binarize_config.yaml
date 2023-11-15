@@ -9,7 +9,6 @@ melspec_config:
   clamp: 0.00001
 
 data_folder: data/
-binary_data_folder: data/binary/
 valid_set_size: 15
 valid_set_preferred_folders:
   - baishuo_0

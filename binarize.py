@@ -13,7 +13,6 @@ from modules.utils.get_melspec import MelSpecExtractor
 class ForcedAlignmentBinarizer:
     def __init__(self,
                  data_folder,
-                 binary_data_folder,
                  valid_set_size,
                  valid_set_preferred_folders,
                  data_augmentation,
@@ -23,7 +22,6 @@ class ForcedAlignmentBinarizer:
                  ):
 
         self.data_folder = data_folder
-        self.binary_data_folder = binary_data_folder
         self.valid_set_size = valid_set_size
         self.valid_set_preferred_folders = valid_set_preferred_folders
         self.data_augmentation = data_augmentation
@@ -68,7 +66,7 @@ class ForcedAlignmentBinarizer:
 
     def process(self):
         vocab = self.get_vocab(self.data_folder, self.ignored_phonemes)
-        with open(pathlib.Path(self.binary_data_folder) / "vocab.yaml", "w") as file:
+        with open(pathlib.Path("data/binary/") / "vocab.yaml", "w") as file:
             yaml.dump(vocab, file)
 
         # load metadata of each item
@@ -90,7 +88,7 @@ class ForcedAlignmentBinarizer:
             "valid",
             meta_data_valid,
             vocab,
-            self.binary_data_folder,
+            "data/binary/",
             False,
         )
 
@@ -99,7 +97,7 @@ class ForcedAlignmentBinarizer:
             "train",
             meta_data_train,
             vocab,
-            self.binary_data_folder,
+            "data/binary/",
             self.data_augmentation["size"] > 0,
         )
 
@@ -297,11 +295,12 @@ def binarize(config_path: str):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    global_config = {"binary_data_folder": config["binary_data_folder"],
-                     "max_frame_num": config["max_frame_num"],
-                     "melspec_config": config["melspec_config"],
-                     "data_augmentation_size": config["data_augmentation"]["size"]}
-    with open(pathlib.Path(config["binary_data_folder"]) / "global_config.yaml", "w") as file:
+    global_config = {
+        "max_frame_num": config["max_frame_num"],
+        "melspec_config": config["melspec_config"],
+        "data_augmentation_size": config["data_augmentation"]["size"]
+    }
+    with open(pathlib.Path("data/binary/") / "global_config.yaml", "w") as file:
         yaml.dump(global_config, file)
 
     ForcedAlignmentBinarizer(**config).process()
