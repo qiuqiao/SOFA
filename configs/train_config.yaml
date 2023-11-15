@@ -1,0 +1,65 @@
+model_name: mandarin_opencpop-extension_singing
+
+# settings
+float32_matmul_precision: high
+random_seed: 114514
+
+# dataloader
+dataloader_workers: 15
+oversampling_weights: [ 1, 1, 1 ]
+batch_max_length: 50 # unit: seconds
+binning_length: 1000 # unit: seconds
+drop_last: False
+
+# model
+learning_rate: 0.001 #0.001
+weight_decay: 0.1
+hidden_dims: 64
+init_type: kaiming_normal # kaiming_normal, kaiming_uniform, xavier_normal, xavier_uniform
+label_smoothing: 0.08
+
+# trainer
+accelerator: auto
+devices: auto # num_devices
+precision: 32-true # bf16-mixed , 32-true
+gradient_clip_val: 1.0
+gradient_clip_algorithm: norm #value
+val_check_interval: 500 # 0.25
+max_steps: 10000
+
+lr_schedule:
+  type: OneCycleLR # should be imported in modules/schedulers/__init__.py
+  kwargs:
+    max_lr: 0.001
+    total_steps: 10000
+
+losses_schedules:
+  ph_frame_GHM_loss:
+    weight: 1.0
+    scheduler:
+      type:
+      kwargs:
+  ph_edge_GHM_loss:
+    weight: 1.0
+    scheduler:
+      type:
+      kwargs:
+  ph_edge_EMD_loss:
+    weight: 1.0
+    scheduler:
+      type:
+      kwargs:
+  ph_edge_diff_loss:
+    weight: 1.0
+    scheduler:
+      type:
+      kwargs:
+  ctc_GHM_loss:
+    weight: 1.0
+    scheduler:
+      type: GaussianRampUpScheduler
+      kwargs:
+        max_steps: 10000
+
+use_pretrained_model: False
+pretrained_model_path: ''

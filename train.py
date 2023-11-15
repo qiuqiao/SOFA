@@ -1,5 +1,4 @@
 import os
-import lightning.pytorch as pl
 import pathlib
 from dataset import MixedDataset, collate_fn, WeightedBinningAudioBatchSampler
 from torch.utils.data import DataLoader
@@ -11,72 +10,80 @@ from modules.model.lightning_model import LitForcedAlignmentModel
 
 
 @click.command()
-@click.option("--config_path", "-c", type=str, default="configs/config.yaml", show_default=True, help="config path")
-def main(config_path: str):
+@click.option("--config_path", "-c", type=str, default="configs/train_config.yaml", show_default=True,
+              help="training config path")
+@click.option("--data_folder", "-d", type=str, default="data", show_default=True, help="data folder path")
+def main(config_path: str, data_folder: str):
+    data_folder = pathlib.Path(data_folder)
     os.environ['TORCH_CUDNN_V8_API_ENABLED'] = '1'  # Prevent unacceptable slowdowns when using 16 precision
+
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    with open(pathlib.Path(config["global"]["binary_data_folder"]) / "vocab.yaml") as f:
+    with open(data_folder / "binary" / "vocab.yaml") as f:
         vocab_text = f.read()
-    torch.set_float32_matmul_precision(config["train"]["float32_matmul_precision"])
-    pl.seed_everything(config["train"]["random_seed"], workers=True)
+    with open(data_folder / "binary" / "global_config.yaml") as f:
+        config_global = yaml.safe_load(f)
+    config.update(config_global)
+
+    torch.set_float32_matmul_precision(config["float32_matmul_precision"])
+    pl.seed_everything(config["random_seed"], workers=True)
 
     # define dataset
-    train_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="train")
+    train_dataset = MixedDataset(config["data_augmentation_size"], data_folder / "binary", prefix="train")
     train_sampler = WeightedBinningAudioBatchSampler(
         train_dataset.get_label_types(),
         train_dataset.get_wav_lengths(),
-        config["train"]["oversampling_weights"],
-        config["train"]["batch_max_length"],
-        config["train"]["binning_length"],
-        config["train"]["drop_last"],
+        config["oversampling_weights"],
+        config["batch_max_length"] / (2 if config["data_augmentation_size"] > 0 else 1),
+        config["binning_length"],
+        config["drop_last"],
     )
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_sampler=train_sampler,
         collate_fn=collate_fn,
-        num_workers=config["train"]["dataloader_workers"],
+        num_workers=config["dataloader_workers"],
     )
 
-    valid_dataset = MixedDataset(config["global"]["binary_data_folder"], prefix="valid")
+    valid_dataset = MixedDataset(0, data_folder / "binary", prefix="valid")
     valid_dataloader = DataLoader(
         dataset=valid_dataset,
         batch_size=1,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=config["train"]["dataloader_workers"],
+        num_workers=config["dataloader_workers"],
     )
 
     # model
     lightning_alignment_model = LitForcedAlignmentModel(
         vocab_text,
-        config["mel_spec"],
-        config["global"]["input_feature_dims"],
-        config["global"]["max_frame_num"],
-        config["train"]["learning_rate"],
-        config["train"]["weight_decay"],
-        config["train"]["hidden_dims"],
-        config["train"]["init_type"],
-        config["train"]["label_smoothing"],
-        config["train"]["lr_schedule"],
-        config["train"]["losses_schedules"],
+        config["melspec_config"],
+        config["melspec_config"]["n_mels"],
+        config["max_frame_num"],
+        config["learning_rate"],
+        config["weight_decay"],
+        config["hidden_dims"],
+        config["init_type"],
+        config["label_smoothing"],
+        config["lr_schedule"],
+        config["losses_schedules"],
     )
 
     # trainer
     trainer = pl.Trainer(
-        accelerator=config["train"]["accelerator"],
-        devices=config["train"]["devices"],
-        precision=config["train"]["precision"],
-        gradient_clip_val=config["train"]["gradient_clip_val"],
-        gradient_clip_algorithm=config["train"]["gradient_clip_algorithm"],
-        default_root_dir=str(pathlib.Path("ckpt") / config["global"]["model_name"]),
-        val_check_interval=config["train"]["val_check_interval"],
+        accelerator=config["accelerator"],
+        devices=config["devices"],
+        precision=config["precision"],
+        gradient_clip_val=config["gradient_clip_val"],
+        gradient_clip_algorithm=config["gradient_clip_algorithm"],
+        default_root_dir=str(pathlib.Path("ckpt") / config["model_name"]),
+        val_check_interval=config["val_check_interval"],
         check_val_every_n_epoch=None,
         max_epochs=-1,
-        max_steps=config["train"]["max_steps"],
+        max_steps=config["max_steps"],
     )
     # resume training state
-    ckpt_path_list = (pathlib.Path("ckpt") / config["global"]["model_name"]).rglob("*.ckpt")
+    ckpt_path_list = (pathlib.Path("ckpt") / config["model_name"]).rglob("*.ckpt")
     ckpt_path_list = sorted(ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True)
 
     # start training
