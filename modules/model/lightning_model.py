@@ -125,8 +125,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         T = ph_prob_log.shape[0]
         S = len(ph_seq_id)
 
-        edge_prob_log = np.log(edge_prob).astype("float64")
-        not_edge_prob_log = np.log(1 - edge_prob).astype("float64")
+        edge_prob_log = np.log(edge_prob + 1e-6).astype("float64")
+        not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float64")
         # 乘上is_phoneme正确分类的概率 TODO: enable this
         # ph_prob_log[:, 0] += ph_prob_log[:, 0]
         # ph_prob_log[:, 1:] += 1 / ph_prob_log[:, [0]]
