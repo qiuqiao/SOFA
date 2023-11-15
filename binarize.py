@@ -296,7 +296,6 @@ def binarize(config_path: str):
         config = yaml.safe_load(f)
 
     global_config = {
-        "data_folder": config["data_folder"],
         "max_frame_num": config["max_frame_num"],
         "melspec_config": config["melspec_config"],
         "data_augmentation_size": config["data_augmentation"]["size"]
