@@ -290,21 +290,20 @@ class ForcedAlignmentBinarizer:
 
 
 @click.command()
-@click.option("--config_path", "-c", type=str, default="configs/config.yaml", show_default=True, help="config path")
+@click.option("--config_path", "-c", type=str, default="configs/binarize_config.yaml", show_default=True,
+              help="binarize config path")
 def binarize(config_path: str):
     with open(config_path, "r") as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-    # print(config)
-    ForcedAlignmentBinarizer(
-        data_folder=config["preprocessing"]["data_folder"],
-        binary_data_folder=config["global"]["binary_data_folder"],
-        valid_set_size=config["preprocessing"]["valid_set_size"],
-        valid_set_preferred_folders=config["preprocessing"]["valid_set_preferred_folders"],
-        data_augmentation=config["preprocessing"]["data_augmentation"],
-        ignored_phonemes=config["preprocessing"]["ignored_phonemes"],
-        melspec_config=config["mel_spec"],
-        max_frame_num=config["global"]["max_frame_num"],
-    ).process()
+        config = yaml.safe_load(f)
+
+    global_config = {"binary_data_folder": config["binary_data_folder"],
+                     "max_frame_num": config["max_frame_num"],
+                     "melspec_config": config["melspec_config"],
+                     "data_augmentation_size": config["data_augmentation"]["size"]}
+    with open(pathlib.Path(config["binary_data_folder"]) / "global_config.yaml", "w") as file:
+        yaml.dump(global_config, file)
+
+    ForcedAlignmentBinarizer(**config).process()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,28 @@
+melspec_config:
+  n_mels: 128
+  sample_rate: 48000
+  win_length: 1024
+  hop_length: 480
+  n_fft: 2048
+  fmin: 40
+  fmax: 32000
+  clamp: 0.00001
+
+data_folder: data/
+binary_data_folder: data/binary/
+valid_set_size: 15
+valid_set_preferred_folders:
+  - baishuo_0
+ignored_phonemes:
+  - AP
+  - SP
+  - <AP>
+  - <SP>
+  - ''
+  - pau
+  - cl
+data_augmentation:
+  size: 2 # if disabled, set to 0
+  key_shift_choices: [ 1,2,3,4,5,6,-1,-2,-3,-4,-5,-6 ]
+
+max_frame_num: 3000 # melspec_maxlength

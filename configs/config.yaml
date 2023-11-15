@@ -1,36 +1,8 @@
-mel_spec:
-  n_mels: 128
-  sample_rate: 48000
-  win_length: 1024
-  hop_length: 480
-  n_fft: 2048
-  fmin: 40
-  fmax: 32000
-  clamp: 0.00001
-
 global:
   model_name: mandarin_opencpop-extension_singing
-  binary_data_folder: data/binary/
-  max_frame_num: 3000 # melspec_maxlength
   input_feature_dims: 128 # usually equals to n_mels
   device: cuda
 
-preprocessing:
-  data_folder: data/
-  valid_set_size: 15
-  valid_set_preferred_folders:
-    - baishuo_0
-  ignored_phonemes:
-    - AP
-    - SP
-    - <AP>
-    - <SP>
-    - ''
-    - pau
-    - cl
-  data_augmentation:
-    size: 2 # if disabled, set to 0
-    key_shift_choices: [ 1,2,3,4,5,6,-1,-2,-3,-4,-5,-6 ]
 
 train:
   # settings
