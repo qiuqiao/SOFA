@@ -4,6 +4,7 @@ import numpy as np
 import pathlib
 import pandas as pd
 from tqdm import tqdm
+from einops import rearrange, repeat
 
 
 class MixedDataset(torch.utils.data.Dataset):
@@ -126,6 +127,8 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
                     })
                     item_num += len(idx_list) + oversample_num
 
+                if bin_data["batch_size"] <= 0:
+                    raise ValueError("batch_size <= 0, maybe batch_max_length is too small or wav length is too long.")
                 num_batches = item_num / bin_data["batch_size"]
                 if self.drop_last:
                     bin_data["num_batches"] = int(num_batches)
@@ -181,7 +184,11 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
 def collate_fn(batch):
     input_feature_lengths = torch.tensor([i[0].shape[-1] for i in batch])
     max_len = max(input_feature_lengths)
-    max_len = max_len
+    if batch[0][0].shape[0] > 1:
+        augmentation_enabled = True
+    else:
+        augmentation_enabled = False
+
     # padding
     for i, item in enumerate(batch):
         item = list(item)
@@ -198,11 +205,20 @@ def collate_fn(batch):
     ph_seq = torch.cat([item[1] for item in batch])
     ph_seq_lengths = torch.tensor([len(item[1]) for item in batch])
 
-    input_feature = torch.stack([item[0] for item in batch])
+    input_feature = torch.stack([item[0] for item in batch], dim=1)
+    input_feature = rearrange(input_feature, "n b c t -> (n b) c t")
     ph_edge = torch.stack([item[2] for item in batch])
     ph_frame = torch.stack([item[3] for item in batch])
 
     label_type = torch.tensor(np.array([item[4] for item in batch]))
+
+    if augmentation_enabled:
+        input_feature_lengths = torch.concat([input_feature_lengths, input_feature_lengths], dim=0)
+        ph_seq = torch.concat([ph_seq, ph_seq], dim=0)
+        ph_seq_lengths = torch.concat([ph_seq_lengths, ph_seq_lengths], dim=0)
+        ph_edge = torch.concat([ph_edge, ph_edge], dim=0)
+        ph_frame = torch.concat([ph_frame, ph_frame], dim=0)
+        label_type = torch.concat([label_type, label_type], dim=0)
 
     return (
         input_feature,
