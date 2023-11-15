@@ -150,7 +150,8 @@ class ForcedAlignmentBinarizer:
             if enable_data_augmentation:
                 input_features = [input_feature]
                 key_shifts = np.random.choice(self.data_augmentation["key_shift_choices"],
-                                              self.data_augmentation["size"])
+                                              self.data_augmentation["size"],
+                                              replace=False)
                 for key_shift in key_shifts:
                     input_features.append(self.get_melspec(waveform, key_shift=key_shift))
 
