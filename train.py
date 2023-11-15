@@ -67,6 +67,7 @@ def main(config_path: str, data_folder: str):
         config["label_smoothing"],
         config["lr_schedule"],
         config["losses_schedules"],
+        config["data_augmentation_size"] > 0,
     )
 
     # trainer

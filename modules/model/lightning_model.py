@@ -1,41 +1,46 @@
 from typing import Any
+
 import lightning as pl
-import yaml
-from modules.loss.GHMLoss import GHMLoss, CTCGHMLoss
-from modules.loss.BinaryEMDLoss import BinaryEMDLoss
-from modules.model.forced_aligner_model import ForcedAlignmentModel
-import torch.nn as nn
-import torch
-from einops import rearrange, repeat
-from modules.utils.get_melspec import MelSpecExtractor
 import numpy as np
+import torch
+import torch.nn as nn
+import yaml
+from einops import rearrange, repeat
+
+import modules.scheduler as scheduler_module
+from modules.loss.BinaryEMDLoss import BinaryEMDLoss
+from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss
+from modules.model.forced_aligner_model import ForcedAlignmentModel
+from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
-import importlib
-import modules.scheduler as scheduler_module
 
 
 class LitForcedAlignmentModel(pl.LightningModule):
-    def __init__(self,
-                 vocab_text,
-                 melspec_config,
-                 input_feature_dims,
-                 max_frame_num,
-                 learning_rate,
-                 weight_decay,
-                 hidden_dims,
-                 init_type,
-                 label_smoothing,
-                 lr_schedule,
-                 losses_schedules,
-                 ):
+    def __init__(
+        self,
+        vocab_text,
+        melspec_config,
+        input_feature_dims,
+        max_frame_num,
+        learning_rate,
+        weight_decay,
+        hidden_dims,
+        init_type,
+        label_smoothing,
+        lr_schedule,
+        losses_schedules,
+        data_augmentation_enabled,
+    ):
         super().__init__()
         # vocab
         self.vocab = yaml.safe_load(vocab_text)
 
         # hparams
         self.save_hyperparameters()
-        self.melspec_config = melspec_config  # Required for inference, but not for training
+        self.melspec_config = (
+            melspec_config  # Required for inference, but not for training
+        )
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.hidden_dims = hidden_dims
@@ -43,8 +48,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.label_smoothing = label_smoothing
         self.lr_schedule = lr_schedule
 
-        self.losses_names = ["ph_frame_GHM_loss", "ph_edge_GHM_loss", "ph_edge_EMD_loss", "ph_edge_diff_loss",
-                             "ctc_GHM_loss", "total_loss"]
+        self.losses_names = [
+            "ph_frame_GHM_loss",
+            "ph_edge_GHM_loss",
+            "ph_edge_EMD_loss",
+            "ph_edge_diff_loss",
+            "ctc_GHM_loss",
+            "total_loss",
+        ]
         self.losses_weights = []
         for k in self.losses_names[:-1]:
             self.losses_weights.append(losses_schedules[k]["weight"])
@@ -55,24 +66,32 @@ class LitForcedAlignmentModel(pl.LightningModule):
             scheduler_type = losses_schedules[k]["scheduler"]["type"]
             scheduler_kwargs = losses_schedules[k]["scheduler"]["kwargs"]
             if scheduler_type is None:
-                self.losses_schedulers.append(getattr(scheduler_module, "NoneScheduler")())
+                self.losses_schedulers.append(
+                    getattr(scheduler_module, "NoneScheduler")()
+                )
             else:
-                self.losses_schedulers.append(getattr(scheduler_module, scheduler_type)(
-                    **scheduler_kwargs
-                ))
+                self.losses_schedulers.append(
+                    getattr(scheduler_module, scheduler_type)(**scheduler_kwargs)
+                )
 
         # model
         self.model = ForcedAlignmentModel(
             input_feature_dims,
             self.vocab["<vocab_size>"],
             hidden_dims=self.hidden_dims,
-            max_seq_len=max_frame_num
+            max_seq_len=max_frame_num,
         )
 
         # loss function
-        self.ph_frame_GHM_loss_fn = GHMLoss(self.vocab["<vocab_size>"], 10, 0.999,
-                                            label_smoothing=self.label_smoothing, )
-        self.ph_edge_GHM_loss_fn = GHMLoss(2, 10, 0.999999, label_smoothing=self.label_smoothing)
+        self.ph_frame_GHM_loss_fn = GHMLoss(
+            self.vocab["<vocab_size>"],
+            10,
+            0.999,
+            label_smoothing=self.label_smoothing,
+        )
+        self.ph_edge_GHM_loss_fn = GHMLoss(
+            2, 10, 0.999999, label_smoothing=self.label_smoothing
+        )
         self.EMD_loss_fn = BinaryEMDLoss()
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=0.999)
@@ -97,25 +116,27 @@ class LitForcedAlignmentModel(pl.LightningModule):
             scheduler.step()
 
     def _losses_schedulers_call(self):
-        return torch.tensor([scheduler() for scheduler in self.losses_schedulers]).to(self.device)
+        return torch.tensor([scheduler() for scheduler in self.losses_schedulers]).to(
+            self.device
+        )
 
     def init_weights(self, m):
         if self.init_type == "xavier_uniform":
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
                 nn.init.xavier_uniform_(m.weight)
-                m.bias.data.fill_(0.)
+                m.bias.data.fill_(0.0)
         elif self.init_type == "xavier_normal":
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
                 nn.init.xavier_normal_(m.weight)
-                m.bias.data.fill_(0.)
+                m.bias.data.fill_(0.0)
         elif self.init_type == "kaiming_normal":
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
                 nn.init.kaiming_normal_(m.weight)
-                m.bias.data.fill_(0.)
+                m.bias.data.fill_(0.0)
         elif self.init_type == "kaiming_uniform":
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
                 nn.init.kaiming_uniform_(m.weight)
-                m.bias.data.fill_(0.)
+                m.bias.data.fill_(0.0)
 
     @staticmethod
     def _decode(ph_seq_id, ph_prob_log, edge_prob):
@@ -171,7 +192,11 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_idx_seq.reverse()
         ph_time_int.reverse()
         frame_confidence.reverse()
-        frame_confidence = np.exp(np.diff(np.pad(frame_confidence, (1, 0), 'constant', constant_values=0.), 1))
+        frame_confidence = np.exp(
+            np.diff(
+                np.pad(frame_confidence, (1, 0), "constant", constant_values=0.0), 1
+            )
+        )
 
         return (
             np.array(ph_idx_seq),
@@ -179,7 +204,15 @@ class LitForcedAlignmentModel(pl.LightningModule):
             np.array(frame_confidence),
         )
 
-    def _infer_once(self, melspec, ph_seq, word_seq=None, ph_idx_to_word_idx=None, return_ctc=False, return_plot=False):
+    def _infer_once(
+        self,
+        melspec,
+        ph_seq,
+        word_seq=None,
+        ph_idx_to_word_idx=None,
+        return_ctc=False,
+        return_plot=False,
+    ):
         ph_seq_id = np.array([self.vocab[ph] if ph != 0 else 0 for ph in ph_seq])
         if word_seq is None:
             word_seq = ph_seq
@@ -200,9 +233,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # decode
         edge = torch.softmax(ph_edge_pred, dim=-1).cpu().numpy().astype("float64")
         edge_diff = np.pad(np.diff(edge[:, 0]), (1, 0), "constant", constant_values=0)
-        edge_prob = np.pad(edge[1:, 0] + edge[:-1, 0], (1, 0), "constant", constant_values=edge[0, 0] * 2).clip(0, 1)
+        edge_prob = np.pad(
+            edge[1:, 0] + edge[:-1, 0],
+            (1, 0),
+            "constant",
+            constant_values=edge[0, 0] * 2,
+        ).clip(0, 1)
 
-        ph_prob_log = torch.log_softmax(ph_frame_pred, dim=-1).cpu().numpy().astype("float64")
+        ph_prob_log = (
+            torch.log_softmax(ph_frame_pred, dim=-1).cpu().numpy().astype("float64")
+        )
         (
             ph_idx_seq,
             ph_time_int_pred,
@@ -217,16 +257,20 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
         ph_time_pred = ph_time_int_pred.astype("float64") + ph_time_fractional
         ph_time_pred = np.concatenate([ph_time_pred, [ph_frame_pred.shape[0]]])
-        ph_time_pred = ph_time_pred * (self.melspec_config["hop_length"] / self.melspec_config["sample_rate"])
+        ph_time_pred = ph_time_pred * (
+            self.melspec_config["hop_length"] / self.melspec_config["sample_rate"]
+        )
         ph_intervals = np.stack([ph_time_pred[:-1], ph_time_pred[1:]], axis=1)
 
-        ph_intervals_pred = ph_intervals  # indecate the start and end time of each item from ph_idx_seq
+        ph_intervals_pred = (
+            ph_intervals  # indecate the start and end time of each item from ph_idx_seq
+        )
         ph_seq_pred = []
         word_seq_pred = []
         word_intervals_pred = []
         word_idx_last = -1
         for i, ph_idx in enumerate(ph_idx_seq):
-            if ph_seq[ph_idx] == 'SP':
+            if ph_seq[ph_idx] == "SP":
                 continue
             ph_seq_pred.append(ph_seq[ph_idx])
 
@@ -263,14 +307,20 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 "ph_seq": ph_seq_pred,
                 "ph_time": ph_time_int_pred.astype("float64") + ph_time_fractional,
                 "frame_confidence": frame_confidence,
-
                 "ph_frame_prob": torch.softmax(ph_frame_pred, dim=-1).cpu().numpy(),
                 "ph_frame_id_gt": ph_frame_id_gt,
                 "edge_prob": edge_prob,
             }
             fig = plot_for_valid(**args)
 
-        return ph_seq_pred, ph_intervals_pred, word_seq_pred, word_intervals_pred, ctc, fig
+        return (
+            ph_seq_pred,
+            ph_intervals_pred,
+            word_seq_pred,
+            word_intervals_pred,
+            ctc,
+            fig,
+        )
 
     def predict_step(self, batch, batch_idx):
         wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
@@ -282,32 +332,22 @@ class LitForcedAlignmentModel(pl.LightningModule):
         waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
         melspec = self.get_melspec(waveform).unsqueeze(0)
         melspec = (melspec - melspec.mean()) / melspec.std()
-        (
-            ph_seq,
-            ph_intervals,
-            word_seq,
-            word_intervals,
-            _,
-            _
-        ) = self._infer_once(melspec,
-                             ph_seq,
-                             word_seq,
-                             ph_idx_to_word_idx,
-                             False,
-                             False)
+        (ph_seq, ph_intervals, word_seq, word_intervals, _, _) = self._infer_once(
+            melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
+        )
         return wav_path, ph_seq, ph_intervals, word_seq, word_intervals
 
     def _get_loss(
-            self,
-            ph_frame_pred,  # (B, T, vocab_size)
-            ph_edge_pred,  # (B, T, 2)
-            ctc_pred,  # (B, T, vocab_size)
-            ph_frame,  # (B, T)
-            ph_edge,  # (B, 2, T)
-            ph_seq,  # (sum of ph_seq_lengths)
-            ph_seq_lengths,  # (B)
-            input_feature_lengths,  # (B)
-            label_type,  # (B)
+        self,
+        ph_frame_pred,  # (B, T, vocab_size)
+        ph_edge_pred,  # (B, T, 2)
+        ctc_pred,  # (B, T, vocab_size)
+        ph_frame,  # (B, T)
+        ph_edge,  # (B, 2, T)
+        ph_seq,  # (sum of ph_seq_lengths)
+        ph_seq_lengths,  # (B)
+        input_feature_lengths,  # (B)
+        label_type,  # (B)
     ):
         # drop according to label_type
         ph_frame_pred = ph_frame_pred[label_type >= 2, :, :]
@@ -321,7 +361,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # calculate mask matrix
         mask = torch.arange(ph_frame_pred.size(1)).to(self.device)
         mask = repeat(mask, "T -> B T", B=ph_frame_pred.shape[0])
-        mask = (mask >= input_lengths_full.unsqueeze(1)).to(ph_frame_pred.dtype)  # (B, T)
+        mask = (mask >= input_lengths_full.unsqueeze(1)).to(
+            ph_frame_pred.dtype
+        )  # (B, T)
 
         if ph_frame_pred.shape[0] > 0:
             # ph_frame_loss
@@ -339,23 +381,34 @@ class LitForcedAlignmentModel(pl.LightningModule):
             edge_prob_diff = torch.diff(edge_prob, 1, dim=-1)
             edge_gt_diff = torch.diff(ph_edge[:, 0, :], 1, dim=-1)
             edge_diff_mask = (edge_gt_diff != 0).to(ph_frame_pred.dtype)
-            ph_edge_diff_loss = self.MSE_loss_fn(edge_prob_diff * edge_diff_mask, edge_gt_diff * edge_diff_mask)
+            ph_edge_diff_loss = self.MSE_loss_fn(
+                edge_prob_diff * edge_diff_mask, edge_gt_diff * edge_diff_mask
+            )
 
         else:
-            ph_frame_GHM_loss = ph_edge_GHM_loss = ph_edge_EMD_loss = ph_edge_diff_loss = torch.tensor(0).to(
-                self.device)
+            ph_frame_GHM_loss = (
+                ph_edge_GHM_loss
+            ) = ph_edge_EMD_loss = ph_edge_diff_loss = torch.tensor(0).to(self.device)
 
         if ctc_pred.shape[0] > 0:
             # ctc loss
             log_probs_pred = torch.nn.functional.log_softmax(ctc_pred, dim=-1)
             log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
-            ctc_GHM_loss = self.CTC_GHM_loss_fn(log_probs_pred, ph_seq, input_lengths_weak, ph_seq_lengths)
+            ctc_GHM_loss = self.CTC_GHM_loss_fn(
+                log_probs_pred, ph_seq, input_lengths_weak, ph_seq_lengths
+            )
         else:
             ctc_GHM_loss = torch.tensor(0).to(self.device)
 
         # TODO: semi supervised loss
 
-        losses = [ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss, ctc_GHM_loss]
+        losses = [
+            ph_frame_GHM_loss,
+            ph_edge_GHM_loss,
+            ph_edge_EMD_loss,
+            ph_edge_diff_loss,
+            ctc_GHM_loss,
+        ]
 
         return losses
 
@@ -389,7 +442,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_seq,
             ph_seq_lengths,
             input_feature_lengths,
-            label_type
+            label_type,
         )
 
         schedule_weight = self._losses_schedulers_call()
@@ -397,9 +450,17 @@ class LitForcedAlignmentModel(pl.LightningModule):
         total_loss = (torch.stack(losses) * self.losses_weights * schedule_weight).sum()
         losses.append(total_loss)
 
-        log_dict = {f"train/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
+        log_dict = {
+            f"train/{k}": v for k, v in zip(self.losses_names, losses) if v != 0
+        }
         log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
-        log_dict.update({f"scheduler/{k}": v for k, v in zip(self.losses_names, schedule_weight) if v != 1})
+        log_dict.update(
+            {
+                f"scheduler/{k}": v
+                for k, v in zip(self.losses_names, schedule_weight)
+                if v != 1
+            }
+        )
         self.log_dict(log_dict)
         return total_loss
 
@@ -414,11 +475,20 @@ class LitForcedAlignmentModel(pl.LightningModule):
             label_type,  # (B)
         ) = batch
 
-        _, _, _, _, ctc, fig = self._infer_once(input_feature,
-                                                [self.vocab[ph] if ph != 0 else 0 for ph in ph_seq.cpu().numpy()],
-                                                None, None, True, True)
-        self.logger.experiment.add_text(f"valid/ctc_predict_{batch_idx}", ' '.join(ctc), self.global_step)
-        self.logger.experiment.add_figure(f"valid/plot_{batch_idx}", fig, self.global_step)
+        _, _, _, _, ctc, fig = self._infer_once(
+            input_feature,
+            [self.vocab[ph] if ph != 0 else 0 for ph in ph_seq.cpu().numpy()],
+            None,
+            None,
+            True,
+            True,
+        )
+        self.logger.experiment.add_text(
+            f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
+        )
+        self.logger.experiment.add_figure(
+            f"valid/plot_{batch_idx}", fig, self.global_step
+        )
 
         (
             ph_frame_pred,  # (B, T, vocab_size)
@@ -435,7 +505,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_seq,
             ph_seq_lengths,
             input_feature_lengths,
-            label_type
+            label_type,
         )
 
         total_loss = (torch.stack(losses) * self.losses_weights).sum()
@@ -458,11 +528,10 @@ class LitForcedAlignmentModel(pl.LightningModule):
             weight_decay=self.weight_decay,
         )
         scheduler = {
-            'scheduler': getattr(scheduler_module, self.lr_schedule["type"])(
-                optimizer,
-                **self.lr_schedule["kwargs"]
+            "scheduler": getattr(scheduler_module, self.lr_schedule["type"])(
+                optimizer, **self.lr_schedule["kwargs"]
             ),
-            'interval': 'step'
+            "interval": "step",
         }
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}

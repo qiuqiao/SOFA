@@ -6,6 +6,7 @@ data/weak_label/*
 data/full_label/*
 ckpt/*
 segments/*
+.vscode/*
 
 *.ipynb
 *.zip
@@ -15,5 +16,6 @@ segments/*
 *.csv
 *.h5
 *.h5py
+tmp.*
 
 !.gitkeep

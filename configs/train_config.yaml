@@ -24,7 +24,7 @@ devices: auto # num_devices
 precision: 32-true # bf16-mixed , 32-true
 gradient_clip_val: 1.0
 gradient_clip_algorithm: norm #value
-val_check_interval: 500 # 0.25
+val_check_interval: 50 # 0.25
 max_steps: 10000
 
 lr_schedule:
@@ -60,6 +60,18 @@ losses_schedules:
       type: GaussianRampUpScheduler
       kwargs:
         max_steps: 10000
+  consistency_loss:
+    weight: 1.0
+    scheduler:
+      type:
+      kwargs:
+  pseudo_label_loss:
+    weight: 1.0
+    scheduler:
+      type: GaussianRampUpScheduler
+      kwargs:
+        max_steps: 10000
+        start_steps: 3000
 
 use_pretrained_model: False
 pretrained_model_path: ''

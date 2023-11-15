@@ -31,7 +31,8 @@ class GHMLoss(torch.nn.Module):
         if len(pred) <= 0:
             return torch.tensor(0.0).to(pred.device)
         # pred: [B, C, T]
-        assert len(pred.shape) == 3 and pred.shape[1] == self.num_classes
+        assert len(pred.shape) == 3
+        assert pred.shape[1] == self.num_classes
         # target: [B, T] or [B, C, T]
         if len(target.shape) == 2:
             target = target.long()
