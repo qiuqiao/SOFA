@@ -7,11 +7,12 @@ from tqdm import tqdm
 
 
 class MixedDataset(torch.utils.data.Dataset):
-    def __init__(self, binary_data_folder="data/binary", prefix="train", binning_length=1800):
+    def __init__(self, augmentation_size, binary_data_folder="data/binary", prefix="train", binning_length=1800):
         # do not open hdf5 here
         self.h5py_items = None
         self.label_types = None
         self.wav_lengths = None
+        self.augmentation_indexes = np.arange(augmentation_size + 1)
 
         self.binary_data_folder = binary_data_folder
         self.prefix = prefix
@@ -45,7 +46,8 @@ class MixedDataset(torch.utils.data.Dataset):
         item = self.h5py_items[str(index)]
 
         # input_feature
-        input_feature = np.array(item["input_feature"])
+        indexes = np.random.choice(self.augmentation_indexes, 2)
+        input_feature = np.array(item["input_feature"])[indexes, :, :]
 
         # label_type
         label_type = np.array(item["label_type"])
@@ -208,7 +210,8 @@ def collate_fn(batch):
 
 
 if __name__ == "__main__":
-    dataset = MixedDataset()
-    sampler = WeightedBinningAudioBatchSampler(dataset.get_label_types(), dataset.get_wav_lengths(), [1, 0.3, 0.4])
-    for i in tqdm(sampler):
-        print(len(i))
+    dataset = MixedDataset(2)
+    # print(dataset[0])
+    # sampler = WeightedBinningAudioBatchSampler(dataset.get_label_types(), dataset.get_wav_lengths(), [1, 0.3, 0.4])
+    # for i in tqdm(sampler):
+    #     print(len(i))
