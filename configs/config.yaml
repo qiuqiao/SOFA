@@ -28,6 +28,9 @@ preprocessing:
     - ''
     - pau
     - cl
+  data_augmentation:
+    size: 2 # if disabled, set to 0
+    key_shift_choices: [ 1,2,3,4,5,6,-1,-2,-3,-4,-5,-6 ]
 
 train:
   # settings

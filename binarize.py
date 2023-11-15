@@ -16,22 +16,22 @@ class ForcedAlignmentBinarizer:
                  binary_data_folder,
                  valid_set_size,
                  valid_set_preferred_folders,
+                 data_augmentation,
                  ignored_phonemes,
                  melspec_config,
                  max_frame_num,
-                 device,
                  ):
 
         self.data_folder = data_folder
         self.binary_data_folder = binary_data_folder
         self.valid_set_size = valid_set_size
         self.valid_set_preferred_folders = valid_set_preferred_folders
+        self.data_augmentation = data_augmentation
+        self.data_augmentation["key_shift_choices"] = np.array(self.data_augmentation["key_shift_choices"])
         self.ignored_phonemes = ignored_phonemes
         self.melspec_config = melspec_config
         self.max_frame_num = max_frame_num
-        if device is None:
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.device = device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.sample_rate = self.melspec_config["sample_rate"]
         self.frame_length = self.melspec_config["hop_length"] / self.sample_rate
@@ -91,6 +91,7 @@ class ForcedAlignmentBinarizer:
             meta_data_valid,
             vocab,
             self.binary_data_folder,
+            False,
         )
 
         # binarize train set
@@ -99,6 +100,7 @@ class ForcedAlignmentBinarizer:
             meta_data_train,
             vocab,
             self.binary_data_folder,
+            self.data_augmentation["size"] > 0,
         )
 
     def binarize(
@@ -107,6 +109,7 @@ class ForcedAlignmentBinarizer:
             meta_data: pd.DataFrame,
             vocab: dict,
             binary_data_folder: str,
+            enable_data_augmentation: bool,
     ):
         print(f"Binarizing {prefix} set...")
         meta_data["ph_seq"] = meta_data["ph_seq"].apply(
@@ -129,22 +132,34 @@ class ForcedAlignmentBinarizer:
         total_time = 0.
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
-            # input_feature: [input_dim,T]
+            # input_feature: [data_augmentation.size+1,T,input_dim]
             waveform = load_wav(item.wav_path, self.device, self.sample_rate)
             input_feature = self.get_melspec(waveform)
-            input_feature = (input_feature - input_feature.mean()) / input_feature.std()
 
             T = input_feature.shape[-1]
             if T > self.max_frame_num:
                 print(f"Item {item.path} has a length of{T * self.max_frame_num} is too long, skip it.")
                 continue
-
             else:
                 h5py_item_data = h5py_items.create_group(str(idx))
                 wav_length = T * self.frame_length
                 items_meta_data["wav_lengths"].append(wav_length)
                 idx += 1
                 total_time += wav_length
+
+            if enable_data_augmentation:
+                input_features = [input_feature]
+                key_shifts = np.random.choice(self.data_augmentation["key_shift_choices"],
+                                              self.data_augmentation["size"])
+                for key_shift in key_shifts:
+                    input_features.append(self.get_melspec(waveform, key_shift=key_shift))
+
+                input_feature = torch.stack(input_features, dim=0)
+            else:
+                input_feature = input_feature.unsqueeze(0)
+
+            input_feature = ((input_feature - input_feature.mean(dim=[1, 2], keepdim=True))
+                             / input_feature.std(dim=[1, 2], keepdim=True)).permute(0, 2, 1)
 
             h5py_item_data["input_feature"] = input_feature.cpu().numpy().astype("float32")
 
@@ -280,17 +295,16 @@ def binarize(config_path: str):
     with open(config_path, "r") as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     # print(config)
-    ForcedAlignmentBinarizer(data_folder=config["preprocessing"]["data_folder"],
-                             binary_data_folder=config["global"]["binary_data_folder"],
-                             valid_set_size=config["preprocessing"]["valid_set_size"],
-                             valid_set_preferred_folders=config["preprocessing"]["valid_set_preferred_folders"],
-                             ignored_phonemes=config["preprocessing"]["ignored_phonemes"],
-                             melspec_config=config["mel_spec"],
-                             max_frame_num=config["global"]["max_frame_num"],
-                             device=(config["global"]["device"]
-                                     if config["global"]["device"] is not None
-                                     else None),
-                             ).process()
+    ForcedAlignmentBinarizer(
+        data_folder=config["preprocessing"]["data_folder"],
+        binary_data_folder=config["global"]["binary_data_folder"],
+        valid_set_size=config["preprocessing"]["valid_set_size"],
+        valid_set_preferred_folders=config["preprocessing"]["valid_set_preferred_folders"],
+        data_augmentation=config["preprocessing"]["data_augmentation"],
+        ignored_phonemes=config["preprocessing"]["ignored_phonemes"],
+        melspec_config=config["mel_spec"],
+        max_frame_num=config["global"]["max_frame_num"],
+    ).process()
 
 
 if __name__ == "__main__":
