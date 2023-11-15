@@ -27,7 +27,7 @@ class GHMLoss(torch.nn.Module):
             reduction="none", label_smoothing=label_smoothing
         )
 
-    def forward(self, pred, target, mask=None):
+    def forward(self, pred, target, mask=None, valid=False):
         if len(pred) <= 0:
             return torch.tensor(0.0).to(pred.device)
         # pred: [B, C, T]
@@ -83,29 +83,30 @@ class GHMLoss(torch.nn.Module):
         else:
             loss_final = torch.mean(loss_weighted)
 
-        # update ema
-        # "Elements lower than min and higher than max and NaN elements are ignored."
-        if mask is not None:
-            L1_loss = L1_loss - 10 * mask
-            classes_hist = (
-                (
-                    torch.sqrt(pred_probs * target_probs)
-                    * (mask.logical_not().float()).unsqueeze(1)
-                )
-                .sum(dim=0)
-                .sum(dim=-1)
-            )  # [C]
-        else:
-            classes_hist = (
-                (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)
-            )  # [C]
-        loss_hist = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
-        self.loss_bins_ema = update_ema(
-            self.loss_bins_ema, self.alpha, self.num_loss_bins, loss_hist
-        )
-        self.classes_ema = update_ema(
-            self.classes_ema, self.alpha, self.num_classes, classes_hist
-        )
+        if not valid:
+            # update ema
+            # "Elements lower than min and higher than max and NaN elements are ignored."
+            if mask is not None:
+                L1_loss = L1_loss - 10 * mask
+                classes_hist = (
+                    (
+                        torch.sqrt(pred_probs * target_probs)
+                        * (mask.logical_not().float()).unsqueeze(1)
+                    )
+                    .sum(dim=0)
+                    .sum(dim=-1)
+                )  # [C]
+            else:
+                classes_hist = (
+                    (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)
+                )  # [C]
+            loss_hist = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
+            self.loss_bins_ema = update_ema(
+                self.loss_bins_ema, self.alpha, self.num_loss_bins, loss_hist
+            )
+            self.classes_ema = update_ema(
+                self.classes_ema, self.alpha, self.num_classes, classes_hist
+            )
 
         return loss_final
 
@@ -119,7 +120,7 @@ class CTCGHMLoss(torch.nn.Module):
         self.register_buffer("ema", torch.ones(num_bins))
         self.alpha = alpha
 
-    def forward(self, log_probs, targets, input_lengths, target_lengths):
+    def forward(self, log_probs, targets, input_lengths, target_lengths, valid=False):
         if len(log_probs) <= 0:
             return torch.tensor(0.0).to(log_probs.device)
         try:
@@ -141,7 +142,8 @@ class CTCGHMLoss(torch.nn.Module):
         )
         loss_final = loss_weighted.mean()
 
-        hist = torch.histc(loss_for_ema, bins=self.num_bins, min=0, max=1)
-        self.ema = update_ema(self.ema, self.alpha, self.num_bins, hist)
+        if not valid:
+            hist = torch.histc(loss_for_ema, bins=self.num_bins, min=0, max=1)
+            self.ema = update_ema(self.ema, self.alpha, self.num_bins, hist)
 
         return loss_final

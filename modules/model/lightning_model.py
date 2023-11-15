@@ -360,6 +360,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
         T = ph_frame_pred.shape[1]
+        ZERO = torch.tensor(0).to(self.device)
 
         if (full_label_idx).any():
             # drop according to label_type
@@ -377,13 +378,17 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
             # ph_frame_loss
             ph_frame_full = rearrange(ph_frame_full, "B T C -> B C T")
-            ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(ph_frame_full, ph_frame, mask)
+            ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
+                ph_frame_full, ph_frame, mask, valid
+            )
 
             # ph_edge loss
             ph_edge_full = rearrange(ph_edge_full, "B T C -> B C T")
             edge_prob = nn.functional.softmax(ph_edge_full, dim=1)[:, 0, :]
 
-            ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(ph_edge_full, ph_edge, mask)
+            ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
+                ph_edge_full, ph_edge, mask, valid
+            )
 
             ph_edge_EMD_loss = self.EMD_loss_fn(edge_prob, ph_edge[:, 0, :])
 
@@ -395,9 +400,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             )
 
         else:
-            ph_frame_GHM_loss = (
-                ph_edge_GHM_loss
-            ) = ph_edge_EMD_loss = ph_edge_diff_loss = torch.tensor(0).to(self.device)
+            ph_frame_GHM_loss = ph_edge_GHM_loss = ZERO
+            ph_edge_EMD_loss = ph_edge_diff_loss = ZERO
 
         if (weak_label_idx).any():
             # drop
@@ -410,9 +414,10 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 ph_seq,
                 input_feature_lengths[weak_label_idx],
                 ph_seq_lengths,
+                valid,
             )
         else:
-            ctc_GHM_loss = torch.tensor(0).to(self.device)
+            ctc_GHM_loss = ZERO
 
         if not valid and self.data_augmentation_enabled:
             B = ph_frame_pred.shape[0]
@@ -464,12 +469,13 @@ class LitForcedAlignmentModel(pl.LightningModule):
                     ph_frame_prob_pred,
                     torch.cat([pseudo_label, pseudo_label], dim=0),
                     torch.cat([pseudo_label_mask, pseudo_label_mask], dim=0),
+                    valid,
                 )
             else:
-                pseudo_label_loss = torch.tensor(0).to(self.device)
+                pseudo_label_loss = ZERO
         else:
-            consistency_loss = torch.tensor(0).to(self.device)
-            pseudo_label_loss = torch.tensor(0).to(self.device)
+            consistency_loss = ZERO
+            pseudo_label_loss = ZERO
 
         losses = [
             ph_frame_GHM_loss,
