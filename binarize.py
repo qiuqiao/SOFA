@@ -130,7 +130,7 @@ class ForcedAlignmentBinarizer:
         total_time = 0.
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
 
-            # input_feature: [data_augmentation.size+1,T,input_dim]
+            # input_feature: [data_augmentation.size+1,input_dim,T]
             waveform = load_wav(item.wav_path, self.device, self.sample_rate)
             input_feature = self.get_melspec(waveform)
 
@@ -158,7 +158,7 @@ class ForcedAlignmentBinarizer:
                 input_feature = input_feature.unsqueeze(0)
 
             input_feature = ((input_feature - input_feature.mean(dim=[1, 2], keepdim=True))
-                             / input_feature.std(dim=[1, 2], keepdim=True)).permute(0, 2, 1)
+                             / input_feature.std(dim=[1, 2], keepdim=True))
 
             h5py_item_data["input_feature"] = input_feature.cpu().numpy().astype("float32")
 
