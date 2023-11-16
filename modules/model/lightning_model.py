@@ -4,6 +4,7 @@ import lightning as pl
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.optim.lr_scheduler as lr_scheduler_module
 import yaml
 from einops import rearrange, repeat
 
@@ -622,7 +623,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             weight_decay=self.weight_decay,
         )
         scheduler = {
-            "scheduler": getattr(scheduler_module, self.lr_schedule["type"])(
+            "scheduler": getattr(lr_scheduler_module, self.lr_schedule["type"])(
                 optimizer, **self.lr_schedule["kwargs"]
             ),
             "interval": "step",

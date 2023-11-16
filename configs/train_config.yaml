@@ -30,7 +30,7 @@ max_steps: 10000
 pseudo_label_ratio: 0.7
 
 lr_schedule:
-  type: OneCycleLR # should be imported in modules/schedulers/__init__.py
+  type: OneCycleLR # import from torch.optim.lr_scheduler
   kwargs:
     max_lr: 0.001
     total_steps: 10000
@@ -38,7 +38,7 @@ lr_schedule:
 losses_schedules:
   ph_frame_GHM_loss:
     weight: 1.0
-    scheduler:
+    scheduler: # should be imported in modules/schedulers/__init__.py
       type:
       kwargs:
   ph_edge_GHM_loss:
