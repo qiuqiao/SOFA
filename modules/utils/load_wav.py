@@ -1,20 +1,21 @@
+import importlib
+
 import librosa
 import torch
-import importlib
 
 
 def check_and_import(package_name):
     try:
-        importlib.import_module(package_name)
+        module = importlib.import_module(package_name)
         globals()[package_name] = importlib.import_module(package_name)
         print(f"'{package_name}' installed and imported.")
-        return True
+        return True, module
     except ImportError:
         print(f"'{package_name}' not installed.")
-        return False
+        return False, None
 
 
-installed_torchaudio = check_and_import("torchaudio")
+installed_torchaudio, torchaudio = check_and_import("torchaudio")
 resample_transform_dict = {}
 
 
@@ -25,9 +26,7 @@ def load_wav(path, device, sample_rate=None):
         if sample_rate != sr and sample_rate is not None:
             global resample_transform_dict
             if sr not in resample_transform_dict:
-                resample_transform_dict[
-                    sr
-                ] = torchaudio.transforms.Resample(
+                resample_transform_dict[sr] = torchaudio.transforms.Resample(
                     sr, sample_rate
                 )
 
@@ -36,9 +35,7 @@ def load_wav(path, device, sample_rate=None):
         waveform = waveform[0].to(device)
 
     else:
-        waveform, _ = librosa.load(
-            path, sr=sample_rate, mono=True
-        )
+        waveform, _ = librosa.load(path, sr=sample_rate, mono=True)
         waveform = torch.from_numpy(waveform).to(device)
 
     return waveform
