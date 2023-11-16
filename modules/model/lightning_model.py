@@ -600,7 +600,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             valid=True,
         )
 
-        total_loss = (torch.stack(losses) * self.losses_weights).sum()
+        schedule_weight = self._losses_schedulers_call()
+        total_loss = (torch.stack(losses) * self.losses_weights * schedule_weight).sum()
         losses.append(total_loss)
         losses = torch.stack(losses)
 
