@@ -1,14 +1,20 @@
-import torch
+import pathlib
+
 import h5py
 import numpy as np
-import pathlib
 import pandas as pd
-from tqdm import tqdm
-from einops import rearrange, repeat
+import torch
+from einops import rearrange
 
 
 class MixedDataset(torch.utils.data.Dataset):
-    def __init__(self, augmentation_size, binary_data_folder="data/binary", prefix="train", binning_length=1800):
+    def __init__(
+        self,
+        augmentation_size,
+        binary_data_folder="data/binary",
+        prefix="train",
+        binning_length=1800,
+    ):
         # do not open hdf5 here
         self.h5py_items = None
         self.label_types = None
@@ -33,7 +39,9 @@ class MixedDataset(torch.utils.data.Dataset):
         return self.wav_lengths
 
     def _open_h5py_file(self):
-        h5py_file = h5py.File(str(pathlib.Path(self.binary_data_folder) / (self.prefix + ".h5py")), 'r')
+        h5py_file = h5py.File(
+            str(pathlib.Path(self.binary_data_folder) / (self.prefix + ".h5py")), "r"
+        )
         self.h5py_items = h5py_file["items"]
         self.label_types = np.array(h5py_file["meta_data"]["label_types"])
         self.wav_lengths = np.array(h5py_file["meta_data"]["wav_lengths"])
@@ -72,33 +80,45 @@ class MixedDataset(torch.utils.data.Dataset):
 
 
 class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
-    def __init__(self,
-                 type_ids,
-                 wav_lengths,
-                 oversampling_weights=None,
-                 max_length=100,
-                 binning_length=1000,
-                 drop_last=False):
-
+    def __init__(
+        self,
+        type_ids,
+        wav_lengths,
+        oversampling_weights=None,
+        max_length=100,
+        binning_length=1000,
+        drop_last=False,
+    ):
         if oversampling_weights is None:
             oversampling_weights = [1] * (max(type_ids) + 1)
         oversampling_weights = np.array(oversampling_weights).astype(np.float32)
 
         assert min(oversampling_weights) > 0
-        assert len(oversampling_weights) == max(type_ids) + 1
+        assert len(oversampling_weights) >= max(type_ids) + 1
         assert min(type_ids) >= 0
         assert len(type_ids) == len(wav_lengths)
         assert max_length > 0
         assert binning_length > 0
 
-        self.oversampling_weights = oversampling_weights / min(oversampling_weights[np.bincount(type_ids) > 0])
+        count = np.bincount(type_ids)
+        count = np.pad(count, (0, len(oversampling_weights) - len(count)))
+        self.oversampling_weights = oversampling_weights / min(
+            oversampling_weights[count > 0]
+        )
         self.max_length = max_length
         self.drop_last = drop_last
 
         # sort by wav_lengths
         meta_data = (
-            pd.DataFrame({"dataset_index": range(len(type_ids)), "type_id": type_ids, "wav_length": wav_lengths})
-            .sort_values(by=["wav_length"], ascending=False).reset_index(drop=True)
+            pd.DataFrame(
+                {
+                    "dataset_index": range(len(type_ids)),
+                    "type_id": type_ids,
+                    "wav_length": wav_lengths,
+                }
+            )
+            .sort_values(by=["wav_length"], ascending=False)
+            .reset_index(drop=True)
         )
 
         # binning and compute oversampling num
@@ -108,27 +128,33 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
         curr_bin_max_item_length = meta_data.loc[0, "wav_length"]
         for i in range(len(meta_data)):
             if curr_bin_max_item_length * (i - curr_bin_start_index) > binning_length:
-
-                bin_data = {"batch_size": self.max_length // curr_bin_max_item_length, "num_batches": 0, "type": [], }
+                bin_data = {
+                    "batch_size": self.max_length // curr_bin_max_item_length,
+                    "num_batches": 0,
+                    "type": [],
+                }
 
                 item_num = 0
                 for type_id, weight in enumerate(self.oversampling_weights):
                     idx_list = (
-                        meta_data
-                        .loc[curr_bin_start_index:i - 1]
+                        meta_data.loc[curr_bin_start_index : i - 1]
                         .loc[meta_data["type_id"] == type_id]
                         .to_dict(orient="list")["dataset_index"]
                     )
 
                     oversample_num = np.round(len(idx_list) * (weight - 1))
-                    bin_data["type"].append({
-                        "idx_list": idx_list,
-                        "oversample_num": oversample_num,
-                    })
+                    bin_data["type"].append(
+                        {
+                            "idx_list": idx_list,
+                            "oversample_num": oversample_num,
+                        }
+                    )
                     item_num += len(idx_list) + oversample_num
 
                 if bin_data["batch_size"] <= 0:
-                    raise ValueError("batch_size <= 0, maybe batch_max_length is too small or wav length is too long.")
+                    raise ValueError(
+                        "batch_size <= 0, maybe batch_max_length is too small or wav length is too long."
+                    )
                 num_batches = item_num / bin_data["batch_size"]
                 if self.drop_last:
                     bin_data["num_batches"] = int(num_batches)
@@ -152,33 +178,35 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
         np.random.shuffle(self.bins)
 
         for bin_data in self.bins:
-
             batch_size = bin_data["batch_size"]
             num_batches = bin_data["num_batches"]
 
             idx_list = []
             for type_id, weight in enumerate(self.oversampling_weights):
-
                 idx_list_of_type = bin_data["type"][type_id]["idx_list"]
                 oversample_num = bin_data["type"][type_id]["oversample_num"]
 
                 if len(idx_list_of_type) > 0:
                     idx_list.extend(idx_list_of_type)
-                    oversample_idx_list = np.random.choice(idx_list_of_type, int(oversample_num))
+                    oversample_idx_list = np.random.choice(
+                        idx_list_of_type, int(oversample_num)
+                    )
                     idx_list.extend(oversample_idx_list)
 
             idx_list = np.random.permutation(idx_list)
 
             if self.drop_last:
                 num_batches = int(num_batches)
-                idx_list = idx_list[:num_batches * batch_size]
+                idx_list = idx_list[: num_batches * batch_size]
             else:
                 num_batches = int(np.ceil(num_batches))
-                random_idx = np.random.choice(idx_list, int(num_batches * batch_size - len(idx_list)))
+                random_idx = np.random.choice(
+                    idx_list, int(num_batches * batch_size - len(idx_list))
+                )
                 idx_list = np.concatenate([idx_list, random_idx])
 
             for i in range(num_batches):
-                yield idx_list[int(i * batch_size):int((i + 1) * batch_size)]
+                yield idx_list[int(i * batch_size) : int((i + 1) * batch_size)]
 
 
 def collate_fn(batch):
@@ -213,7 +241,9 @@ def collate_fn(batch):
     label_type = torch.tensor(np.array([item[4] for item in batch]))
 
     if augmentation_enabled:
-        input_feature_lengths = torch.concat([input_feature_lengths, input_feature_lengths], dim=0)
+        input_feature_lengths = torch.concat(
+            [input_feature_lengths, input_feature_lengths], dim=0
+        )
         ph_seq = torch.concat([ph_seq, ph_seq], dim=0)
         ph_seq_lengths = torch.concat([ph_seq_lengths, ph_seq_lengths], dim=0)
         ph_edge = torch.concat([ph_edge, ph_edge], dim=0)

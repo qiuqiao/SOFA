@@ -229,7 +229,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         return_ctc=False,
         return_plot=False,
     ):
-        ph_seq_id = np.array([self.vocab[ph] if ph != 0 else 0 for ph in ph_seq])
+        ph_seq_id = np.array([self.vocab[ph] for ph in ph_seq])
         if word_seq is None:
             word_seq = ph_seq
             ph_idx_to_word_idx = np.arange(len(ph_seq))
@@ -242,9 +242,11 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 ctc_pred,  # (B, T, vocab_size)
             ) = self.forward(melspec.transpose(1, 2))
 
-        ph_frame_pred = ph_frame_pred.squeeze(0)
-        ph_edge_pred = ph_edge_pred.squeeze(0)
-        ctc_pred = ctc_pred.squeeze(0)
+        ph_frame_pred = ph_frame_pred.squeeze(0)  # (T, vocab_size)
+        ph_edge_pred = ph_edge_pred.squeeze(0)  # (T, 2)
+        ctc_pred = ctc_pred.squeeze(0)  # (T, vocab_size)
+
+        T, vocab_size = ph_frame_pred.shape
 
         # decode
         edge = torch.softmax(ph_edge_pred, dim=-1).cpu().numpy().astype("float64")
@@ -270,34 +272,43 @@ class LitForcedAlignmentModel(pl.LightningModule):
         )
 
         # postprocess
-        ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
-        ph_time_pred = ph_time_int_pred.astype("float64") + ph_time_fractional
-        ph_time_pred = np.concatenate([ph_time_pred, [ph_frame_pred.shape[0]]])
-        ph_time_pred = ph_time_pred * (
+        frame_length = (
             self.melspec_config["hop_length"] / self.melspec_config["sample_rate"]
+        )
+        ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
+        ph_time_pred = frame_length * (
+            np.concatenate(
+                [
+                    ph_time_int_pred.astype("float64") + ph_time_fractional,
+                    [T],
+                ]
+            )
         )
         ph_intervals = np.stack([ph_time_pred[:-1], ph_time_pred[1:]], axis=1)
 
-        ph_intervals_pred = (
-            ph_intervals  # indecate the start and end time of each item from ph_idx_seq
-        )
         ph_seq_pred = []
+        ph_intervals_pred = []
         word_seq_pred = []
         word_intervals_pred = []
+
         word_idx_last = -1
-        for i, ph_idx in enumerate(ph_idx_seq):
+        for ph_idx in ph_idx_seq:
             if ph_seq[ph_idx] == "SP":
                 continue
             ph_seq_pred.append(ph_seq[ph_idx])
+            ph_intervals_pred.append(ph_intervals[ph_idx, :])
 
             word_idx = ph_idx_to_word_idx[ph_idx]
             if word_idx == word_idx_last:
-                word_intervals_pred[-1][1] = ph_intervals[i, 1]
+                word_intervals_pred[-1][1] = ph_intervals[ph_idx, 1]
             else:
                 word_seq_pred.append(word_seq[word_idx])
-                word_intervals_pred.append([ph_intervals[i, 0], ph_intervals[i, 1]])
+                word_intervals_pred.append(
+                    [ph_intervals[ph_idx, 0], ph_intervals[ph_idx, 1]]
+                )
                 word_idx_last = word_idx
         ph_seq_pred = np.array(ph_seq_pred)
+        ph_intervals_pred = np.array(ph_intervals_pred)
         word_seq_pred = np.array(word_seq_pred)
         word_intervals_pred = np.array(word_intervals_pred)
 
@@ -310,18 +321,19 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ctc = ctc[ctc_index]
             ctc = np.array([self.vocab[ph] for ph in ctc if ph != 0])
 
-        # plot TODO
         fig = None
+        ph_intervals_pred_int = (
+            (ph_intervals_pred / frame_length).round().astype("int32")
+        )
         if return_plot:
-            ph_frame_idx = np.zeros(ph_frame_pred.shape[0], dtype="int32")
-            ph_frame_idx[ph_time_int_pred] = 1
-            ph_frame_idx = ph_frame_idx.cumsum() - 1
-            ph_seq_id_pred = np.array([self.vocab[i] for i in ph_seq_pred])
-            ph_frame_id_gt = ph_seq_id_pred[ph_frame_idx]
+            ph_frame_id_gt = np.zeros(T)
+            for ph, interval in zip(ph_seq_pred, ph_intervals_pred_int):
+                ph_frame_id_gt[int(interval[0]) : int(interval[1])] = self.vocab[ph]
+
             args = {
                 "melspec": melspec.cpu().numpy(),
                 "ph_seq": ph_seq_pred,
-                "ph_time": ph_time_int_pred.astype("float64") + ph_time_fractional,
+                "ph_intervals": ph_intervals_pred_int,
                 "frame_confidence": frame_confidence,
                 "ph_frame_prob": torch.softmax(ph_frame_pred, dim=-1).cpu().numpy(),
                 "ph_frame_id_gt": ph_frame_id_gt,
@@ -543,7 +555,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         losses.append(total_loss)
 
         log_dict = {
-            f"train/{k}": v for k, v in zip(self.losses_names, losses) if v != 0
+            f"train_loss/{k}": v for k, v in zip(self.losses_names, losses) if v != 0
         }
         log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
         log_dict.update(
@@ -569,7 +581,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         _, _, _, _, ctc, fig = self._infer_once(
             input_feature,
-            [self.vocab[ph] if ph != 0 else 0 for ph in ph_seq.cpu().numpy()],
+            [self.vocab[ph] for ph in ph_seq.cpu().numpy()],  # TODO:增加一步插入SP（即G2P）
             None,
             None,
             True,
@@ -601,15 +613,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
             valid=True,
         )
 
-        schedule_weight = self._losses_schedulers_call()
-        total_loss = (torch.stack(losses) * self.losses_weights * schedule_weight).sum()
+        weights = self._losses_schedulers_call() * self.losses_weights
+        total_loss = (torch.stack(losses) * weights).sum()
         losses.append(total_loss)
         losses = torch.stack(losses)
 
         self.validation_step_outputs["losses"].append(losses)
 
     def on_validation_epoch_end(self):
-        # TODO: weighted loss
         losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
         losses = (losses / ((losses > 0).sum(dim=0, keepdim=True) + 1e-6)).sum(dim=0)
         self.log_dict(
