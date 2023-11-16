@@ -193,6 +193,7 @@ class ForcedAlignmentBinarizer:
             elif label_type_id == 1:
                 # ph_seq: [S]
                 ph_seq = np.array(item.ph_seq).astype("int32")
+                ph_seq = ph_seq[ph_seq != 0]
 
                 # ph_edge: [2,T]
                 ph_edge = np.zeros([2, T], dtype="float32")
@@ -201,6 +202,8 @@ class ForcedAlignmentBinarizer:
             elif label_type_id == 2:
                 # ph_seq: [S]
                 ph_seq = np.array(item.ph_seq).astype("int32")
+                not_sp_idx = ph_seq != 0
+                ph_seq = ph_seq[not_sp_idx]
 
                 # ph_edge: [2,T]
                 ph_dur = np.array(item.ph_dur).astype("float32")
@@ -209,8 +212,8 @@ class ForcedAlignmentBinarizer:
                 )
                 ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
 
-                ph_interval = ph_interval[:, ph_seq != 0]
-                ph_seq = ph_seq[ph_seq != 0]
+                ph_interval = ph_interval[:, not_sp_idx]
+                ph_seq = ph_seq
                 ph_time = np.unique(ph_interval.flatten())
 
                 ph_edge = np.zeros([2, T], dtype="float32")

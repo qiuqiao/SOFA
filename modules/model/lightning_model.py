@@ -579,9 +579,15 @@ class LitForcedAlignmentModel(pl.LightningModule):
             label_type,  # (B)
         ) = batch
 
+        ph_seq_g2p = ["SP"]
+        for ph in ph_seq.cpu().numpy():
+            if ph == 0:
+                continue
+            ph_seq_g2p.append(self.vocab[ph])
+            ph_seq_g2p.append("SP")
         _, _, _, _, ctc, fig = self._infer_once(
             input_feature,
-            [self.vocab[ph] for ph in ph_seq.cpu().numpy()],  # TODO:增加一步插入SP（即G2P）
+            ph_seq_g2p,
             None,
             None,
             True,
@@ -598,7 +604,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_frame_pred,  # (B, T, vocab_size)
             ph_edge_pred,  # (B, T, 2)
             ctc_pred,  # (B, T, vocab_size)
-        ) = self.model(input_feature.transpose(1, 2))
+        ) = self.forward(input_feature.transpose(1, 2))
 
         losses = self._get_loss(
             ph_frame_pred,
