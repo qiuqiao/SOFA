@@ -7,3 +7,6 @@ class NoneScheduler:
 
     def step(self):
         pass
+
+    def resume(self, global_step):
+        pass

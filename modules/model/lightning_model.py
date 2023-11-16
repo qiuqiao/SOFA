@@ -121,6 +121,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.on_train_start()
 
     def on_train_start(self):
+        # resume loss schedulers
+        for scheduler in self.losses_schedulers:
+            scheduler.resume(self.global_step)
         self.losses_weights = self.losses_weights.to(self.device)
 
     def _losses_schedulers_step(self):
