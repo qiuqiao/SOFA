@@ -31,6 +31,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         lr_schedule,
         losses_schedules,
         data_augmentation_enabled,
+        pseudo_label_ratio,
     ):
         super().__init__()
         # vocab
@@ -47,6 +48,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.init_type = init_type
         self.label_smoothing = label_smoothing
         self.lr_schedule = lr_schedule
+        self.pseudo_label_ratio = pseudo_label_ratio
+        self.pseudo_label_auto_theshold = 0.5
 
         self.losses_names = [
             "ph_frame_GHM_loss",
@@ -461,8 +464,15 @@ class LitForcedAlignmentModel(pl.LightningModule):
             pseudo_label_mask = (  # (B//2, T)
                 mask
                 | (pred1_argmax == pred2_argmax)
-                | ((pred1_prob + pred2_prob) / 2 < 0.5)
+                | (((pred1_prob + pred2_prob) / 2) < self.pseudo_label_auto_theshold)
             )
+            if (
+                pseudo_label_mask.sum() / pseudo_label_mask.numel()
+                < self.pseudo_label_ratio
+            ):
+                self.pseudo_label_auto_theshold += 0.005
+            else:
+                self.pseudo_label_auto_theshold -= 0.005
 
             if pseudo_label_mask.logical_not().any():
                 pseudo_label_loss = self.pseudo_label_GHM_loss_fn(

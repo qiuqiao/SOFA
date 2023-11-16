@@ -27,6 +27,8 @@ gradient_clip_algorithm: norm #value
 val_check_interval: 50 # 0.25
 max_steps: 10000
 
+pseudo_label_ratio: 0.7
+
 lr_schedule:
   type: OneCycleLR # should be imported in modules/schedulers/__init__.py
   kwargs:

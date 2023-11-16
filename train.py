@@ -87,6 +87,7 @@ def main(config_path: str, data_folder: str):
         config["lr_schedule"],
         config["losses_schedules"],
         config["data_augmentation_size"] > 0,
+        config["pseudo_label_ratio"],
     )
 
     # trainer
