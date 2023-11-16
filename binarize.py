@@ -181,7 +181,7 @@ class ForcedAlignmentBinarizer:
             h5py_item_data["label_type"] = label_type_id
             items_meta_data["label_types"].append(label_type_id)
 
-            if label_type_id < 1:
+            if label_type_id == 0:
                 # ph_seq: [S]
                 ph_seq = np.array([]).astype("int32")
 
@@ -190,16 +190,19 @@ class ForcedAlignmentBinarizer:
 
                 # ph_frame: [T]
                 ph_frame = np.zeros(T, dtype="int32")
-            elif label_type_id < 2:
+            elif label_type_id == 1:
                 # ph_seq: [S]
-                ph_seq = ph_seq.astype("int32")
+                ph_seq = np.array(item.ph_seq).astype("int32")
 
                 # ph_edge: [2,T]
                 ph_edge = np.zeros([2, T], dtype="float32")
                 # ph_frame: [T]
                 ph_frame = np.zeros(T, dtype="int32")
-            else:
+            elif label_type_id == 2:
+                # ph_seq: [S]
                 ph_seq = np.array(item.ph_seq).astype("int32")
+
+                # ph_edge: [2,T]
                 ph_dur = np.array(item.ph_dur).astype("float32")
                 ph_time = (
                     np.array(np.concatenate(([0], ph_dur))).cumsum() / self.frame_length
@@ -210,10 +213,6 @@ class ForcedAlignmentBinarizer:
                 ph_seq = ph_seq[ph_seq != 0]
                 ph_time = np.unique(ph_interval.flatten())
 
-                # ph_seq: [S]
-                ph_seq = ph_seq.astype("int32")
-
-                # ph_edge: [2,T]
                 ph_edge = np.zeros([2, T], dtype="float32")
                 if ph_time[-1] + 0.5 > T:
                     ph_time = ph_time[:-1]
@@ -234,6 +233,8 @@ class ForcedAlignmentBinarizer:
                     if ed > T:
                         ed = T
                     ph_frame[int(np.round(st)) : int(np.round(ed))] = ph_id
+            else:
+                raise ValueError("Unknown label type.")
 
             h5py_item_data["ph_seq"] = ph_seq.astype("int32")
             h5py_item_data["ph_edge"] = ph_edge.astype("float32")
