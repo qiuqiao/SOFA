@@ -82,11 +82,11 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.data_augmentation_enabled = data_augmentation_enabled
 
         # model
-        self.input_proj = nn.Linear(input_feature_dims, self.hidden_dims)
         self.model = ForcedAlignmentModel(
-            self.hidden_dims,
+            input_feature_dims,
             self.vocab["<vocab_size>"],
             hidden_dims=self.hidden_dims,
+            init_type=init_type,
             max_seq_len=max_frame_num,
         )
 
@@ -109,9 +109,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.EMD_loss_fn = BinaryEMDLoss()
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=0.999)
-
-        # init weights
-        self.apply(self.init_weights)
 
         # get_melspec
         self.get_melspec = None
@@ -138,24 +135,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
         return torch.tensor([scheduler() for scheduler in self.losses_schedulers]).to(
             self.device
         )
-
-    def init_weights(self, m):
-        if self.init_type == "xavier_uniform":
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
-                nn.init.xavier_uniform_(m.weight)
-                m.bias.data.fill_(0.0)
-        elif self.init_type == "xavier_normal":
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
-                nn.init.xavier_normal_(m.weight)
-                m.bias.data.fill_(0.0)
-        elif self.init_type == "kaiming_normal":
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight)
-                m.bias.data.fill_(0.0)
-        elif self.init_type == "kaiming_uniform":
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv1d):
-                nn.init.kaiming_uniform_(m.weight)
-                m.bias.data.fill_(0.0)
 
     def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
         # ph_seq_id: (T)
