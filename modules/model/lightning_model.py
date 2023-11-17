@@ -534,7 +534,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         return losses
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        return self.model(*args, **kwargs)
+        x = self.input_proj(*args, **kwargs)
+        return self.model(x)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
