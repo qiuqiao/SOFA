@@ -118,6 +118,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         self.inference_mode = "force"
 
+    def load_pretrained(self, pretrained):
+        self.model.load_pretrained(pretrained.model)
+
     def on_validation_start(self):
         self.on_train_start()
 
@@ -513,8 +516,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         return losses
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        x = self.input_proj(*args, **kwargs)
-        return self.model(x)
+        return self.model(*args, **kwargs)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.

@@ -28,7 +28,15 @@ from modules.model.lightning_model import LitForcedAlignmentModel
     show_default=True,
     help="data folder path",
 )
-def main(config_path: str, data_folder: str):
+@click.option(
+    "--pretrained_model_path",
+    "-p",
+    type=str,
+    default=None,
+    show_default=True,
+    help="pretrained model path. if None, training from scratch",
+)
+def main(config_path: str, data_folder: str, pretrained_model_path):
     data_folder = pathlib.Path(data_folder)
     os.environ[
         "TORCH_CUDNN_V8_API_ENABLED"
@@ -103,18 +111,26 @@ def main(config_path: str, data_folder: str):
         max_epochs=-1,
         max_steps=config["max_steps"],
     )
-    # resume training state
-    ckpt_path_list = (pathlib.Path("ckpt") / config["model_name"]).rglob("*.ckpt")
-    ckpt_path_list = sorted(
-        ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True
-    )
+
+    ckpt_path = None
+    if pretrained_model_path is not None:
+        # use pretrained model TODO: load pretrained model
+        pretrained = LitForcedAlignmentModel.load_from_checkpoint(pretrained_model_path)
+        lightning_alignment_model.load_pretrained(pretrained)
+    else:
+        # resume training state
+        ckpt_path_list = (pathlib.Path("ckpt") / config["model_name"]).rglob("*.ckpt")
+        ckpt_path_list = sorted(
+            ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True
+        )
+        ckpt_path = str(ckpt_path_list[0]) if len(ckpt_path_list) > 0 else None
 
     # start training
     trainer.fit(
         model=lightning_alignment_model,
         train_dataloaders=train_dataloader,
         val_dataloaders=valid_dataloader,
-        ckpt_path=str(ckpt_path_list[0]) if len(ckpt_path_list) > 0 else None,
+        ckpt_path=ckpt_path,
     )
 
 
