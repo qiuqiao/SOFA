@@ -1,27 +1,40 @@
 import torch
 import torch.nn as nn
+
 from modules.layer.backbone.Unet import UNetBackbone
 from modules.layer.block.conformer import ForwardBackwardConformerBlock
 
 
 class ForcedAlignmentModel(nn.Module):
-    def __init__(self, input_dims, output_dims_ph_frame, hidden_dims=64, init_type="xavier_uniform", **kwargs):
+    def __init__(
+        self,
+        input_dims,
+        output_dims_ph_frame,
+        hidden_dims=64,
+        init_type="xavier_uniform",
+        **kwargs
+    ):
         super(ForcedAlignmentModel, self).__init__()
 
         self.init_type = init_type
-        self.backbone = UNetBackbone(input_dims, hidden_dims, hidden_dims, block=ForwardBackwardConformerBlock,
-                                     **kwargs)
+        self.backbone = UNetBackbone(
+            input_dims,
+            hidden_dims,
+            hidden_dims,
+            block=ForwardBackwardConformerBlock,
+            **kwargs
+        )
         self.ph_frame_head = nn.Sequential(
             nn.Linear(hidden_dims, hidden_dims),
             nn.LayerNorm(hidden_dims),
             nn.Hardswish(),
-            nn.Linear(hidden_dims, output_dims_ph_frame)
+            nn.Linear(hidden_dims, output_dims_ph_frame),
         )
         self.ph_edge_head = nn.Sequential(
             nn.Linear(hidden_dims, hidden_dims),
             nn.LayerNorm(hidden_dims),
             nn.Hardswish(),
-            nn.Linear(hidden_dims, 2)
+            nn.Linear(hidden_dims, 2),
         )
 
         self.apply(self.init_weights)
@@ -62,8 +75,8 @@ class EMA:
             if param.requires_grad:
                 assert name in self.shadow
                 new_average = (
-                                      1.0 - self.decay
-                              ) * param.data + self.decay * self.shadow[name]
+                    1.0 - self.decay
+                ) * param.data + self.decay * self.shadow[name]
                 self.shadow[name] = new_average.clone()
 
     def apply_shadow(self):
