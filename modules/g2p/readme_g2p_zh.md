@@ -131,7 +131,7 @@ class MyG2P(BaseG2P):
 
 `_g2p`方法的返回值为一个元组，包含三个元素：
 
-- `ph_seq`：音素列表，SP是静音音素。
+- `ph_seq`：音素列表，SP是静音音素。第一个音素和最后一个音素应当为SP，并且任何位置都不能有连续两个以上的SP。
 - `word_seq`：单词列表。
 - `ph_idx_to_word_idx`：`ph_idx_to_word_idx[i] = j` 意味着第i个音素属于第j个单词。如果`ph_idx_to_word_idx[i] = -1`
   ，则第i个音素是一个静音音素。
