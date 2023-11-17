@@ -7,7 +7,6 @@ class PhonemeG2P(BaseG2P):
 
     def _g2p(self, input_text):
         word_seq = input_text.strip().split(" ")
-        print(word_seq)
         word_seq = [ph for ph in word_seq if ph != "SP"]
         ph_seq = ["SP"]
         ph_idx_to_word_idx = [-1]
