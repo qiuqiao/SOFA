@@ -307,20 +307,19 @@ class LitForcedAlignmentModel(pl.LightningModule):
         word_intervals_pred = []
 
         word_idx_last = -1
-        for ph_idx in ph_idx_seq:
+        for i, ph_idx in enumerate(ph_idx_seq):
+            # ph_idx只能用于两种情况：ph_seq和ph_idx_to_word_idx
             if ph_seq[ph_idx] == "SP":
                 continue
             ph_seq_pred.append(ph_seq[ph_idx])
-            ph_intervals_pred.append(ph_intervals[ph_idx, :])
+            ph_intervals_pred.append(ph_intervals[i, :])
 
             word_idx = ph_idx_to_word_idx[ph_idx]
             if word_idx == word_idx_last:
-                word_intervals_pred[-1][1] = ph_intervals[ph_idx, 1]
+                word_intervals_pred[-1][1] = ph_intervals[i, 1]
             else:
                 word_seq_pred.append(word_seq[word_idx])
-                word_intervals_pred.append(
-                    [ph_intervals[ph_idx, 0], ph_intervals[ph_idx, 1]]
-                )
+                word_intervals_pred.append([ph_intervals[i, 0], ph_intervals[i, 1]])
                 word_idx_last = word_idx
         ph_seq_pred = np.array(ph_seq_pred)
         ph_intervals_pred = np.array(ph_intervals_pred)
