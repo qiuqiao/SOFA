@@ -9,35 +9,73 @@ class ForcedAlignmentModel(nn.Module):
     def __init__(
         self,
         input_dims,
-        output_dims_ph_frame,
+        output_dims,
         hidden_dims=64,
         init_type="xavier_uniform",
-        **kwargs
+        pretrained_model=None,
+        **kwargs,
     ):
         super(ForcedAlignmentModel, self).__init__()
 
+        self.input_dims = input_dims
+        self.output_dims = output_dims
+        if pretrained_model is not None:
+            self.hidden_dims = pretrained_model.hidden_dims
+            if self.hidden_dims != hidden_dims:
+                print(
+                    f"hidden_dims not match: {self.hidden_dims} (pretrained) vs {hidden_dims} (input), use {self.hidden_dims}"
+                )
+        else:
+            self.hidden_dims = hidden_dims
         self.init_type = init_type
+
+        self.input_proj = nn.Linear(self.input_dims, self.hidden_dims)
         self.backbone = UNetBackbone(
-            input_dims,
-            hidden_dims,
-            hidden_dims,
+            self.hidden_dims,
+            self.hidden_dims,
+            self.hidden_dims,
             block=ForwardBackwardConformerBlock,
-            **kwargs
+            **kwargs,
         )
         self.ph_frame_head = nn.Sequential(
-            nn.Linear(hidden_dims, hidden_dims),
-            nn.LayerNorm(hidden_dims),
+            nn.Linear(self.hidden_dims, self.hidden_dims),
+            nn.LayerNorm(self.hidden_dims),
             nn.Hardswish(),
-            nn.Linear(hidden_dims, output_dims_ph_frame),
+            nn.Linear(self.hidden_dims, self.output_dims),
         )
         self.ph_edge_head = nn.Sequential(
-            nn.Linear(hidden_dims, hidden_dims),
-            nn.LayerNorm(hidden_dims),
+            nn.Linear(self.hidden_dims, self.hidden_dims),
+            nn.LayerNorm(self.hidden_dims),
             nn.Hardswish(),
-            nn.Linear(hidden_dims, 2),
+            nn.Linear(self.hidden_dims, 2),
         )
 
         self.apply(self.init_weights)
+
+        if pretrained_model is not None:
+            try:
+                self.backbone.load_state_dict(pretrained_model.backbone.state_dict())
+            except Exception as e:
+                raise e("block type not match")
+
+            try:
+                self.input_proj.load_state_dict(
+                    pretrained_model.input_proj.state_dict()
+                )
+            except Exception:
+                print("input_dims not match, input_proj not loaded")
+
+            try:
+                self.ph_frame_head.load_state_dict(
+                    pretrained_model.ph_frame_head.state_dict()
+                )
+                self.ph_edge_head.load_state_dict(
+                    pretrained_model.ph_edge_head.state_dict()
+                )
+            except Exception:
+                print(
+                    "output_dims not match, ph_frame_head and ph_edge_head not loaded"
+                )
 
     def init_weights(self, m):
         init_type = self.init_type
@@ -46,6 +84,10 @@ class ForcedAlignmentModel(nn.Module):
                 nn.init.xavier_normal_(m.weight.data)
             elif init_type == "xavier_uniform":
                 nn.init.xavier_uniform_(m.weight.data)
+            elif init_type == "kaiming_normal":
+                nn.init.kaiming_normal_(m.weight.data)
+            elif init_type == "kaiming_uniform":
+                nn.init.kaiming_uniform_(m.weight.data)
             nn.init.constant_(m.bias.data, 0)
 
     def forward(self, x):
