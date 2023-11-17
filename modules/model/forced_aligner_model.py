@@ -114,7 +114,8 @@ class ForcedAlignmentModel(nn.Module):
             nn.init.constant_(m.bias.data, 0)
 
     def forward(self, x):
-        h = self.backbone(x)
+        h = self.input_proj(x)
+        h = self.backbone(h)
         ph_frame = self.ph_frame_head(h)
         ph_edge = self.ph_edge_head(h)
         ctc = torch.cat((ph_edge[:, :, [0]], ph_frame[:, :, 1:]), dim=-1)
@@ -160,6 +161,7 @@ class EMA:
 
 
 if __name__ == "__main__":
-    model1 = ForcedAlignmentModel(5, 10, 64)
+    model1 = ForcedAlignmentModel(64, 10, 64)
     model2 = ForcedAlignmentModel(6, 11, 128)
     model1.load_pretrained(model2)
+    print(model1(torch.randn(4, 320, 64)))
