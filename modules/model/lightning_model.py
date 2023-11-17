@@ -118,7 +118,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # validation_step_outputs
         self.validation_step_outputs = {"losses": []}
 
-        self.inference_mode = None
+        self.inference_mode = "force"
 
     def on_validation_start(self):
         self.on_train_start()
@@ -210,6 +210,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # 如果mode==match，可以从任意音素结束
         elif self.inference_mode == "match":
             s = np.argmax(dp[-1, :])
+        else:
+            raise ValueError("inference_mode must be 'force' or 'match'")
 
         for t in np.arange(T - 1, -1, -1):
             assert backtrack_s[t, s] >= 0 or t == 0
