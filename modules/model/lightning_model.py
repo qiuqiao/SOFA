@@ -82,8 +82,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self.data_augmentation_enabled = data_augmentation_enabled
 
         # model
+        self.input_proj = nn.Linear(input_feature_dims, self.hidden_dims)
         self.model = ForcedAlignmentModel(
-            input_feature_dims,
+            self.hidden_dims,
             self.vocab["<vocab_size>"],
             hidden_dims=self.hidden_dims,
             max_seq_len=max_frame_num,
