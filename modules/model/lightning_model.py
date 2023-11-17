@@ -118,6 +118,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # validation_step_outputs
         self.validation_step_outputs = {"losses": []}
 
+        self.inference_mode = None
+
     def on_validation_start(self):
         self.on_train_start()
 
@@ -154,8 +156,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 nn.init.kaiming_uniform_(m.weight)
                 m.bias.data.fill_(0.0)
 
-    @staticmethod
-    def _decode(ph_seq_id, ph_prob_log, edge_prob):
+    def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
         # ph_seq_id: (T)
         # ph_prob_log: (T, vocab_size)
         # edge_prob: (T,2)
@@ -171,9 +172,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # init
         dp = np.zeros([T, S]).astype("float64") - np.inf  # (T, S)
         backtrack_s = np.zeros_like(dp).astype("int32") - 1
-        # 只能从SP开始或者从第一个音素开始
-        dp[0, 0] = ph_prob_log[0, 0]
-        dp[0, 1] = ph_prob_log[0, ph_seq_id[1]]
+        # 如果mode==forced，只能从SP开始或者从第一个音素开始
+        if self.inference_mode == "force":
+            dp[0, 0] = ph_prob_log[0, ph_seq_id[0]]
+            if ph_seq_id[0] == 0:
+                dp[0, 1] = ph_prob_log[0, ph_seq_id[1]]
+        # 如果mode==match，可以从任意音素开始
+        elif self.inference_mode == "match":
+            for i, ph_id in enumerate(ph_seq_id):
+                dp[0, i] = ph_prob_log[0, ph_id]
+
         # forward
         for t in range(1, T):
             # [t-1,s] -> [t,s]
@@ -193,11 +201,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_idx_seq = []
         ph_time_int = []
         frame_confidence = []
-        # 只能从最后一个音素或者SP结束
-        if dp[-1, -2] > dp[-1, -1]:
-            s = S - 2
-        else:
-            s = S - 1
+        # 如果mode==forced，只能从最后一个音素或者SP结束
+        if self.inference_mode == "force":
+            if dp[-1, -2] > dp[-1, -1] and ph_seq_id[-1] == 0:
+                s = S - 2
+            else:
+                s = S - 1
+        # 如果mode==match，可以从任意音素结束
+        elif self.inference_mode == "match":
+            s = np.argmax(dp[-1, :])
+
         for t in np.arange(T - 1, -1, -1):
             assert backtrack_s[t, s] >= 0 or t == 0
             frame_confidence.append(dp[t, s])
@@ -349,6 +362,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ctc,
             fig,
         )
+
+    def set_inference_mode(self, mode):
+        self.inference_mode = mode
 
     def predict_step(self, batch, batch_idx):
         wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
