@@ -441,8 +441,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         if not valid and self.data_augmentation_enabled:
             B = ph_frame_pred.shape[0]
             ph_frame_prob_pred = torch.softmax(ph_frame_pred, dim=-1)
-            ph_edge_prob_pred = torch.softmax(ph_edge_pred, dim=-1)
-            ctc_prob_pred = torch.softmax(ctc_pred, dim=-1)
+            # ph_edge_prob_pred = torch.softmax(ph_edge_pred, dim=-1)
+            # ctc_prob_pred = torch.softmax(ctc_pred, dim=-1)
 
             # calculate mask matrix
             mask = torch.arange(T).to(self.device)
@@ -455,16 +455,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
             # consistency loss
             consistency_loss = (
                 self.MSE_loss_fn(
-                    ph_frame_prob_pred[: B // 2, :, :] * mask_,
-                    ph_frame_prob_pred[B // 2 :, :, :] * mask_,
+                    ph_frame_pred[: B // 2, :, :] * mask_,
+                    ph_frame_pred[B // 2 :, :, :] * mask_,
                 )
                 + self.MSE_loss_fn(
-                    ph_edge_prob_pred[: B // 2, :, :] * mask_,
-                    ph_edge_prob_pred[B // 2 :, :, :] * mask_,
+                    ph_edge_pred[: B // 2, :, :] * mask_,
+                    ph_edge_pred[B // 2 :, :, :] * mask_,
                 )
                 + self.MSE_loss_fn(
-                    ctc_prob_pred[: B // 2, :, :] * mask_,
-                    ctc_prob_pred[B // 2 :, :, :] * mask_,
+                    ctc_pred[: B // 2, :, :] * mask_,
+                    ctc_pred[B // 2 :, :, :] * mask_,
                 )
             ) / 3
 
