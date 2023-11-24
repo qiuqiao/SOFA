@@ -6,6 +6,7 @@ def update_ema(ema, alpha, num_bins, hist):
     hist = hist / (torch.sum(hist) + 1e-10) * num_bins
     ema = ema * alpha + (1 - alpha) * hist
     ema = ema / (torch.sum(ema) + 1e-10) * num_bins
+    ema = ema + 1e-3
     return ema
 
 
