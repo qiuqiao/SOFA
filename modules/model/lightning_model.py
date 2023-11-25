@@ -248,9 +248,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # decode
         edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)  # (T)
         edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
-        ph_prob_log = (
-            torch.log_softmax(ph_frame_pred, dim=-1).cpu().numpy().astype("float64")
-        )
+        ph_prob_log = ph_frame_pred.cpu().numpy().astype("float64")
         (
             ph_idx_seq,
             ph_time_int_pred,
