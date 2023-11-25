@@ -236,26 +236,19 @@ class LitForcedAlignmentModel(pl.LightningModule):
         with torch.no_grad():
             (
                 ph_frame_pred,  # (B, T, vocab_size)
-                ph_edge_pred,  # (B, T, 2)
+                ph_edge_pred,  # (B, T)
                 ctc_pred,  # (B, T, vocab_size)
             ) = self.forward(melspec.transpose(1, 2))
 
         ph_frame_pred = ph_frame_pred.squeeze(0)  # (T, vocab_size)
-        ph_edge_pred = ph_edge_pred.squeeze(0)  # (T, 2)
+        ph_edge_pred = ph_edge_pred.squeeze(0)  # (T)
         ctc_pred = ctc_pred.squeeze(0)  # (T, vocab_size)
 
         T, vocab_size = ph_frame_pred.shape
 
         # decode
-        edge = torch.softmax(ph_edge_pred, dim=-1).cpu().numpy().astype("float64")
-        edge_diff = np.pad(np.diff(edge[:, 0]), (1, 0), "constant", constant_values=0)
-        edge_prob = np.pad(
-            edge[1:, 0] + edge[:-1, 0],
-            (1, 0),
-            "constant",
-            constant_values=edge[0, 0] * 2,
-        ).clip(0, 1)
-
+        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)  # (T)
+        edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
         ph_prob_log = (
             torch.log_softmax(ph_frame_pred, dim=-1).cpu().numpy().astype("float64")
         )
@@ -366,10 +359,10 @@ class LitForcedAlignmentModel(pl.LightningModule):
     def _get_loss(
         self,
         ph_frame_pred,  # (B, T, vocab_size)
-        ph_edge_pred,  # (B, T, 2)
+        ph_edge_pred,  # (B, T)
         ctc_pred,  # (B, T, vocab_size)
         ph_frame,  # (B, T)
-        ph_edge,  # (B, 2, T)
+        ph_edge,  # (B, T)
         ph_seq,  # (sum of ph_seq_lengths)
         ph_seq_lengths,  # (B)
         input_feature_lengths,  # (B)
@@ -385,8 +378,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
             # drop according to label_type
             ph_frame_full = ph_frame_pred[full_label_idx, :, :]
             ph_frame = ph_frame[full_label_idx, :]
-            ph_edge_full = ph_edge_pred[full_label_idx, :, :]
-            ph_edge = ph_edge[full_label_idx, :, :]
+            ph_edge_full = ph_edge_pred[full_label_idx, :]
+            ph_edge = ph_edge[full_label_idx, :]
 
             # calculate mask matrix
             mask = torch.arange(T).to(self.device)
@@ -405,14 +398,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_edge_full = rearrange(ph_edge_full, "B T C -> B C T")
             edge_prob = nn.functional.softmax(ph_edge_full, dim=1)[:, 0, :]
 
+            # TODO
             ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
                 ph_edge_full, ph_edge, mask, valid
             )
 
-            ph_edge_EMD_loss = self.EMD_loss_fn(edge_prob, ph_edge[:, 0, :])
-
+            # TODO
+            ph_edge_EMD_loss = self.EMD_loss_fn(edge_prob, ph_edge[:, :])
             edge_prob_diff = torch.diff(edge_prob, 1, dim=-1)
-            edge_gt_diff = torch.diff(ph_edge[:, 0, :], 1, dim=-1)
+            # TODO
+            edge_gt_diff = torch.diff(ph_edge[:, :], 1, dim=-1)
             edge_diff_mask = (edge_gt_diff != 0).to(ph_frame_full.dtype)
             ph_edge_diff_loss = self.MSE_loss_fn(
                 edge_prob_diff * edge_diff_mask, edge_gt_diff * edge_diff_mask
@@ -525,14 +520,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
             input_feature_lengths,  # (B)
             ph_seq,  # (sum of ph_seq_lengths)
             ph_seq_lengths,  # (B)
-            ph_edge,  # (B, 2, T)
+            ph_edge,  # (B, T)
             ph_frame,  # (B, T)
             label_type,  # (B)
         ) = batch
 
         (
             ph_frame_pred,  # (B, T, vocab_size)
-            ph_edge_pred,  # (B, T, 2)
+            ph_edge_pred,  # (B, T)
             ctc_pred,  # (B, T, vocab_size)
         ) = self.forward(input_feature.transpose(1, 2))
 
@@ -574,7 +569,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             input_feature_lengths,  # (B)
             ph_seq,  # (sum of ph_seq_lengths)
             ph_seq_lengths,  # (B)
-            ph_edge,  # (B, 2, T)
+            ph_edge,  # (B, T)
             ph_frame,  # (B, T)
             label_type,  # (B)
         ) = batch
@@ -602,7 +597,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         (
             ph_frame_pred,  # (B, T, vocab_size)
-            ph_edge_pred,  # (B, T, 2)
+            ph_edge_pred,  # (B, T)
             ctc_pred,  # (B, T, vocab_size)
         ) = self.forward(input_feature.transpose(1, 2))
 
