@@ -148,12 +148,13 @@ class CTCGHMLoss(torch.nn.Module):
 
 
 class BCEGHMLoss(torch.nn.Module):
-    def __init__(self, num_bins=10, alpha=1 - 1e-6):
+    def __init__(self, num_bins=10, alpha=1 - 1e-6, label_smoothing=0.0):
         super().__init__()
         self.loss_fn = nn.BCELoss(reduction="none")
         self.num_bins = num_bins
         self.register_buffer("GD_stat_ema", torch.ones(num_bins))
         self.alpha = alpha
+        self.label_smoothing = label_smoothing
 
     def forward(self, pred_porb, target_porb, mask=None, valid=False):
         if len(pred_porb) <= 0:
@@ -163,6 +164,8 @@ class BCEGHMLoss(torch.nn.Module):
         assert pred_porb.shape == target_porb.shape and pred_porb.shape == mask.shape
         assert pred_porb.max() <= 1 and pred_porb.min() >= 0
         assert target_porb.max() <= 1 and target_porb.min() >= 0
+
+        target_porb = target_porb.clamp(self.label_smoothing, 1 - self.label_smoothing)
 
         raw_loss = self.loss_fn(pred_porb, target_porb)
 
