@@ -10,7 +10,7 @@ from einops import rearrange, repeat
 
 import modules.scheduler as scheduler_module
 from modules.loss.BinaryEMDLoss import BinaryEMDLoss
-from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss
+from modules.loss.GHMLoss import BCEGHMLoss, CTCGHMLoss, MultiLabelGHMLoss
 from modules.model.forced_aligner_model import ForcedAlignmentModel
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
@@ -91,24 +91,23 @@ class LitForcedAlignmentModel(pl.LightningModule):
         )
 
         # loss function
-        self.ph_frame_GHM_loss_fn = GHMLoss(
+        self.ph_frame_GHM_loss_fn = MultiLabelGHMLoss(
             self.vocab["<vocab_size>"],
             10,
-            0.999,
+            1 - 1e-3,
             label_smoothing=self.label_smoothing,
         )
-        self.pseudo_label_GHM_loss_fn = GHMLoss(
+        self.pseudo_label_GHM_loss_fn = MultiLabelGHMLoss(
             self.vocab["<vocab_size>"],
             10,
-            0.999,
+            1 - 1e-3,
             label_smoothing=self.label_smoothing,
         )
-        self.ph_edge_GHM_loss_fn = GHMLoss(
-            2, 10, 0.999999, label_smoothing=self.label_smoothing
-        )
+        self.ph_edge_GHM_loss_fn = BCEGHMLoss(10, 1 - 1e-6, label_smoothing=0.0)
         self.EMD_loss_fn = BinaryEMDLoss()
+        self.ph_edge_diff_GHM_loss_fn = BCEGHMLoss(10, 1 - 1e-6, label_smoothing=0.0)
         self.MSE_loss_fn = nn.MSELoss()
-        self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=0.999)
+        self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=1 - 1e-3)
 
         # get_melspec
         self.get_melspec = None
@@ -356,144 +355,181 @@ class LitForcedAlignmentModel(pl.LightningModule):
         )
         return wav_path, ph_seq, ph_intervals, word_seq, word_intervals
 
+    def _get_full_label_loss(
+        self,
+        ph_frame_pred,
+        ph_edge_pred,
+        ph_frame_gt,
+        ph_edge_gt,
+        input_feature_lengths,
+        valid,
+    ):
+        T = ph_frame_pred.shape[1]
+
+        # calculate mask matrix
+        # (B, T)
+        mask = torch.arange(T).to(self.device)
+        mask = repeat(mask, "T -> B T", B=ph_frame_pred.shape[0])
+        mask = (mask < input_feature_lengths.unsqueeze(1)).to(ph_frame_pred.dtype)
+
+        # ph_frame_loss
+        ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
+            ph_frame_pred, ph_frame_gt, mask, valid
+        )
+
+        # ph_edge loss
+        # BCE_GHM loss
+        ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
+            ph_edge_pred, ph_edge_gt, mask, valid
+        )
+
+        # EMD loss
+        ph_edge_EMD_loss = self.EMD_loss_fn(ph_edge_pred * mask, ph_edge_gt * mask)
+
+        # diff loss
+        ph_edge_diff_loss = self.ph_edge_diff_GHM_loss_fn(
+            torch.diff(ph_edge_pred, 1, dim=-1),
+            torch.diff(ph_edge_gt, 1, dim=-1),
+            mask,
+            valid,
+        )
+        return ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss
+
+    def _get_weak_label_loss(
+        self, ctc_pred, ph_seq_gt, ph_seq_lengths_gt, input_feature_lengths, valid
+    ):
+        # ctc loss
+        log_probs_pred = torch.nn.functional.log_softmax(ctc_pred, dim=-1)
+        log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
+        ctc_GHM_loss = self.CTC_GHM_loss_fn(
+            log_probs_pred,
+            ph_seq_gt,
+            input_feature_lengths,
+            ph_seq_lengths_gt,
+            valid,
+        )
+
+        return ctc_GHM_loss
+
+    def _get_consistency_loss(
+        self, ph_frame_pred, ph_edge_pred, ctc_pred, input_feature_lengths
+    ):
+        output_tensors = torch.cat(
+            [ph_frame_pred, ph_edge_pred.unsqueeze(-1), ctc_pred[:, :, [0]]], dim=-1
+        )
+        B = output_tensors.shape[0]
+        T = output_tensors.shape[1]
+
+        # calculate mask matrix
+        # (B//2, T)
+        mask = torch.arange(T).to(self.device)
+        mask = repeat(mask, "T -> B T", B=B // 2)
+        mask = (mask < input_feature_lengths[: B // 2].unsqueeze(1)).to(torch.bool)
+
+        # consistency loss
+        consistency_loss = self.MSE_loss_fn(
+            output_tensors[: B // 2, :, :] * mask,
+            output_tensors[B // 2 :, :, :] * mask,
+        )
+
+        return consistency_loss
+
+    def _get_pseudo_label_loss(self, ph_frame_pred, input_feature_lengths, valid):
+        B = ph_frame_pred.shape[0]
+        T = ph_frame_pred.shape[1]
+
+        pred1 = ph_frame_pred[: B // 2, :]
+        pred2 = ph_frame_pred[B // 2 :, :]
+        pseudo_label1 = (pred1 >= 0.5).float()
+        pseudo_label2 = (pred2 >= 0.5).float()
+        gradient_magnitude1 = torch.abs(pred1 - pseudo_label1)
+        gradient_magnitude2 = torch.abs(pred2 - pseudo_label2)
+        gradient_magnitude = (gradient_magnitude1 + gradient_magnitude2) / 2
+
+        # calculate mask matrix
+        # (B//2, T)
+        mask = torch.arange(T).to(self.device)
+        mask = repeat(mask, "T -> B T", B=B // 2)
+        mask = (mask < input_feature_lengths[: B // 2].unsqueeze(1)).to(torch.bool)
+        pseudo_label_mask = (  # (B//2, T)
+            mask
+            & (pseudo_label1 == pseudo_label2)
+            & (gradient_magnitude < self.pseudo_label_auto_theshold)
+        )
+
+        if pseudo_label_mask.sum() / mask.sum() < self.pseudo_label_ratio:
+            self.pseudo_label_auto_theshold += 0.005
+        else:
+            self.pseudo_label_auto_theshold -= 0.005
+
+        if pseudo_label_mask.any():
+            pseudo_label_loss = self.pseudo_label_GHM_loss_fn(
+                ph_frame_pred,
+                torch.cat([pseudo_label1, pseudo_label2], dim=0),
+                torch.cat([pseudo_label_mask, pseudo_label_mask], dim=0),
+                valid,
+            )
+        else:
+            pseudo_label_loss = torch.tensor(0).to(self.device)
+
+        return pseudo_label_loss
+
     def _get_loss(
         self,
         ph_frame_pred,  # (B, T, vocab_size)
         ph_edge_pred,  # (B, T)
         ctc_pred,  # (B, T, vocab_size)
-        ph_frame,  # (B, T)
-        ph_edge,  # (B, T)
-        ph_seq,  # (sum of ph_seq_lengths)
-        ph_seq_lengths,  # (B)
+        ph_frame_gt,  # (B, T)
+        ph_edge_gt,  # (B, T)
+        ph_seq_gt,  # (sum of ph_seq_lengths)
+        ph_seq_lengths_gt,  # (B)
         input_feature_lengths,  # (B)
         label_type,  # (B)
         valid=False,
     ):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
-        T = ph_frame_pred.shape[1]
+        not_full_label_idx = label_type < 2
         ZERO = torch.tensor(0).to(self.device)
 
         if (full_label_idx).any():
-            # drop according to label_type
-            ph_frame_full = ph_frame_pred[full_label_idx, :, :]
-            ph_frame = ph_frame[full_label_idx, :]
-            ph_edge_full = ph_edge_pred[full_label_idx, :]
-            ph_edge = ph_edge[full_label_idx, :]
-
-            # calculate mask matrix
-            mask = torch.arange(T).to(self.device)
-            mask = repeat(mask, "T -> B T", B=ph_frame_full.shape[0])
-            mask = (mask >= input_feature_lengths[full_label_idx].unsqueeze(1)).to(
-                ph_frame_full.dtype
-            )  # (B, T)
-
-            # ph_frame_loss
-            ph_frame_full = rearrange(ph_frame_full, "B T C -> B C T")
-            ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
-                ph_frame_full, ph_frame, mask, valid
+            (
+                ph_frame_GHM_loss,
+                ph_edge_GHM_loss,
+                ph_edge_EMD_loss,
+                ph_edge_diff_loss,
+            ) = self._get_full_label_loss(
+                ph_frame_pred[full_label_idx, :, :],
+                ph_edge_pred[full_label_idx, :],
+                ph_frame_gt[full_label_idx, :],
+                ph_edge_gt[full_label_idx, :],
+                input_feature_lengths[full_label_idx],
+                valid,
             )
-
-            # ph_edge loss
-            ph_edge_full = rearrange(ph_edge_full, "B T C -> B C T")
-            edge_prob = nn.functional.softmax(ph_edge_full, dim=1)[:, 0, :]
-
-            # TODO
-            ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
-                ph_edge_full, ph_edge, mask, valid
-            )
-
-            # TODO
-            ph_edge_EMD_loss = self.EMD_loss_fn(edge_prob, ph_edge[:, :])
-            edge_prob_diff = torch.diff(edge_prob, 1, dim=-1)
-            # TODO
-            edge_gt_diff = torch.diff(ph_edge[:, :], 1, dim=-1)
-            edge_diff_mask = (edge_gt_diff != 0).to(ph_frame_full.dtype)
-            ph_edge_diff_loss = self.MSE_loss_fn(
-                edge_prob_diff * edge_diff_mask, edge_gt_diff * edge_diff_mask
-            )
-
         else:
             ph_frame_GHM_loss = ph_edge_GHM_loss = ZERO
             ph_edge_EMD_loss = ph_edge_diff_loss = ZERO
 
         if (weak_label_idx).any():
-            # drop
-            ctc_pred = ctc_pred[weak_label_idx, :, :]
-            # ctc loss
-            log_probs_pred = torch.nn.functional.log_softmax(ctc_pred, dim=-1)
-            log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
-            ctc_GHM_loss = self.CTC_GHM_loss_fn(
-                log_probs_pred,
-                ph_seq,
-                input_feature_lengths[weak_label_idx],
-                ph_seq_lengths,
+            ctc_GHM_loss = self._get_weak_label_loss(
+                ctc_pred[weak_label_idx, :, :],
+                ph_seq_gt[weak_label_idx, :, :],
+                ph_seq_lengths_gt[weak_label_idx, :, :],
+                input_feature_lengths[weak_label_idx, :, :],
                 valid,
             )
         else:
             ctc_GHM_loss = ZERO
 
         if not valid and self.data_augmentation_enabled:
-            B = ph_frame_pred.shape[0]
-            ph_frame_prob_pred = torch.softmax(ph_frame_pred, dim=-1)
-            # ph_edge_prob_pred = torch.softmax(ph_edge_pred, dim=-1)
-            # ctc_prob_pred = torch.softmax(ctc_pred, dim=-1)
-
-            # calculate mask matrix
-            mask = torch.arange(T).to(self.device)
-            mask = repeat(mask, "T -> B T", B=B // 2)
-            mask = (mask >= input_feature_lengths[: B // 2].unsqueeze(1)).to(
-                torch.bool
-            )  # (B//2, T)
-            mask_ = mask.unsqueeze(-1).logical_not().float()  # (B//2, T, 1)
-
-            # consistency loss
-            consistency_loss = (
-                self.MSE_loss_fn(
-                    ph_frame_pred[: B // 2, :, :] * mask_,
-                    ph_frame_pred[B // 2 :, :, :] * mask_,
-                )
-                + self.MSE_loss_fn(
-                    ph_edge_pred[: B // 2, :, :] * mask_,
-                    ph_edge_pred[B // 2 :, :, :] * mask_,
-                )
-                + self.MSE_loss_fn(
-                    ctc_pred[: B // 2, :, :] * mask_,
-                    ctc_pred[B // 2 :, :, :] * mask_,
-                )
-            ) / 3
-
-            # pseudo label loss
-            ph_frame_prob_pred = rearrange(ph_frame_prob_pred, "B T C -> B C T")
-            pred1_prob, pred1_argmax = torch.max(
-                ph_frame_prob_pred[: B // 2, :, :], dim=1
+            consistency_loss = self._get_consistency_loss(
+                ph_frame_pred, ph_edge_pred, ctc_pred, input_feature_lengths
             )
-            pred2_prob, pred2_argmax = torch.max(
-                ph_frame_prob_pred[B // 2 :, :, :], dim=1
+            pseudo_label_loss = self._get_pseudo_label_loss(
+                ph_frame_pred[not_full_label_idx, :, :],
+                input_feature_lengths[not_full_label_idx, :, :],
+                valid,
             )
-            pseudo_label = pred1_argmax  # (B//2, T)
-            pseudo_label_mask = (  # (B//2, T)
-                mask
-                | (pred1_argmax == pred2_argmax)
-                | (((pred1_prob + pred2_prob) / 2) < self.pseudo_label_auto_theshold)
-            )
-            if (
-                pseudo_label_mask.sum() / pseudo_label_mask.numel()
-                < self.pseudo_label_ratio
-            ):
-                self.pseudo_label_auto_theshold += 0.005
-            else:
-                self.pseudo_label_auto_theshold -= 0.005
-
-            if pseudo_label_mask.logical_not().any():
-                pseudo_label_loss = self.pseudo_label_GHM_loss_fn(
-                    ph_frame_prob_pred,
-                    torch.cat([pseudo_label, pseudo_label], dim=0),
-                    torch.cat([pseudo_label_mask, pseudo_label_mask], dim=0),
-                    valid,
-                )
-            else:
-                pseudo_label_loss = ZERO
         else:
             consistency_loss = ZERO
             pseudo_label_loss = ZERO
