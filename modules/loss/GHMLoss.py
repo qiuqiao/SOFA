@@ -6,7 +6,6 @@ def update_ema(ema, alpha, num_bins, hist):
     hist = hist / (torch.sum(hist) + 1e-10) * num_bins
     ema = ema * alpha + (1 - alpha) * hist
     ema = ema / (torch.sum(ema) + 1e-10) * num_bins
-    ema = ema + 1e-3
     return ema
 
 
@@ -59,7 +58,7 @@ class GHMLoss(torch.nn.Module):
         pred_probs = torch.softmax(pred, dim=1).detach()  # [B, C, T]
 
         # calculate weighted loss
-        # 这里与原版实现不同，这里用了L1 loss，而不是原版的“真实标签的概率”。这是为了兼容概率张量输入。
+        # 这里与原版实现不同，这里用了L1 loss，而不是原版的梯度模长。这是为了兼容概率张量输入。
         # 这里的L1_loss值域是[0,2]，除以2以保证范围在[0,1]
         L1_loss = (pred_probs - target_probs).abs().sum(dim=1).clamp(
             1e-6, 2 - 1e-6
@@ -148,3 +147,149 @@ class CTCGHMLoss(torch.nn.Module):
             self.ema = update_ema(self.ema, self.alpha, self.num_bins, hist)
 
         return loss_final
+
+
+class BCEGHMLoss(torch.nn.Module):
+    def __init__(self, num_bins=10, alpha=1 - 1e-6):
+        super().__init__()
+        self.loss_fn = nn.BCELoss(reduction="none")
+        self.num_bins = num_bins
+        self.register_buffer("GD_stat_ema", torch.ones(num_bins))
+        self.alpha = alpha
+
+    def forward(self, pred_porb, target_porb, mask=None, valid=False):
+        if len(pred_porb) <= 0:
+            return torch.tensor(0.0).to(pred_porb.device)
+        if mask is None:
+            mask = torch.zeros_like(pred_porb).to(pred_porb.device)
+        assert pred_porb.shape == target_porb.shape and pred_porb.shape == mask.shape
+        assert pred_porb.max() <= 1 and pred_porb.min() >= 0
+        assert target_porb.max() <= 1 and target_porb.min() >= 0
+
+        raw_loss = self.loss_fn(pred_porb, target_porb)
+
+        gradient_magnitudes = (pred_porb - target_porb).abs()
+        gradient_magnitudes_index = (
+            torch.floor(gradient_magnitudes * self.num_bins).long().clamp(0, 9)
+        )
+        weights = 1 / self.GD_stat_ema[gradient_magnitudes_index] + 1e-3
+        loss_weighted = raw_loss * weights
+        mask_weights = mask.logical_not().float()
+        loss_weighted = loss_weighted * mask_weights
+        loss_final = torch.sum(loss_weighted) / torch.sum(mask_weights)
+
+        if not valid:
+            # update ema
+            # "Elements lower than min and higher than max and NaN elements are ignored."
+            gradient_magnitudes_index = gradient_magnitudes_index.flatten()
+            mask_weights = mask_weights.flatten()
+            gradient_magnitudes_index_hist = torch.bincount(
+                input=gradient_magnitudes_index,
+                weights=mask_weights,
+                minlength=self.num_bins,
+            )
+            self.GD_stat_ema = update_ema(
+                self.GD_stat_ema,
+                self.alpha,
+                self.num_bins,
+                gradient_magnitudes_index_hist,
+            )
+
+        return loss_final
+
+
+class MultiLabelGHMLoss(torch.nn.Module):
+    def __init__(self, num_classes, num_bins=10, alpha=(1 - 1e-6), label_smoothing=0.0):
+        super().__init__()
+        self.loss_fn = nn.BCELoss(reduction="none")
+        self.num_bins = num_bins
+        # 难易样本不均衡
+        self.register_buffer("GD_stat_ema", torch.ones(num_bins))
+        self.num_classes = num_classes
+        # 类别不均衡与正负样本不均衡，分为正、负、中性三类
+        self.register_buffer("label_stat_ema_each_class", torch.ones([num_classes * 3]))
+        self.alpha = alpha
+        self.label_smoothing = label_smoothing
+
+    def forward(self, pred_porb, target_porb, mask=None, valid=False):
+        """_summary_
+
+        Args:
+            pred_porb (torch.Tensor): predicted probability, shape: (** C)
+            target_porb (torch.Tensor): target probability, shape: same as pred_porb.
+            mask (torch.Tensor, optional): mask tensor, ignore loss when mask==0.
+                                           shape: same as pred_porb. Defaults to None.
+            valid (bool, optional): enable ema update. Defaults to False.
+
+        Returns:
+            loss_final (torch.Tensor): loss value, shape: ()
+        """
+        if len(pred_porb) <= 0:
+            return torch.tensor(0.0).to(pred_porb.device)
+        if mask is None:
+            mask = torch.ones_like(pred_porb).to(pred_porb.device)
+        assert pred_porb.shape == target_porb.shape and pred_porb.shape == mask.shape
+        assert pred_porb.shape[-1] == self.num_classes
+        assert pred_porb.max() <= 1 and pred_porb.min() >= 0
+        assert target_porb.max() <= 1 and target_porb.min() >= 0
+
+        pred_porb = pred_porb.reshape(-1, self.num_classes)
+        target_porb = target_porb.reshape(-1, self.num_classes)
+        mask = mask.reshape(-1, self.num_classes)
+        target_porb = target_porb.clamp(self.label_smoothing, 1 - self.label_smoothing)
+
+        raw_loss = self.loss_fn(pred_porb, target_porb)
+
+        gradient_magnitudes_index = (
+            torch.floor((pred_porb - target_porb).abs() * self.num_bins)
+            .long()
+            .clamp(0, self.num_bins - 1)
+        )
+        GD_weights = 1 / self.GD_stat_ema[gradient_magnitudes_index] + 1e-3
+        target_porb_index = torch.floor(target_porb * 3).long().clamp(
+            0, 2
+        ) + 3 * torch.arange(self.num_classes).unsqueeze(0)
+        classes_weights = 1 / self.label_stat_ema_each_class[target_porb_index] + 1e-3
+        weights = torch.sqrt(GD_weights * classes_weights)
+        loss_weighted = raw_loss * weights
+        loss_weighted = loss_weighted * mask
+        loss_final = torch.sum(loss_weighted) / torch.sum(mask)
+
+        if not valid:
+            # update ema
+            # "Elements lower than min and higher than max and NaN elements are ignored."
+            gradient_magnitudes_index = gradient_magnitudes_index.flatten()
+            mask = mask.flatten()
+            gradient_magnitudes_index_hist = torch.bincount(
+                input=gradient_magnitudes_index,
+                weights=mask,
+                minlength=self.num_bins,
+            )
+            self.GD_stat_ema = update_ema(
+                self.GD_stat_ema,
+                self.alpha,
+                self.num_bins,
+                gradient_magnitudes_index_hist,
+            )
+
+            target_porb_index = target_porb_index.flatten()
+            target_porb_index_hist = torch.bincount(
+                input=target_porb_index,
+                weights=mask,
+                minlength=self.num_classes * 3,
+            )
+            self.label_stat_ema_each_class = update_ema(
+                self.label_stat_ema_each_class,
+                self.alpha,
+                self.num_classes * 3,
+                target_porb_index_hist,
+            )
+
+        return loss_final
+
+
+if __name__ == "__main__":
+    loss_fn = MultiLabelGHMLoss(10, alpha=0.9)
+    input = torch.nn.functional.sigmoid(torch.randn(3, 3, 10) * 10)
+    target = (torch.nn.functional.sigmoid(torch.randn(3, 3, 10)) > 0.5).float()
+    print(loss_fn(input, target))
