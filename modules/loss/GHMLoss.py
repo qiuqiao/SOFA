@@ -76,10 +76,8 @@ class GHMLoss(torch.nn.Module):
 
         # apply mask
         if mask is not None:
-            loss_weighted = loss_weighted * mask.logical_not().float()
-            loss_final = torch.sum(loss_weighted) / torch.sum(
-                mask.logical_not().float()
-            )
+            loss_weighted = loss_weighted * mask.float()
+            loss_final = torch.sum(loss_weighted) / torch.sum(mask.float())
         else:
             loss_final = torch.mean(loss_weighted)
 
@@ -87,11 +85,11 @@ class GHMLoss(torch.nn.Module):
             # update ema
             # "Elements lower than min and higher than max and NaN elements are ignored."
             if mask is not None:
-                L1_loss = L1_loss - 10 * mask
+                L1_loss = L1_loss - 10 * mask.logical_not()
                 classes_hist = (
                     (
                         torch.sqrt(pred_probs * target_probs)
-                        * (mask.logical_not().float()).unsqueeze(1)
+                        * (mask.float()).unsqueeze(1)
                     )
                     .sum(dim=0)
                     .sum(dim=-1)
@@ -161,7 +159,7 @@ class BCEGHMLoss(torch.nn.Module):
         if len(pred_porb) <= 0:
             return torch.tensor(0.0).to(pred_porb.device)
         if mask is None:
-            mask = torch.zeros_like(pred_porb).to(pred_porb.device)
+            mask = torch.ones_like(pred_porb).to(pred_porb.device)
         assert pred_porb.shape == target_porb.shape and pred_porb.shape == mask.shape
         assert pred_porb.max() <= 1 and pred_porb.min() >= 0
         assert target_porb.max() <= 1 and target_porb.min() >= 0
@@ -174,7 +172,7 @@ class BCEGHMLoss(torch.nn.Module):
         )
         weights = 1 / self.GD_stat_ema[gradient_magnitudes_index] + 1e-3
         loss_weighted = raw_loss * weights
-        mask_weights = mask.logical_not().float()
+        mask_weights = mask.float()
         loss_weighted = loss_weighted * mask_weights
         loss_final = torch.sum(loss_weighted) / torch.sum(mask_weights)
 
