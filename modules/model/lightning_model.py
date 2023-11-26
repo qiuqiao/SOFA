@@ -380,7 +380,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # ph_edge loss
         # BCE_GHM loss
         ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
-            ph_edge_pred, ph_edge_gt, mask, valid
+            ph_edge_pred.unsqueeze(-1), ph_edge_gt.unsqueeze(-1), mask, valid
         )
 
         # EMD loss
