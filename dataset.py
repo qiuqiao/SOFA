@@ -236,7 +236,6 @@ def collate_fn(batch):
     # padding
     for i, item in enumerate(batch):
         item = list(item)
-        item[1] = torch.tensor(item[1])
         for param in [0, 2, 3]:
             item[param] = torch.nn.functional.pad(
                 torch.tensor(item[param]),
