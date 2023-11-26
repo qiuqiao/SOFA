@@ -399,7 +399,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self, ctc_pred, ph_seq_gt, ph_seq_lengths_gt, input_feature_lengths, valid
     ):
         # ctc loss
-        log_probs_pred = torch.nn.functional.log_softmax(ctc_pred, dim=-1)
+        log_probs_pred = torch.log(ctc_pred)
         log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
         ctc_GHM_loss = self.CTC_GHM_loss_fn(
             log_probs_pred,
@@ -489,7 +489,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ctc_pred,  # (B, T, vocab_size)
         ph_frame_gt,  # (B, T)
         ph_edge_gt,  # (B, T)
-        ph_seq_gt,  # (sum of ph_seq_lengths)
+        ph_seq_gt,  # (B S)
         ph_seq_lengths_gt,  # (B)
         input_feature_lengths,  # (B)
         label_type,  # (B)
@@ -524,13 +524,13 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # TODO:这种pack方式无法处理只有batch中的一部分需要计算Loss的情况，改掉
         if (weak_label_idx).any():
             ctc_GHM_loss = ZERO
-            # ctc_GHM_loss = self._get_weak_label_loss(
-            #     ctc_pred[weak_label_idx, :, :],
-            #     ph_seq_gt[weak_label_idx],
-            #     ph_seq_lengths_gt[weak_label_idx],
-            #     input_feature_lengths[weak_label_idx],
-            #     valid,
-            # )
+            ctc_GHM_loss = self._get_weak_label_loss(
+                ctc_pred[weak_label_idx, :, :],
+                ph_seq_gt[weak_label_idx, :],
+                ph_seq_lengths_gt[weak_label_idx],
+                input_feature_lengths[weak_label_idx],
+                valid,
+            )
         else:
             ctc_GHM_loss = ZERO
 
