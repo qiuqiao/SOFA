@@ -103,7 +103,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
             1 - 1e-3,
             label_smoothing=self.label_smoothing,
         )
-        self.ph_edge_GHM_loss_fn = BCEGHMLoss(10, 1 - 1e-6, label_smoothing=0.0)
+        self.ph_edge_GHM_loss_fn = MultiLabelGHMLoss(
+            1, 10, 1 - 1e-6, label_smoothing=0.0
+        )
         self.EMD_loss_fn = BinaryEMDLoss()
         self.ph_edge_diff_GHM_loss_fn = BCEGHMLoss(10, 1 - 1e-6, label_smoothing=0.0)
         self.MSE_loss_fn = nn.MSELoss()
