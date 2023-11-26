@@ -15,13 +15,13 @@ def plot_for_valid(
     ax1.imshow(melspec[0], origin="lower", aspect="auto")
 
     for i, interval in enumerate(ph_intervals):
-        if i > 0 and ph_intervals[i - 1, 1] != interval[0]:
+        if i == 0 or (i > 0 and ph_intervals[i - 1, 1] != interval[0]):
             ax1.axvline(interval[0], color="r", linewidth=1)
         ax1.axvline(interval[1], color="r", linewidth=1)
         if ph_seq[i] != "SP":
             if i % 2:
                 ax1.text(
-                    interval[1],
+                    (interval[0] + interval[1]) / 2,
                     melspec.shape[-2],
                     ph_seq[i],
                     fontsize=11,
@@ -29,7 +29,7 @@ def plot_for_valid(
                 )
             else:
                 ax1.text(
-                    interval[0],
+                    (interval[0] + interval[1]) / 2,
                     melspec.shape[-2] - 5,
                     ph_seq[i],
                     fontsize=11,
