@@ -145,14 +145,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         T = ph_prob_log.shape[0]
         S = len(ph_seq_id)
 
-        edge_prob_log = np.log(edge_prob + 1e-6).astype("float64")
-        not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float64")
+        edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
+        not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
         # 乘上is_phoneme正确分类的概率 TODO: enable this
         # ph_prob_log[:, 0] += ph_prob_log[:, 0]
         # ph_prob_log[:, 1:] += 1 / ph_prob_log[:, [0]]
 
         # init
-        dp = np.zeros([T, S]).astype("float64") - np.inf  # (T, S)
+        dp = np.zeros([T, S]).astype("float32") - np.inf  # (T, S)
         backtrack_s = np.zeros_like(dp).astype("int32") - 1
         # 如果mode==forced，只能从SP开始或者从第一个音素开始
         if self.inference_mode == "force":
@@ -239,16 +239,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 ctc_pred,  # (B, T, vocab_size)
             ) = self.forward(melspec.transpose(1, 2))
 
-        ph_frame_pred = ph_frame_pred.squeeze(0)  # (T, vocab_size)
-        ph_edge_pred = ph_edge_pred.squeeze(0)  # (T)
-        ctc_pred = ctc_pred.squeeze(0)  # (T, vocab_size)
+        ph_frame_pred = ph_frame_pred.squeeze(0).cpu().numpy().astype("float32")
+        ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
+        ctc_pred = ctc_pred.squeeze(0).cpu().numpy().astype("float32")
 
         T, vocab_size = ph_frame_pred.shape
 
         # decode
-        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)  # (T)
+        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
         edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
-        ph_prob_log = ph_frame_pred.cpu().numpy().astype("float64")
+        ph_prob_log = np.log(ph_frame_pred)
         (
             ph_idx_seq,
             ph_time_int_pred,
@@ -267,7 +267,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_time_pred = frame_length * (
             np.concatenate(
                 [
-                    ph_time_int_pred.astype("float64") + ph_time_fractional,
+                    ph_time_int_pred.astype("float32") + ph_time_fractional,
                     [T],
                 ]
             )
@@ -302,7 +302,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         # ctc decode
         ctc = None
         if return_ctc:
-            ctc = torch.argmax(ctc_pred, dim=-1).cpu().numpy()
+            ctc = np.argmax(ctc_pred, axis=-1)
             ctc_index = np.concatenate([[0], ctc])
             ctc_index = (ctc_index[1:] != ctc_index[:-1]) * ctc != 0
             ctc = ctc[ctc_index]
@@ -322,7 +322,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
                 "ph_seq": ph_seq_pred,
                 "ph_intervals": ph_intervals_pred_int,
                 "frame_confidence": frame_confidence,
-                "ph_frame_prob": torch.softmax(ph_frame_pred, dim=-1).cpu().numpy(),
+                "ph_frame_prob": ph_frame_pred,
                 "ph_frame_id_gt": ph_frame_id_gt,
                 "edge_prob": edge_prob,
             }
@@ -386,9 +386,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         # diff loss
         ph_edge_diff_loss = self.ph_edge_diff_GHM_loss_fn(
-            torch.diff(ph_edge_pred, 1, dim=-1),
-            torch.diff(ph_edge_gt, 1, dim=-1),
-            mask,
+            (torch.diff(ph_edge_pred, 1, dim=-1) + 1) / 2,
+            (torch.diff(ph_edge_gt, 1, dim=-1) + 1) / 2,
+            mask[:, 1:],
             valid,
         )
         return ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss
@@ -419,10 +419,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         T = output_tensors.shape[1]
 
         # calculate mask matrix
-        # (B//2, T)
+        # (B//2, T, 1)
         mask = torch.arange(T).to(self.device)
         mask = repeat(mask, "T -> B T", B=B // 2)
-        mask = (mask < input_feature_lengths[: B // 2].unsqueeze(1)).to(torch.bool)
+        mask = (
+            (mask < input_feature_lengths[: B // 2].unsqueeze(1))
+            .to(torch.bool)
+            .unsqueeze(-1)
+        )
 
         # consistency loss
         consistency_loss = self.MSE_loss_fn(
@@ -445,10 +449,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
         gradient_magnitude = (gradient_magnitude1 + gradient_magnitude2) / 2
 
         # calculate mask matrix
-        # (B//2, T)
+        # (B//2, T, 1)
         mask = torch.arange(T).to(self.device)
         mask = repeat(mask, "T -> B T", B=B // 2)
-        mask = (mask < input_feature_lengths[: B // 2].unsqueeze(1)).to(torch.bool)
+        mask = (
+            (mask < input_feature_lengths[: B // 2].unsqueeze(1))
+            .to(torch.bool)
+            .unsqueeze(-1)
+        )
         pseudo_label_mask = (  # (B//2, T)
             mask
             & (pseudo_label1 == pseudo_label2)
@@ -488,6 +496,9 @@ class LitForcedAlignmentModel(pl.LightningModule):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
         not_full_label_idx = label_type < 2
+        ph_frame_prob_gt = nn.functional.one_hot(
+            ph_frame_gt.long(), num_classes=self.vocab["<vocab_size>"]
+        ).float()
         ZERO = torch.tensor(0).to(self.device)
 
         if (full_label_idx).any():
@@ -499,7 +510,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ) = self._get_full_label_loss(
                 ph_frame_pred[full_label_idx, :, :],
                 ph_edge_pred[full_label_idx, :],
-                ph_frame_gt[full_label_idx, :],
+                ph_frame_prob_gt[full_label_idx, :],
                 ph_edge_gt[full_label_idx, :],
                 input_feature_lengths[full_label_idx],
                 valid,
@@ -508,14 +519,16 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ph_frame_GHM_loss = ph_edge_GHM_loss = ZERO
             ph_edge_EMD_loss = ph_edge_diff_loss = ZERO
 
+        # TODO:这种pack方式无法处理只有batch中的一部分需要计算Loss的情况，改掉
         if (weak_label_idx).any():
-            ctc_GHM_loss = self._get_weak_label_loss(
-                ctc_pred[weak_label_idx, :, :],
-                ph_seq_gt[weak_label_idx, :, :],
-                ph_seq_lengths_gt[weak_label_idx, :, :],
-                input_feature_lengths[weak_label_idx, :, :],
-                valid,
-            )
+            ctc_GHM_loss = ZERO
+            # ctc_GHM_loss = self._get_weak_label_loss(
+            #     ctc_pred[weak_label_idx, :, :],
+            #     ph_seq_gt[weak_label_idx],
+            #     ph_seq_lengths_gt[weak_label_idx],
+            #     input_feature_lengths[weak_label_idx],
+            #     valid,
+            # )
         else:
             ctc_GHM_loss = ZERO
 
@@ -525,7 +538,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             )
             pseudo_label_loss = self._get_pseudo_label_loss(
                 ph_frame_pred[not_full_label_idx, :, :],
-                input_feature_lengths[not_full_label_idx, :, :],
+                input_feature_lengths[not_full_label_idx],
                 valid,
             )
         else:

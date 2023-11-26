@@ -71,7 +71,6 @@ class GHMLoss(torch.nn.Module):
             * self.loss_bins_ema[torch.floor(L1_loss * self.num_loss_bins).long()]
             + 1e-10
         )  # [B, T]
-        # print(weight.mean(), weight.shape)
         loss_weighted = raw_loss / weight  # [B, T]
 
         # apply mask
@@ -161,7 +160,13 @@ class BCEGHMLoss(torch.nn.Module):
             return torch.tensor(0.0).to(pred_porb.device)
         if mask is None:
             mask = torch.ones_like(pred_porb).to(pred_porb.device)
-        assert pred_porb.shape == target_porb.shape and pred_porb.shape == mask.shape
+        assert (
+            pred_porb.shape == target_porb.shape
+            and pred_porb.shape[:2] == mask.shape[:2]
+        )
+        if len(mask.shape) < len(pred_porb.shape):
+            mask = mask.unsqueeze(-1)
+            mask = mask.repeat(1, pred_porb.shape[-1])
         assert pred_porb.max() <= 1 and pred_porb.min() >= 0
         assert target_porb.max() <= 1 and target_porb.min() >= 0
 
@@ -229,14 +234,21 @@ class MultiLabelGHMLoss(torch.nn.Module):
             return torch.tensor(0.0).to(pred_porb.device)
         if mask is None:
             mask = torch.ones_like(pred_porb).to(pred_porb.device)
-        assert pred_porb.shape == target_porb.shape and pred_porb.shape == mask.shape
+        assert (
+            pred_porb.shape == target_porb.shape
+            and pred_porb.shape[:2] == mask.shape[:2]
+        )
+        if len(mask.shape) < len(pred_porb.shape):
+            mask = mask.unsqueeze(-1)
         assert pred_porb.shape[-1] == self.num_classes
         assert pred_porb.max() <= 1 and pred_porb.min() >= 0
         assert target_porb.max() <= 1 and target_porb.min() >= 0
 
         pred_porb = pred_porb.reshape(-1, self.num_classes)
         target_porb = target_porb.reshape(-1, self.num_classes)
-        mask = mask.reshape(-1, self.num_classes)
+        mask = mask.reshape(target_porb.shape[0], -1)
+        if mask.shape[-1] == 1 and target_porb.shape[-1] > 1:
+            mask = mask.repeat(1, target_porb.shape[-1])
         target_porb = target_porb.clamp(self.label_smoothing, 1 - self.label_smoothing)
 
         raw_loss = self.loss_fn(pred_porb, target_porb)
@@ -249,7 +261,7 @@ class MultiLabelGHMLoss(torch.nn.Module):
         GD_weights = 1 / self.GD_stat_ema[gradient_magnitudes_index] + 1e-3
         target_porb_index = torch.floor(target_porb * 3).long().clamp(
             0, 2
-        ) + 3 * torch.arange(self.num_classes).unsqueeze(0)
+        ) + 3 * torch.arange(self.num_classes).to(target_porb.device).unsqueeze(0)
         classes_weights = 1 / self.label_stat_ema_each_class[target_porb_index] + 1e-3
         weights = torch.sqrt(GD_weights * classes_weights)
         loss_weighted = raw_loss * weights
@@ -258,9 +270,9 @@ class MultiLabelGHMLoss(torch.nn.Module):
 
         if not valid:
             # update ema
-            # "Elements lower than min and higher than max and NaN elements are ignored."
-            gradient_magnitudes_index = gradient_magnitudes_index.flatten()
+            # TODO:要带着mask统计的话，mask的shape就要和input一致
             mask = mask.flatten()
+            gradient_magnitudes_index = gradient_magnitudes_index.flatten()
             gradient_magnitudes_index_hist = torch.bincount(
                 input=gradient_magnitudes_index,
                 weights=mask,
