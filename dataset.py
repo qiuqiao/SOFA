@@ -210,8 +210,24 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
 
 
 def collate_fn(batch):
+    """_summary_
+
+    Args:
+        batch (tuple): (input_feature, ph_seq, ph_edge, ph_frame, label_type) from MixedDataset
+
+    Returns:
+        input_feature: (B C T)
+        input_feature_lengths: (B)
+        ph_seq: (B S)
+        ph_seq_lengths: (B)
+        ph_edge: (B T)
+        ph_frame: (B T)
+        label_type: (B)
+    """
     input_feature_lengths = torch.tensor([i[0].shape[-1] for i in batch])
     max_len = max(input_feature_lengths)
+    ph_seq_lengths = torch.tensor([len(item[1]) for item in batch])
+    max_ph_seq_len = max(ph_seq_lengths)
     if batch[0][0].shape[0] > 1:
         augmentation_enabled = True
     else:
@@ -228,13 +244,17 @@ def collate_fn(batch):
                 "constant",
                 0,
             )
+        item[1] = torch.nn.functional.pad(
+            torch.tensor(item[1]),
+            (0, max_ph_seq_len - item[1].shape[-1]),
+            "constant",
+            0,
+        )
         batch[i] = tuple(item)
-
-    ph_seq = torch.cat([item[1] for item in batch])
-    ph_seq_lengths = torch.tensor([len(item[1]) for item in batch])
 
     input_feature = torch.stack([item[0] for item in batch], dim=1)
     input_feature = rearrange(input_feature, "n b c t -> (n b) c t")
+    ph_seq = torch.stack([item[1] for item in batch])
     ph_edge = torch.stack([item[2] for item in batch])
     ph_frame = torch.stack([item[3] for item in batch])
 

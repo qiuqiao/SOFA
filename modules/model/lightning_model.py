@@ -567,7 +567,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         (
             input_feature,  # (B, n_mels, T)
             input_feature_lengths,  # (B)
-            ph_seq,  # (sum of ph_seq_lengths)
+            ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
             ph_edge,  # (B, T)
             ph_frame,  # (B, T)
@@ -616,7 +616,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         (
             input_feature,  # (B, n_mels, T)
             input_feature_lengths,  # (B)
-            ph_seq,  # (sum of ph_seq_lengths)
+            ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
             ph_edge,  # (B, T)
             ph_frame,  # (B, T)
@@ -624,7 +624,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ) = batch
 
         ph_seq_g2p = ["SP"]
-        for ph in ph_seq.cpu().numpy():
+        for ph in ph_seq.squeeze(0).cpu().numpy():
             if ph == 0:
                 continue
             ph_seq_g2p.append(self.vocab[ph])
