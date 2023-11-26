@@ -37,25 +37,26 @@ lr_schedule:
 
 losses_schedules:
   ph_frame_GHM_loss:
-    weight: 1.0
+    weight: 10.0
     scheduler: # should be imported in modules/schedulers/__init__.py
       type:
       kwargs:
   ph_edge_GHM_loss:
-    weight: 1.0
+    weight: 0.1
     scheduler:
       type:
       kwargs:
   ph_edge_EMD_loss:
-    weight: 1.0
+    weight: 0.01
     scheduler:
       type:
       kwargs:
   ph_edge_diff_loss:
-    weight: 1.0
+    weight: 0.1
     scheduler:
-      type:
+      type: GaussianRampUpScheduler
       kwargs:
+        max_steps: 10000
   ctc_GHM_loss:
     weight: 1.0
     scheduler:
@@ -65,15 +66,15 @@ losses_schedules:
   consistency_loss:
     weight: 1.0
     scheduler:
-      type:
+      type: GaussianRampUpScheduler
       kwargs:
+        max_steps: 10000
   pseudo_label_loss:
-    weight: 1.0
+    weight: 5.0
     scheduler:
       type: GaussianRampUpScheduler
       kwargs:
         max_steps: 10000
-        start_steps: 3000
 
 use_pretrained_model: False
 pretrained_model_path: ''
