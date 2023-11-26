@@ -190,6 +190,9 @@ class ForcedAlignmentBinarizer:
 
                 # ph_frame: [T]
                 ph_frame = np.zeros(T, dtype="int32")
+
+                # ph_mask: [vocab_size]
+                ph_mask = np.ones(vocab["<vocab_size>"], dtype="int32")
             elif label_type_id == 1:
                 # ph_seq: [S]
                 ph_seq = np.array(item.ph_seq).astype("int32")
@@ -197,8 +200,14 @@ class ForcedAlignmentBinarizer:
 
                 # ph_edge: [T]
                 ph_edge = np.zeros([T], dtype="float32")
+
                 # ph_frame: [T]
                 ph_frame = np.zeros(T, dtype="int32")
+
+                # ph_mask: [vocab_size]
+                ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
+                ph_mask[ph_seq] = 1
+                ph_mask[0] = 1
             elif label_type_id == 2:
                 # ph_seq: [S]
                 ph_seq = np.array(item.ph_seq).astype("int32")
@@ -235,12 +244,18 @@ class ForcedAlignmentBinarizer:
                     if ed > T:
                         ed = T
                     ph_frame[int(np.round(st)) : int(np.round(ed))] = ph_id
+
+                # ph_mask: [vocab_size]
+                ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
+                ph_mask[ph_seq] = 1
+                ph_mask[0] = 1
             else:
                 raise ValueError("Unknown label type.")
 
             h5py_item_data["ph_seq"] = ph_seq.astype("int32")
             h5py_item_data["ph_edge"] = ph_edge.astype("float32")
             h5py_item_data["ph_frame"] = ph_frame.astype("int32")
+            h5py_item_data["ph_mask"] = ph_mask.astype("int32")
 
             # print(
             #     h5py_item_data["input_feature"].shape,

@@ -76,7 +76,10 @@ class MixedDataset(torch.utils.data.Dataset):
         # ph_frame
         ph_frame = np.array(item["ph_frame"])
 
-        return input_feature, ph_seq, ph_edge, ph_frame, label_type
+        # ph_mask
+        ph_mask = np.array(item["ph_mask"])
+
+        return input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type
 
 
 class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
@@ -213,7 +216,7 @@ def collate_fn(batch):
     """_summary_
 
     Args:
-        batch (tuple): (input_feature, ph_seq, ph_edge, ph_frame, label_type) from MixedDataset
+        batch (tuple): input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type from MixedDataset
 
     Returns:
         input_feature: (B C T)
@@ -222,6 +225,7 @@ def collate_fn(batch):
         ph_seq_lengths: (B)
         ph_edge: (B T)
         ph_frame: (B T)
+        ph_mask: (B vocab_size)
         label_type: (B)
     """
     input_feature_lengths = torch.tensor([i[0].shape[-1] for i in batch])
@@ -249,6 +253,7 @@ def collate_fn(batch):
             "constant",
             0,
         )
+        item[4] = torch.from_numpy(item[4])
         batch[i] = tuple(item)
 
     input_feature = torch.stack([item[0] for item in batch], dim=1)
@@ -256,8 +261,9 @@ def collate_fn(batch):
     ph_seq = torch.stack([item[1] for item in batch])
     ph_edge = torch.stack([item[2] for item in batch])
     ph_frame = torch.stack([item[3] for item in batch])
+    ph_mask = torch.stack([item[4] for item in batch])
 
-    label_type = torch.tensor(np.array([item[4] for item in batch]))
+    label_type = torch.tensor(np.array([item[5] for item in batch]))
 
     if augmentation_enabled:
         input_feature_lengths = torch.concat(
@@ -267,6 +273,7 @@ def collate_fn(batch):
         ph_seq_lengths = torch.concat([ph_seq_lengths, ph_seq_lengths], dim=0)
         ph_edge = torch.concat([ph_edge, ph_edge], dim=0)
         ph_frame = torch.concat([ph_frame, ph_frame], dim=0)
+        ph_mask = torch.concat([ph_mask, ph_mask], dim=0)
         label_type = torch.concat([label_type, label_type], dim=0)
 
     return (
@@ -276,6 +283,7 @@ def collate_fn(batch):
         ph_seq_lengths,
         ph_edge,
         ph_frame,
+        ph_mask,
         label_type,
     )
 

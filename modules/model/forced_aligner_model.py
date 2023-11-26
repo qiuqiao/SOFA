@@ -96,11 +96,12 @@ class ForcedAlignmentModel(nn.Module):
     def forward(self, x):
         x = self.input_proj(x)
         x = self.backbone(x)
-        out = self.sigmoid(self.head(x))
-        ph_frame = out[:, :, 2:]
-        ph_edge = out[:, :, 0]
-        ctc = torch.cat([out[:, :, [0]], out[:, :, 3:]], dim=-1)
-        return ph_frame, ph_edge, ctc
+        logits = self.head(x)
+        sigmoid_prob = self.sigmoid(logits)
+        ph_frame = sigmoid_prob[:, :, 2:]
+        ph_edge = sigmoid_prob[:, :, 0]
+        ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
+        return ph_frame, ph_edge, ctc_logits
 
 
 class EMA:
