@@ -21,7 +21,8 @@ def plot_for_valid(
         if ph_seq[i] != "SP":
             if i % 2:
                 ax1.text(
-                    (interval[0] + interval[1]) / 2,
+                    (interval[0] + interval[1]) / 2
+                    - len(ph_seq[i]) * melspec.shape[-1] / 275,
                     melspec.shape[-2],
                     ph_seq[i],
                     fontsize=11,
@@ -29,8 +30,9 @@ def plot_for_valid(
                 )
             else:
                 ax1.text(
-                    (interval[0] + interval[1]) / 2,
-                    melspec.shape[-2] - 5,
+                    (interval[0] + interval[1]) / 2
+                    - len(ph_seq[i]) * melspec.shape[-1] / 275,
+                    melspec.shape[-2] - 6,
                     ph_seq[i],
                     fontsize=11,
                     color="white",
