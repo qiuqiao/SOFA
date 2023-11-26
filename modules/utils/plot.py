@@ -42,7 +42,14 @@ def plot_for_valid(
     )
     ax1.fill_between(x, frame_confidence * melspec.shape[-2], color="black", alpha=0.3)
 
-    ax2.imshow(ph_frame_prob.T, origin="lower", aspect="auto", interpolation="nearest")
+    ax2.imshow(
+        ph_frame_prob.T,
+        origin="lower",
+        aspect="auto",
+        interpolation="nearest",
+        vmin=0,
+        vmax=1,
+    )
 
     ax2.plot(x, ph_frame_id_gt, color="red", linewidth=1.5)
     # ax2.scatter(x, ph_frame_id_gt, s=5, marker='s', color="red")
