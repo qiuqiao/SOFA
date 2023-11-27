@@ -23,7 +23,7 @@ def plot_for_valid(
                 ax1.text(
                     (interval[0] + interval[1]) / 2
                     - len(ph_seq[i]) * melspec.shape[-1] / 275,
-                    melspec.shape[-2],
+                    melspec.shape[-2] + 1,
                     ph_seq[i],
                     fontsize=11,
                     color="black",
