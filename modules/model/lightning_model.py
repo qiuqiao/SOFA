@@ -22,35 +22,26 @@ class LitForcedAlignmentModel(pl.LightningModule):
         self,
         vocab_text,
         melspec_config,
-        input_feature_dims,
-        max_frame_num,
-        learning_rate,
-        weight_decay,
+        input_dims,
         hidden_dims,
         init_type,
-        label_smoothing,
-        lr_schedule,
-        losses_schedules,
+        optimizer_config,
+        loss_function_config,
+        losses_schedules_config,
         data_augmentation_enabled,
-        pseudo_label_ratio,
     ):
         super().__init__()
         # vocab
         self.vocab = yaml.safe_load(vocab_text)
 
         # hparams
-        self.save_hyperparameters()
-        self.melspec_config = (
-            melspec_config  # Required for inference, but not for training
-        )
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
+        self.save_hyperparameters()  # TODO:remove this
+        self.melspec_config = melspec_config  # Required for inference
         self.hidden_dims = hidden_dims
         self.init_type = init_type
-        self.label_smoothing = label_smoothing
-        self.lr_schedule = lr_schedule
-        self.pseudo_label_ratio = pseudo_label_ratio
+        self.pseudo_label_ratio = loss_function_config["pseudo_label_ratio"]
         self.pseudo_label_auto_theshold = 0.5
+        self.optimizer_config = optimizer_config
 
         self.losses_names = [
             "ph_frame_GHM_loss",
@@ -64,13 +55,13 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ]
         self.losses_weights = []
         for k in self.losses_names[:-1]:
-            self.losses_weights.append(losses_schedules[k]["weight"])
+            self.losses_weights.append(losses_schedules_config[k]["weight"])
         self.losses_weights = torch.tensor(self.losses_weights)
 
         self.losses_schedulers = []
         for k in self.losses_names[:-1]:
-            scheduler_type = losses_schedules[k]["scheduler"]["type"]
-            scheduler_kwargs = losses_schedules[k]["scheduler"]["kwargs"]
+            scheduler_type = losses_schedules_config[k]["scheduler"]["type"]
+            scheduler_kwargs = losses_schedules_config[k]["scheduler"]["kwargs"]
             if scheduler_type is None:
                 self.losses_schedulers.append(
                     getattr(scheduler_module, "NoneScheduler")()
@@ -83,28 +74,30 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         # model
         self.model = ForcedAlignmentModel(
-            input_feature_dims,
+            input_dims,
             self.vocab["<vocab_size>"],
             hidden_dims=self.hidden_dims,
             init_type=init_type,
-            max_seq_len=max_frame_num,
         )
 
         # loss function
         self.ph_frame_GHM_loss_fn = MultiLabelGHMLoss(
             self.vocab["<vocab_size>"],
-            10,
-            1 - 1e-3,
-            label_smoothing=self.label_smoothing,
+            loss_function_config["num_bins"],
+            loss_function_config["alpha"],
+            loss_function_config["label_smoothing"],
         )
         self.pseudo_label_GHM_loss_fn = MultiLabelGHMLoss(
             self.vocab["<vocab_size>"],
-            10,
-            1 - 1e-3,
-            label_smoothing=self.label_smoothing,
+            loss_function_config["num_bins"],
+            loss_function_config["alpha"],
+            loss_function_config["label_smoothing"],
         )
         self.ph_edge_GHM_loss_fn = MultiLabelGHMLoss(
-            1, 10, 1 - 1e-6, label_smoothing=0.0
+            1,
+            loss_function_config["num_bins"],
+            loss_function_config["alpha"],
+            loss_function_config["label_smoothing"],
         )
         self.EMD_loss_fn = BinaryEMDLoss()
         self.ph_edge_diff_GHM_loss_fn = BCEGHMLoss(10, 1 - 1e-6, label_smoothing=0.0)
@@ -701,15 +694,32 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=self.learning_rate,
-            weight_decay=self.weight_decay,
+            [
+                {
+                    "params": self.model.input_proj.parameters(),
+                    "lr": self.optimizer_config["lr"]["input_proj"],
+                },
+                {
+                    "params": self.model.backbone.parameters(),
+                    "lr": self.optimizer_config["lr"]["backbone"],
+                },
+                {
+                    "params": self.model.head.parameters(),
+                    "lr": self.optimizer_config["lr"]["head"],
+                },
+            ],
+            weight_decay=self.optimizer_config["weight_decay"],
         )
+        print(self.optimizer_config["scheduler"]["kwargs"])
         scheduler = {
-            "scheduler": getattr(lr_scheduler_module, self.lr_schedule["type"])(
-                optimizer, **self.lr_schedule["kwargs"]
-            ),
+            "scheduler": getattr(
+                lr_scheduler_module, self.optimizer_config["scheduler"]["type"]
+            )(optimizer, **self.optimizer_config["scheduler"]["kwargs"]),
             "interval": "step",
         }
+
+        for k, v in self.optimizer_config["freeze"].items():
+            if v:
+                getattr(self.model, k).requires_grad_(False)
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}

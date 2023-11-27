@@ -6,39 +6,46 @@ random_seed: 114514
 
 # dataloader
 dataloader_workers: 15
-oversampling_weights: [ 1, 1, 1 ]
+oversampling_weights: [ 1, 1, 1 ] # full_label, weak_label, no_label
 batch_max_length: 50 # unit: seconds
 binning_length: 1000 # unit: seconds
 drop_last: False
 
 # model
-learning_rate: 0.001 #0.001
-weight_decay: 0.1
 hidden_dims: 64
 init_type: kaiming_normal # kaiming_normal, kaiming_uniform, xavier_normal, xavier_uniform
-label_smoothing: 0.08
 
-# trainer
-accelerator: auto
-devices: auto # num_devices
-precision: 32-true # bf16-mixed , 32-true
-gradient_clip_val: 1.0
-gradient_clip_algorithm: norm #value
-val_check_interval: 50 # 0.25
-max_steps: 10000
+optimizer_config:
+  weight_decay: 0.1
+  lr:
+    input_proj: 0.01
+    backbone: 0.01 # if finetune, set to 0.000001
+    head: 0.01
+  freeze:
+    input_proj: False
+    backbone: False
+    head: False
 
-pseudo_label_ratio: 0.7
+  scheduler:
+    type: OneCycleLR # import from torch.optim.lr_scheduler
+    kwargs:
+      max_lr:
+        - 0.01
+        - 0.01 # if finetune, set to 0.000001
+        - 0.01
+      total_steps: 10000 # usually equals to max_steps
 
-lr_schedule:
-  type: OneCycleLR # import from torch.optim.lr_scheduler
-  kwargs:
-    max_lr: 0.001
-    total_steps: 10000
 
-losses_schedules:
+loss_function_config:
+  num_bins: 10
+  alpha: 0.999
+  label_smoothing: 0.08
+  pseudo_label_ratio: 0.3
+
+losses_schedules_config:
   ph_frame_GHM_loss:
     weight: 10.0
-    scheduler: # should be imported in modules/schedulers/__init__.py
+    scheduler: # should be imported in modules/scheduler/__init__.py
       type:
       kwargs:
   ph_edge_GHM_loss:
@@ -56,6 +63,7 @@ losses_schedules:
     scheduler:
       type: GaussianRampUpScheduler
       kwargs:
+        start_steps: 1000
         max_steps: 10000
   ctc_GHM_loss:
     weight: 1.0
@@ -76,5 +84,11 @@ losses_schedules:
       kwargs:
         max_steps: 10000
 
-use_pretrained_model: False
-pretrained_model_path: ''
+# trainer
+max_steps: 10000
+accelerator: auto
+devices: auto # num_devices
+precision: 32-true # bf16-mixed , 32-true
+gradient_clip_val: 1.0
+gradient_clip_algorithm: norm #value
+val_check_interval: 387 # 0.25

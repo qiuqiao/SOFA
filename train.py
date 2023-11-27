@@ -86,16 +86,12 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
         vocab_text,
         config["melspec_config"],
         config["melspec_config"]["n_mels"],
-        config["max_frame_num"],
-        config["learning_rate"],
-        config["weight_decay"],
         config["hidden_dims"],
         config["init_type"],
-        config["label_smoothing"],
-        config["lr_schedule"],
-        config["losses_schedules"],
+        config["optimizer_config"],
+        config["loss_function_config"],
+        config["losses_schedules_config"],
         config["data_augmentation_size"] > 0,
-        config["pseudo_label_ratio"],
     )
 
     # trainer
