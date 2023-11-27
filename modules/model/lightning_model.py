@@ -246,6 +246,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             ) = self.forward(melspec.transpose(1, 2))
 
         ph_frame_pred = ph_frame_pred.squeeze(0).cpu().numpy().astype("float32")
+        ph_edge_pred = ((ph_edge_pred - 0.1) / 0.8).clamp(0.0, 1.0)
         ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
         ph_mask = ph_mask.to(ctc_logits_pred.device).unsqueeze(0).logical_not() * 1e6
         ctc_logits_pred = (
