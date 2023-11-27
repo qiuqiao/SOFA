@@ -250,8 +250,8 @@ class LitForcedAlignmentModel(pl.LightningModule):
         ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
         ph_mask = ph_mask.to(ctc_logits_pred.device).unsqueeze(0).logical_not() * 1e6
         ctc_logits_pred = (
-            (ctc_logits_pred.squeeze(0) - ph_mask).cpu().numpy().astype("float32")
-        )
+            ctc_logits_pred.squeeze(0).cpu().numpy().astype("float32")
+        )  # (ctc_logits_pred.squeeze(0) - ph_mask)
 
         T, vocab_size = ph_frame_pred.shape
 
