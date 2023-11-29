@@ -155,10 +155,10 @@ class MultiHeadSelfAttention(nn.Module):
             self.d_k
         )  # size: (batch_size, num_heads, seq_len, seq_len)
         if self.mask == "upper":
-            mask = torch.triu(torch.ones_like(scores[0, 0]), diagonal=1)
+            mask = torch.triu(torch.ones_like(scores[0, 0]).float(), diagonal=1)
             scores.masked_fill_(mask == 1, -1e9)
         elif self.mask == "lower":
-            mask = torch.tril(torch.ones_like(scores[0, 0]), diagonal=-1)
+            mask = torch.tril(torch.ones_like(scores[0, 0]).float(), diagonal=-1)
             scores.masked_fill_(mask == 1, -1e9)
         # if lengths is not None:
         #     mask = torch.arange(seq_len).to(x.device)[None, :] >= lengths[:, None]

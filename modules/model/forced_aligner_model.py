@@ -36,7 +36,6 @@ class ForcedAlignmentModel(nn.Module):
             nn.Hardswish(),
             nn.Linear(self.hidden_dims, self.output_dims + 2),
         )
-        self.sigmoid = nn.Sigmoid()
 
         self.apply(self.init_weights)
 
@@ -97,11 +96,10 @@ class ForcedAlignmentModel(nn.Module):
         x = self.input_proj(x)
         x = self.backbone(x)
         logits = self.head(x)
-        sigmoid_prob = self.sigmoid(logits)
-        ph_frame = sigmoid_prob[:, :, 2:]
-        ph_edge = sigmoid_prob[:, :, 0]
+        ph_frame_logits = logits[:, :, 2:]
+        ph_edge_logits = logits[:, :, 0]
         ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
-        return ph_frame, ph_edge, ctc_logits
+        return ph_frame_logits, ph_edge_logits, ctc_logits
 
 
 class EMA:
