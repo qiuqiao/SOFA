@@ -207,7 +207,7 @@ class BCEGHMLoss(torch.nn.Module):
 class MultiLabelGHMLoss(torch.nn.Module):
     def __init__(self, num_classes, num_bins=10, alpha=(1 - 1e-6), label_smoothing=0.0):
         super().__init__()
-        self.loss_fn = nn.BCELoss(reduction="none")
+        self.loss_fn = nn.BCEWithLogitsLoss(reduction="none")
         self.num_bins = num_bins
         # 难易样本不均衡
         self.register_buffer("GD_stat_ema", torch.ones(num_bins))
@@ -217,7 +217,7 @@ class MultiLabelGHMLoss(torch.nn.Module):
         self.alpha = alpha
         self.label_smoothing = label_smoothing
 
-    def forward(self, pred_porb, target_porb, mask=None, valid=False):
+    def forward(self, pred_logits, target_porb, mask=None, valid=False):
         """_summary_
 
         Args:
@@ -230,29 +230,29 @@ class MultiLabelGHMLoss(torch.nn.Module):
         Returns:
             loss_final (torch.Tensor): loss value, shape: ()
         """
-        if len(pred_porb) <= 0:
-            return torch.tensor(0.0).to(pred_porb.device)
+        if len(pred_logits) <= 0:
+            return torch.tensor(0.0).to(pred_logits.device)
         if mask is None:
-            mask = torch.ones_like(pred_porb).to(pred_porb.device)
+            mask = torch.ones_like(pred_logits).to(pred_logits.device)
         assert (
-            pred_porb.shape == target_porb.shape
-            and pred_porb.shape[:2] == mask.shape[:2]
+            pred_logits.shape == target_porb.shape
+            and pred_logits.shape[:2] == mask.shape[:2]
         )
-        if len(mask.shape) < len(pred_porb.shape):
+        if len(mask.shape) < len(pred_logits.shape):
             mask = mask.unsqueeze(-1)
-        assert pred_porb.shape[-1] == self.num_classes
-        assert pred_porb.max() <= 1 and pred_porb.min() >= 0
+        assert pred_logits.shape[-1] == self.num_classes
         assert target_porb.max() <= 1 and target_porb.min() >= 0
 
-        pred_porb = pred_porb.reshape(-1, self.num_classes)
+        pred_logits = pred_logits.reshape(-1, self.num_classes)
         target_porb = target_porb.reshape(-1, self.num_classes)
         mask = mask.reshape(target_porb.shape[0], -1)
         if mask.shape[-1] == 1 and target_porb.shape[-1] > 1:
             mask = mask.repeat(1, target_porb.shape[-1])
         target_porb = target_porb.clamp(self.label_smoothing, 1 - self.label_smoothing)
 
-        raw_loss = self.loss_fn(pred_porb, target_porb)
+        raw_loss = self.loss_fn(pred_logits, target_porb)
 
+        pred_porb = torch.nn.functional.sigmoid(pred_logits)
         gradient_magnitudes_index = (
             torch.floor((pred_porb - target_porb).abs() * self.num_bins)
             .long()
