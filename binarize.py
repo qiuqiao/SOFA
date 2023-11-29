@@ -74,7 +74,7 @@ class ForcedAlignmentBinarizer:
             yaml.dump(vocab, file)
 
         # load metadata of each item
-        meta_data_df = self.get_meta_data(self.data_folder,vocab)
+        meta_data_df = self.get_meta_data(self.data_folder, vocab)
 
         # split train and valid set
         valid_set_size = int(self.valid_set_size)
@@ -171,11 +171,11 @@ class ForcedAlignmentBinarizer:
 
             # label_type: []
             label_type_id = label_type_to_id[item.label_type]
-            if label_type_id==2:
-                if len(item.ph_dur)!=len(item.ph_seq):
-                    label_type_id=1
-                if len(item.ph_seq)==0:
-                    label_type_id=0
+            if label_type_id == 2:
+                if len(item.ph_dur) != len(item.ph_seq):
+                    label_type_id = 1
+                if len(item.ph_seq) == 0:
+                    label_type_id = 0
             h5py_item_data["label_type"] = label_type_id
             items_meta_data["label_types"].append(label_type_id)
 
@@ -224,7 +224,7 @@ class ForcedAlignmentBinarizer:
                 ph_time = np.unique(ph_interval.flatten())
 
                 ph_edge = np.zeros([T], dtype="float32")
-                if len(ph_seq)>0:
+                if len(ph_seq) > 0:
                     if ph_time[-1] + 0.5 > T:
                         ph_time = ph_time[:-1]
                     if ph_time[0] - 0.5 < 0:
@@ -238,7 +238,7 @@ class ForcedAlignmentBinarizer:
 
                 # ph_frame: [T]
                 ph_frame = np.zeros(T, dtype="int32")
-                if len(ph_seq)>0:
+                if len(ph_seq) > 0:
                     for ph_id, st, ed in zip(ph_seq, ph_interval[0], ph_interval[1]):
                         if st < 0:
                             st = 0
@@ -248,7 +248,7 @@ class ForcedAlignmentBinarizer:
 
                 # ph_mask: [vocab_size]
                 ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
-                if len(ph_seq)>0:
+                if len(ph_seq) > 0:
                     ph_mask[ph_seq] = 1
                 ph_mask[0] = 1
             else:
@@ -290,7 +290,7 @@ class ForcedAlignmentBinarizer:
             f"total time {total_time:.2f}s, saved to {h5py_file_path}"
         )
 
-    def get_meta_data(self, data_folder,vocab):
+    def get_meta_data(self, data_folder, vocab):
         path = data_folder
         trans_path_list = [
             i
@@ -343,7 +343,7 @@ class ForcedAlignmentBinarizer:
             lambda x: ([float(i) for i in x.split(" ")] if isinstance(x, str) else [])
         )
         meta_data_df = meta_data_df.sort_values(by="label_type").reset_index(drop=True)
-        
+
         return meta_data_df
 
 
