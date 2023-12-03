@@ -254,7 +254,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
             (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8
         ).clamp(0.0, 1.0)
         ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
-        ph_mask = ph_mask.to(ctc_logits.device).unsqueeze(0).logical_not() * 1e6
+        ph_mask = ph_mask.to(ctc_logits.device).unsqueeze(0).logical_not() * 1e9
         ctc_logits = (
             ctc_logits.float().squeeze(0).cpu().numpy().astype("float32")
         )  # (ctc_logits.squeeze(0) - ph_mask)
@@ -421,7 +421,7 @@ class LitForcedAlignmentModel(pl.LightningModule):
         input_feature_lengths,
         valid,
     ):
-        ctc_logits = ctc_logits - ph_mask.unsqueeze(1).logical_not().float() * 1e6
+        ctc_logits = ctc_logits - ph_mask.unsqueeze(1).logical_not().float() * 1e9
         log_probs_pred = nn.functional.log_softmax(ctc_logits, dim=-1)
         # ctc loss
         log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
