@@ -18,11 +18,9 @@ init_type: kaiming_normal # kaiming_normal, kaiming_uniform, xavier_normal, xavi
 optimizer_config:
   weight_decay: 0.1
   lr:
-    input_proj: 0.001
     backbone: 0.001 # if finetune, set to 0.000001
     head: 0.001
   freeze:
-    input_proj: False
     backbone: False
     head: False
 
@@ -30,7 +28,6 @@ optimizer_config:
     type: OneCycleLR # import from torch.optim.lr_scheduler
     kwargs:
       max_lr:
-        - 0.001
         - 0.001 # if finetune, set to 0.000001
         - 0.001
       total_steps: 10000 # usually equals to max_steps

@@ -22,24 +22,22 @@ class ForcedAlignmentModel(nn.Module):
         self.init_type = init_type
         self.kwargs = kwargs
 
-        self.input_proj = nn.Linear(self.input_dims, self.hidden_dims)
         self.backbone = UNetBackbone(
-            self.hidden_dims,
+            self.input_dims,
             self.hidden_dims,
             self.hidden_dims,
             block=ForwardBackwardConformerBlock,
             **self.kwargs,
         )
-        self.head = nn.Sequential(
-            nn.Linear(self.hidden_dims, self.hidden_dims),
-            nn.LayerNorm(self.hidden_dims),
-            nn.Hardswish(),
-            nn.Linear(self.hidden_dims, self.output_dims + 2),
-        )
+        self.head = nn.Linear(self.hidden_dims, self.output_dims + 2)
 
         self.apply(self.init_weights)
 
     def load_pretrained(self, pretrained_model):
+        if self.input_dims != pretrained_model.input_dims:
+            raise ValueError(
+                f"input_dims not match: {pretrained_model.input_dims} (pretrained) vs {self.input_dims} (input)"
+            )
         if self.hidden_dims != pretrained_model.hidden_dims:
             print(
                 f"hidden_dims not match: {pretrained_model.hidden_dims} (pretrained) vs {self.hidden_dims} (input), "
@@ -47,9 +45,8 @@ class ForcedAlignmentModel(nn.Module):
             )
             self.hidden_dims = pretrained_model.hidden_dims
 
-        self.input_proj = nn.Linear(self.input_dims, self.hidden_dims)
         self.backbone = UNetBackbone(
-            self.hidden_dims,
+            self.input_dims,
             self.hidden_dims,
             self.hidden_dims,
             block=ForwardBackwardConformerBlock,
@@ -63,11 +60,6 @@ class ForcedAlignmentModel(nn.Module):
         )
 
         self.apply(self.init_weights)
-
-        try:
-            self.input_proj.load_state_dict(pretrained_model.input_proj.state_dict())
-        except Exception:
-            print("input_dims not match, 'input_proj' not loaded")
 
         try:
             self.backbone.load_state_dict(pretrained_model.backbone.state_dict())
@@ -93,7 +85,6 @@ class ForcedAlignmentModel(nn.Module):
             nn.init.constant_(m.bias.data, 0)
 
     def forward(self, x):
-        x = self.input_proj(x)
         x = self.backbone(x)
         logits = self.head(x)
         ph_frame_logits = logits[:, :, 2:]
@@ -142,6 +133,6 @@ class EMA:
 
 if __name__ == "__main__":
     model1 = ForcedAlignmentModel(64, 10, 64)
-    model2 = ForcedAlignmentModel(6, 11, 128)
+    model2 = ForcedAlignmentModel(64, 11, 128)
     model1.load_pretrained(model2)
     print(model1(torch.randn(4, 320, 64)))

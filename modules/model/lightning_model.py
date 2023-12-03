@@ -715,10 +715,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
         optimizer = torch.optim.AdamW(
             [
                 {
-                    "params": self.model.input_proj.parameters(),
-                    "lr": self.optimizer_config["lr"]["input_proj"],
-                },
-                {
                     "params": self.model.backbone.parameters(),
                     "lr": self.optimizer_config["lr"]["backbone"],
                 },
