@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from einops import rearrange, repeat
 
-from modules.layer.block.conformer import ForwardBackwardConformerBlock
-from modules.layer.block.residual import Residual
+from modules.layer.block.resnet_block import ResidualBasicBlock
+from modules.layer.scaling.base import BaseDowmSampling, BaseUpSampling
+from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 
 
 class UNetBackbone(nn.Module):
@@ -11,123 +11,112 @@ class UNetBackbone(nn.Module):
         self,
         input_dims,
         output_dims,
-        hidden_dims=64,
-        block=ForwardBackwardConformerBlock,
+        hidden_dims,
+        block,
+        down_sampling,
+        up_sampling,
+        down_sampling_factor=2,
+        down_sampling_times=5,
         **kwargs
     ):
+        """_summary_
+
+        Args:
+            input_dims (int):
+            output_dims (int):
+            hidden_dims (int):
+            block (nn.Module): shape: (B, T, C) -> shape: (B, T, C)
+            down_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T/down_sampling_factor, C*down_sampling_factor)
+            up_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T*down_sampling_factor, C/down_sampling_factor)
+        """
         super(UNetBackbone, self).__init__()
+        assert issubclass(block, nn.Module)
+        assert issubclass(down_sampling, BaseDowmSampling)
+        assert issubclass(up_sampling, BaseUpSampling)
 
-        if "max_seq_len" in kwargs:
-            kwargs["max_seq_len"] += 32
+        self.divisible_factor = down_sampling_factor**down_sampling_times
 
-        self.encoder_1 = block(input_dims, hidden_dims, hidden_dims, **kwargs)
-        self.residual_e1 = Residual(input_dims, hidden_dims)
-        self.encoder_2 = block(
-            2 * hidden_dims, 2 * hidden_dims, 2 * hidden_dims, **kwargs
-        )
-        self.encoder_3 = block(
-            4 * hidden_dims, 4 * hidden_dims, 4 * hidden_dims, **kwargs
-        )
-        self.encoder_4 = block(
-            8 * hidden_dims, 8 * hidden_dims, 8 * hidden_dims, **kwargs
-        )
-        self.encoder_5 = block(
-            16 * hidden_dims, 16 * hidden_dims, 16 * hidden_dims, **kwargs
+        self.encoders = nn.ModuleList()
+        self.encoders.append(block(input_dims, hidden_dims, **kwargs))
+        for i in range(down_sampling_times - 1):
+            i += 1
+            self.encoders.append(
+                nn.Sequential(
+                    down_sampling(
+                        down_sampling_factor ** (i - 1) * hidden_dims,
+                        down_sampling_factor**i * hidden_dims,
+                        down_sampling_factor,
+                    ),
+                    block(
+                        down_sampling_factor**i * hidden_dims,
+                        down_sampling_factor**i * hidden_dims,
+                        **kwargs
+                    ),
+                )
+            )
+
+        self.bottle_neck = nn.Sequential(
+            down_sampling(
+                down_sampling_factor ** (down_sampling_times - 1) * hidden_dims,
+                down_sampling_factor**down_sampling_times * hidden_dims,
+                down_sampling_factor,
+            ),
+            block(
+                down_sampling_factor**down_sampling_times * hidden_dims,
+                down_sampling_factor**down_sampling_times * hidden_dims,
+                **kwargs
+            ),
+            up_sampling(
+                down_sampling_factor**down_sampling_times * hidden_dims,
+                down_sampling_factor ** (down_sampling_times - 1) * hidden_dims,
+                down_sampling_factor,
+            ),
         )
 
-        self.bottle_neck = block(
-            32 * hidden_dims, 32 * hidden_dims, 32 * hidden_dims, **kwargs
-        )
-
-        self.decoder_5 = block(
-            (32 + 16) * hidden_dims, 16 * hidden_dims, 16 * hidden_dims, **kwargs
-        )
-        self.residual_d5 = Residual((32 + 16) * hidden_dims, 16 * hidden_dims)
-        self.decoder_4 = block(
-            (16 + 8) * hidden_dims, 8 * hidden_dims, 8 * hidden_dims, **kwargs
-        )
-        self.residual_d4 = Residual((16 + 8) * hidden_dims, 8 * hidden_dims)
-        self.decoder_3 = block(
-            (8 + 4) * hidden_dims, 4 * hidden_dims, 4 * hidden_dims, **kwargs
-        )
-        self.residual_d3 = Residual((8 + 4) * hidden_dims, 4 * hidden_dims)
-        self.decoder_2 = block(
-            (4 + 2) * hidden_dims, 2 * hidden_dims, 2 * hidden_dims, **kwargs
-        )
-        self.residual_d2 = Residual((4 + 2) * hidden_dims, 2 * hidden_dims)
-        self.decoder_1 = block(
-            (2 + 1) * hidden_dims, hidden_dims, hidden_dims, **kwargs
-        )
-        self.residual_d1 = Residual((2 + 1) * hidden_dims, hidden_dims)
-
-        self.out = block(input_dims + hidden_dims, output_dims, hidden_dims, **kwargs)
+        self.decoders = nn.ModuleList()
+        for i in range(down_sampling_times - 1):
+            i += 1
+            self.decoders.append(
+                nn.Sequential(
+                    block(
+                        down_sampling_factor ** (down_sampling_times - i) * hidden_dims,
+                        down_sampling_factor ** (down_sampling_times - i) * hidden_dims,
+                        **kwargs
+                    ),
+                    up_sampling(
+                        down_sampling_factor ** (down_sampling_times - i) * hidden_dims,
+                        down_sampling_factor ** (down_sampling_times - i - 1)
+                        * hidden_dims,
+                        down_sampling_factor,
+                    ),
+                )
+            )
+        self.decoders.append(block(hidden_dims, output_dims, **kwargs))
 
     def forward(self, x):
-        x0 = x
+        T = x.shape[1]
+        padding_len = T % self.divisible_factor
+        if padding_len != 0:
+            x = nn.functional.pad(x, (0, 0, 0, self.divisible_factor - padding_len))
 
-        x1 = x = self.residual_e1(x, self.encoder_1(x))
+        h = [x]
+        for encoder in self.encoders:
+            h.append(encoder(h[-1]))
 
-        if x.shape[1] % 2:
-            x = torch.nn.functional.pad(x, (0, 0, 0, 1), "constant", 0)
-        x = rearrange(x, "B (T1 T2) C  -> B T1 (C T2)", T2=2)  # Patch Merging
-        x2 = x = self.encoder_2(x) + x
+        h_ = [self.bottle_neck(h[-1])]
+        for i, decoder in enumerate(self.decoders):
+            h_.append(decoder(h_[-1] + h[-1 - i]))
 
-        if x.shape[1] % 2:
-            x = torch.nn.functional.pad(x, (0, 0, 0, 1), "constant", 0)
-        x = rearrange(x, "B (T1 T2) C  -> B T1 (C T2)", T2=2)
-        x3 = x = self.encoder_3(x) + x
-
-        if x.shape[1] % 2:
-            x = torch.nn.functional.pad(x, (0, 0, 0, 1), "constant", 0)
-        x = rearrange(x, "B (T1 T2) C  -> B T1 (C T2)", T2=2)
-        x4 = x = self.encoder_4(x) + x
-
-        if x.shape[1] % 2:
-            x = torch.nn.functional.pad(x, (0, 0, 0, 1), "constant", 0)
-        x = rearrange(x, "B (T1 T2) C  -> B T1 (C T2)", T2=2)
-        x5 = x = self.encoder_5(x) + x
-
-        if x.shape[1] % 2:
-            x = torch.nn.functional.pad(x, (0, 0, 0, 1), "constant", 0)
-        x = rearrange(x, "B (T1 T2) C  -> B T1 (C T2)", T2=2)
-        x = self.bottle_neck(x)
-
-        x = repeat(x, "B T C -> B (T T2) C", T2=2)
-        x = x[:, : x5.shape[1], :]
-        x = torch.cat((x, x5), dim=-1)
-        x = self.residual_d5(x, self.decoder_5(x))
-
-        x = repeat(x, "B T C -> B (T T2) C", T2=2)
-        x = x[:, : x4.shape[1], :]
-        x = torch.cat((x, x4), dim=-1)
-        x = self.residual_d4(x, self.decoder_4(x))
-
-        x = repeat(x, "B T C -> B (T T2) C", T2=2)
-        x = x[:, : x3.shape[1], :]
-        x = torch.cat((x, x3), dim=-1)
-        x = self.residual_d3(x, self.decoder_3(x))
-
-        x = repeat(x, "B T C -> B (T T2) C", T2=2)
-        x = x[:, : x2.shape[1], :]
-        x = torch.cat((x, x2), dim=-1)
-        x = self.residual_d2(x, self.decoder_2(x))
-
-        x = repeat(x, "B T C -> B (T T2) C", T2=2)
-        x = x[:, : x1.shape[1], :]
-        x = torch.cat((x, x1), dim=-1)
-        x = self.residual_d1(x, self.decoder_1(x))
-
-        x = x[:, : x0.shape[1], :]
-        x = torch.cat((x, x0), dim=-1)
-        out = self.out(x)
+        out = h_[-1]
+        out = out[:, :T, :]
 
         return out
 
 
 if __name__ == "__main__":
-    pass
-    # model = UNetBackbone(1, 2, 64)
-    # print(model)
-    # x = torch.randn(16, 320, 1)
-    # out = model(x)
-    # print(x.shape, out.shape)
+    # pass
+    model = UNetBackbone(1, 2, 64, ResidualBasicBlock, DownSampling, UpSampling)
+    print(model)
+    x = torch.randn(16, 320, 1)
+    out = model(x)
+    print(x.shape, out.shape)
