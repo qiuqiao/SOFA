@@ -13,7 +13,6 @@ drop_last: False
 
 # model
 hidden_dims: 64
-
 optimizer_config:
   total_steps: 10000
   weight_decay: 0.1
@@ -25,56 +24,17 @@ optimizer_config:
     head: False
 
 
-loss_function_config:
-  num_bins: 10
-  alpha: 0.999
-  label_smoothing: 0.08
-  pseudo_label_ratio: 0.3
-
-losses_schedules_config:
-  ph_frame_GHM_loss:
-    weight: 10.0
-    scheduler: # should be imported in modules/scheduler/__init__.py
-      type:
-      kwargs:
-  ph_edge_GHM_loss:
-    weight: 0.1
-    scheduler:
-      type:
-      kwargs:
-  ph_edge_EMD_loss:
-    weight: 0.01
-    scheduler:
-      type:
-      kwargs:
-  ph_edge_diff_loss:
-    weight: 0.1
-    scheduler:
-      type: GaussianRampUpScheduler
-      kwargs:
-        start_steps: 1000
-        max_steps: 10000
-  ctc_GHM_loss:
-    weight: 1.0
-    scheduler:
-      type: GaussianRampUpScheduler
-      kwargs:
-        max_steps: 10000
-  consistency_loss:
-    weight: 1.0
-    scheduler:
-      type: GaussianRampUpScheduler
-      kwargs:
-        max_steps: 10000
-  pseudo_label_loss:
-    weight: 5.0
-    scheduler:
-      type: GaussianRampUpScheduler
-      kwargs:
-        max_steps: 10000
+loss_config:
+  losses:
+    weights: [10.0, 0.1, 0.01, 0.1, 1.0, 1.0, 5.0]
+    enable_RampUpScheduler: [False,False,False,True,True,True,True]
+  function:
+    num_bins: 10
+    alpha: 0.999
+    label_smoothing: 0.08
+    pseudo_label_ratio: 0.3
 
 # trainer
-max_steps: 10000
 accelerator: auto
 devices: auto # num_devices
 precision: bf16-mixed # bf16-mixed , 32-true

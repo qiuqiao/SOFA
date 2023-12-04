@@ -22,8 +22,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         vocab,
         melspec_config,
         optimizer_config,
-        loss_function_config,
-        losses_schedules_config,
+        loss_config,
         data_augmentation_enabled,
     ):
         super().__init__()
@@ -33,7 +32,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.melspec_config = melspec_config  # Required for inference
         self.optimizer_config = optimizer_config
 
-        self.pseudo_label_ratio = loss_function_config["pseudo_label_ratio"]
+        self.pseudo_label_ratio = loss_config["function"]["pseudo_label_ratio"]
         self.pseudo_label_auto_theshold = 0.5
 
         self.losses_names = [
@@ -46,49 +45,44 @@ class LitForcedAlignmentTask(pl.LightningModule):
             "pseudo_label_loss",
             "total_loss",
         ]
-        self.losses_weights = []
-        for k in self.losses_names[:-1]:
-            self.losses_weights.append(losses_schedules_config[k]["weight"])
-        self.losses_weights = torch.tensor(self.losses_weights)
+        self.losses_weights = torch.tensor(loss_config["losses"]["weights"])
 
         self.losses_schedulers = []
-        for k in self.losses_names[:-1]:
-            scheduler_type = losses_schedules_config[k]["scheduler"]["type"]
-            scheduler_kwargs = losses_schedules_config[k]["scheduler"]["kwargs"]
-            if scheduler_type is None:
+        for enabled in loss_config["losses"]["enable_RampUpScheduler"]:
+            if enabled:
                 self.losses_schedulers.append(
-                    getattr(scheduler_module, "NoneScheduler")()
+                    scheduler_module.GaussianRampUpScheduler(
+                        max_steps=optimizer_config["total_steps"]
+                    )
                 )
             else:
-                self.losses_schedulers.append(
-                    getattr(scheduler_module, scheduler_type)(**scheduler_kwargs)
-                )
+                self.losses_schedulers.append(scheduler_module.NoneScheduler())
         self.data_augmentation_enabled = data_augmentation_enabled
 
         # loss function
         self.ph_frame_GHM_loss_fn = MultiLabelGHMLoss(
             self.vocab["<vocab_size>"],
-            loss_function_config["num_bins"],
-            loss_function_config["alpha"],
-            loss_function_config["label_smoothing"],
+            loss_config["function"]["num_bins"],
+            loss_config["function"]["alpha"],
+            loss_config["function"]["label_smoothing"],
         )
         self.pseudo_label_GHM_loss_fn = MultiLabelGHMLoss(
             self.vocab["<vocab_size>"],
-            loss_function_config["num_bins"],
-            loss_function_config["alpha"],
-            loss_function_config["label_smoothing"],
+            loss_config["function"]["num_bins"],
+            loss_config["function"]["alpha"],
+            loss_config["function"]["label_smoothing"],
         )
         self.ph_edge_GHM_loss_fn = MultiLabelGHMLoss(
             1,
-            loss_function_config["num_bins"],
-            loss_function_config["alpha"],
+            loss_config["function"]["num_bins"],
+            loss_config["function"]["alpha"],
             label_smoothing=0.0,
         )
         self.EMD_loss_fn = BinaryEMDLoss()
         self.ph_edge_diff_GHM_loss_fn = MultiLabelGHMLoss(
             1,
-            loss_function_config["num_bins"],
-            loss_function_config["alpha"],
+            loss_config["function"]["num_bins"],
+            loss_config["function"]["alpha"],
             label_smoothing=0.0,
         )
         self.MSE_loss_fn = nn.MSELoss()
@@ -721,7 +715,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ],
             weight_decay=self.optimizer_config["weight_decay"],
         )
-        print(self.optimizer_config["scheduler"]["kwargs"])
         scheduler = {
             "scheduler": lr_scheduler_module.OneCycleLR(
                 optimizer,

@@ -100,8 +100,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
         vocab,
         config["melspec_config"],
         config["optimizer_config"],
-        config["loss_function_config"],
-        config["losses_schedules_config"],
+        config["loss_config"],
         config["data_augmentation_size"] > 0,
     )
 
@@ -116,7 +115,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
         val_check_interval=config["val_check_interval"],
         check_val_every_n_epoch=None,
         max_epochs=-1,
-        max_steps=config["max_steps"],
+        max_steps=config["optimizer_config"]["total_steps"],
     )
 
     ckpt_path = None
