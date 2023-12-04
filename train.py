@@ -87,8 +87,8 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
     # model
     backbone = UNetBackbone(
         config["melspec_config"]["n_mels"],
-        64,  # TODO: hidden dim
-        64,
+        config["hidden_dims"],
+        config["hidden_dims"],
         ResidualBottleNeckBlock,
         DownSampling,
         UpSampling,

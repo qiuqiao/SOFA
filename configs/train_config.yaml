@@ -13,9 +13,9 @@ drop_last: False
 
 # model
 hidden_dims: 64
-init_type: kaiming_normal # kaiming_normal, kaiming_uniform, xavier_normal, xavier_uniform
 
 optimizer_config:
+  total_steps: 10000
   weight_decay: 0.1
   lr:
     backbone: 0.001 # if finetune, set to 0.000001
@@ -23,14 +23,6 @@ optimizer_config:
   freeze:
     backbone: False
     head: False
-
-  scheduler:
-    type: OneCycleLR # import from torch.optim.lr_scheduler
-    kwargs:
-      max_lr:
-        - 0.001 # if finetune, set to 0.000001
-        - 0.001
-      total_steps: 10000 # usually equals to max_steps
 
 
 loss_function_config:

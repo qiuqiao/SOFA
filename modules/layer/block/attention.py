@@ -12,7 +12,7 @@ class MultiHeadSelfAttention(nn.Module):
         max_seq_len: int = 3200,
         dropout: float = 0.0,
         mask: str = "none",
-        init_type: str = "xavier_uniform",
+        init_type: str = "kaiming_uniform",
     ):
         super().__init__()
 

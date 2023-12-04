@@ -723,10 +723,14 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
         print(self.optimizer_config["scheduler"]["kwargs"])
         scheduler = {
-            "scheduler": getattr(
-                lr_scheduler_module, self.optimizer_config["scheduler"]["type"]
-            )(optimizer, **self.optimizer_config["scheduler"]["kwargs"]),
-            "interval": "step",
+            "scheduler": lr_scheduler_module.OneCycleLR(
+                optimizer,
+                max_lr=[
+                    self.optimizer_config["lr"]["backbone"],
+                    self.optimizer_config["lr"]["head"],
+                ],
+                total_steps=self.optimizer_config["total_steps"],
+            )
         }
 
         for k, v in self.optimizer_config["freeze"].items():
