@@ -26,13 +26,17 @@ class UNetBackbone(nn.Module):
             output_dims (int):
             hidden_dims (int):
             block (nn.Module): shape: (B, T, C) -> shape: (B, T, C)
-            down_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T/down_sampling_factor, C*down_sampling_factor)
-            up_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T*down_sampling_factor, C/down_sampling_factor)
+            down_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T/down_sampling_factor, C*2)
+            up_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T*down_sampling_factor, C/2)
         """
         super(UNetBackbone, self).__init__()
         assert issubclass(block, nn.Module)
         assert issubclass(down_sampling, BaseDowmSampling)
         assert issubclass(up_sampling, BaseUpSampling)
+
+        self.input_dims = input_dims
+        self.output_dims = output_dims
+        self.hidden_dims = hidden_dims
 
         self.divisible_factor = down_sampling_factor**down_sampling_times
 
@@ -43,32 +47,28 @@ class UNetBackbone(nn.Module):
             self.encoders.append(
                 nn.Sequential(
                     down_sampling(
-                        down_sampling_factor ** (i - 1) * hidden_dims,
-                        down_sampling_factor**i * hidden_dims,
+                        2 ** (i - 1) * hidden_dims,
+                        2**i * hidden_dims,
                         down_sampling_factor,
                     ),
-                    block(
-                        down_sampling_factor**i * hidden_dims,
-                        down_sampling_factor**i * hidden_dims,
-                        **kwargs
-                    ),
+                    block(2**i * hidden_dims, 2**i * hidden_dims, **kwargs),
                 )
             )
 
         self.bottle_neck = nn.Sequential(
             down_sampling(
-                down_sampling_factor ** (down_sampling_times - 1) * hidden_dims,
-                down_sampling_factor**down_sampling_times * hidden_dims,
+                2 ** (down_sampling_times - 1) * hidden_dims,
+                2**down_sampling_times * hidden_dims,
                 down_sampling_factor,
             ),
             block(
-                down_sampling_factor**down_sampling_times * hidden_dims,
-                down_sampling_factor**down_sampling_times * hidden_dims,
+                2**down_sampling_times * hidden_dims,
+                2**down_sampling_times * hidden_dims,
                 **kwargs
             ),
             up_sampling(
-                down_sampling_factor**down_sampling_times * hidden_dims,
-                down_sampling_factor ** (down_sampling_times - 1) * hidden_dims,
+                2**down_sampling_times * hidden_dims,
+                2 ** (down_sampling_times - 1) * hidden_dims,
                 down_sampling_factor,
             ),
         )
@@ -79,14 +79,13 @@ class UNetBackbone(nn.Module):
             self.decoders.append(
                 nn.Sequential(
                     block(
-                        down_sampling_factor ** (down_sampling_times - i) * hidden_dims,
-                        down_sampling_factor ** (down_sampling_times - i) * hidden_dims,
+                        2 ** (down_sampling_times - i) * hidden_dims,
+                        2 ** (down_sampling_times - i) * hidden_dims,
                         **kwargs
                     ),
                     up_sampling(
-                        down_sampling_factor ** (down_sampling_times - i) * hidden_dims,
-                        down_sampling_factor ** (down_sampling_times - i - 1)
-                        * hidden_dims,
+                        2 ** (down_sampling_times - i) * hidden_dims,
+                        2 ** (down_sampling_times - i - 1) * hidden_dims,
                         down_sampling_factor,
                     ),
                 )
