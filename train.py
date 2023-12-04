@@ -39,7 +39,15 @@ from modules.task.forced_alignment import LitForcedAlignmentTask
     show_default=True,
     help="pretrained model path. if None, training from scratch",
 )
-def main(config_path: str, data_folder: str, pretrained_model_path):
+@click.option(
+    "--resume",
+    "-r",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="resume training from checkpoint",
+)
+def main(config_path: str, data_folder: str, pretrained_model_path, resume):
     data_folder = pathlib.Path(data_folder)
     os.environ[
         "TORCH_CUDNN_V8_API_ENABLED"
@@ -123,7 +131,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
         # use pretrained model TODO: load pretrained model
         pretrained = LitForcedAlignmentTask.load_from_checkpoint(pretrained_model_path)
         lightning_alignment_model.load_pretrained(pretrained)
-    else:
+    elif resume:
         # resume training state
         ckpt_path_list = (pathlib.Path("ckpt") / config["model_name"]).rglob("*.ckpt")
         ckpt_path_list = sorted(
