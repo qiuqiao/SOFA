@@ -8,7 +8,10 @@ import yaml
 from torch.utils.data import DataLoader
 
 from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
-from modules.model.lightning_model import LitForcedAlignmentModel
+from modules.layer.backbone.unet import UNetBackbone
+from modules.layer.block.resnet_block import ResidualBottleNeckBlock
+from modules.layer.scaling.stride_conv import DownSampling, UpSampling
+from modules.task.forced_alignment import LitForcedAlignmentTask
 
 
 @click.command()
@@ -45,7 +48,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     with open(data_folder / "binary" / "vocab.yaml") as f:
-        vocab_text = f.read()
+        vocab = yaml.safe_load(f)
     with open(data_folder / "binary" / "global_config.yaml") as f:
         config_global = yaml.safe_load(f)
     config.update(config_global)
@@ -82,12 +85,20 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
     )
 
     # model
-    lightning_alignment_model = LitForcedAlignmentModel(
-        vocab_text,
-        config["melspec_config"],
+    backbone = UNetBackbone(
         config["melspec_config"]["n_mels"],
-        config["hidden_dims"],
-        config["init_type"],
+        64,  # TODO: hidden dim
+        64,
+        ResidualBottleNeckBlock,
+        DownSampling,
+        UpSampling,
+        down_sampling_factor=3,
+        down_sampling_times=5,
+    )
+    lightning_alignment_model = LitForcedAlignmentTask(
+        backbone,
+        vocab,
+        config["melspec_config"],
         config["optimizer_config"],
         config["loss_function_config"],
         config["losses_schedules_config"],
@@ -111,7 +122,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path):
     ckpt_path = None
     if pretrained_model_path is not None:
         # use pretrained model TODO: load pretrained model
-        pretrained = LitForcedAlignmentModel.load_from_checkpoint(pretrained_model_path)
+        pretrained = LitForcedAlignmentTask.load_from_checkpoint(pretrained_model_path)
         lightning_alignment_model.load_pretrained(pretrained)
     else:
         # resume training state

@@ -6,7 +6,7 @@ import textgrid
 import torch
 
 import modules.g2p
-from train import LitForcedAlignmentModel
+from train import LitForcedAlignmentTask
 
 
 def save_textgrids(predictions):
@@ -63,7 +63,7 @@ def main(ckpt, folder, mode, g2p, **g2p_kwargs):
     grapheme_to_phoneme = g2p_class(**g2p_kwargs)
     dataset = grapheme_to_phoneme.get_dataset(pathlib.Path(folder).rglob("*.wav"))
     torch.set_grad_enabled(False)
-    model = LitForcedAlignmentModel.load_from_checkpoint(ckpt)
+    model = LitForcedAlignmentTask.load_from_checkpoint(ckpt)
     model.set_inference_mode(mode)
     trainer = pl.Trainer()
     predictions = trainer.predict(model, dataloaders=dataset, return_predictions=True)

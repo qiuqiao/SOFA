@@ -5,43 +5,36 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler_module
-import yaml
 from einops import rearrange, repeat
 
 import modules.scheduler as scheduler_module
 from modules.loss.BinaryEMDLoss import BinaryEMDLoss
 from modules.loss.GHMLoss import CTCGHMLoss, MultiLabelGHMLoss
-from modules.model.forced_aligner_model import ForcedAlignmentModel
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
 
 
-class LitForcedAlignmentModel(pl.LightningModule):
+class LitForcedAlignmentTask(pl.LightningModule):
     def __init__(
         self,
-        vocab_text,
+        backbone,
+        vocab,
         melspec_config,
-        input_dims,
-        hidden_dims,
-        init_type,
         optimizer_config,
         loss_function_config,
         losses_schedules_config,
         data_augmentation_enabled,
     ):
         super().__init__()
-        # vocab
-        self.vocab = yaml.safe_load(vocab_text)
-
-        # hparams
-        self.save_hyperparameters()  # TODO:remove this
+        self.backbone = backbone
+        self.head = nn.Linear(backbone.output_dims, vocab["<vocab_size>"] + 2)
+        self.vocab = vocab
         self.melspec_config = melspec_config  # Required for inference
-        self.hidden_dims = hidden_dims
-        self.init_type = init_type
+        self.optimizer_config = optimizer_config
+
         self.pseudo_label_ratio = loss_function_config["pseudo_label_ratio"]
         self.pseudo_label_auto_theshold = 0.5
-        self.optimizer_config = optimizer_config
 
         self.losses_names = [
             "ph_frame_GHM_loss",
@@ -71,14 +64,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
                     getattr(scheduler_module, scheduler_type)(**scheduler_kwargs)
                 )
         self.data_augmentation_enabled = data_augmentation_enabled
-
-        # model
-        self.model = ForcedAlignmentModel(
-            input_dims,
-            self.vocab["<vocab_size>"],
-            hidden_dims=self.hidden_dims,
-            init_type=init_type,
-        )
 
         # loss function
         self.ph_frame_GHM_loss_fn = MultiLabelGHMLoss(
@@ -117,8 +102,14 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         self.inference_mode = "force"
 
-    def load_pretrained(self, pretrained):
-        self.model.load_pretrained(pretrained.model)
+    def load_pretrained(self, pretrained_model):
+        self.backbone = pretrained_model.backbone
+        if self.vocab["vocab_size"] == pretrained_model.vocab["vocab_size"]:
+            self.head = pretrained_model.head
+        else:
+            self.head = nn.Linear(
+                self.backbone.output_dims, self.vocab["<vocab_size>"] + 2
+            )
 
     def on_validation_start(self):
         self.on_train_start()
@@ -590,7 +581,12 @@ class LitForcedAlignmentModel(pl.LightningModule):
         return losses
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        return self.model(*args, **kwargs)
+        h = self.backbone(*args, **kwargs)
+        logits = self.head(h)
+        ph_frame_logits = logits[:, :, 2:]
+        ph_edge_logits = logits[:, :, 0]
+        ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
+        return ph_frame_logits, ph_edge_logits, ctc_logits
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -715,11 +711,11 @@ class LitForcedAlignmentModel(pl.LightningModule):
         optimizer = torch.optim.AdamW(
             [
                 {
-                    "params": self.model.backbone.parameters(),
+                    "params": self.backbone.parameters(),
                     "lr": self.optimizer_config["lr"]["backbone"],
                 },
                 {
-                    "params": self.model.head.parameters(),
+                    "params": self.head.parameters(),
                     "lr": self.optimizer_config["lr"]["head"],
                 },
             ],
@@ -735,6 +731,6 @@ class LitForcedAlignmentModel(pl.LightningModule):
 
         for k, v in self.optimizer_config["freeze"].items():
             if v:
-                getattr(self.model, k).requires_grad_(False)
+                getattr(self, k).requires_grad_(False)
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
