@@ -1,6 +1,4 @@
-# It is recommended to install PyTorch manually.
-# PyTorch >= 2.0 is recommended, but 1.12 and 1.13 is compatible.
-# See instructions at https://pytorch.org/get-started/locally/
+# It is recommended to install torch and torchaudio manually.
 
 click
 einops==0.6.1
@@ -24,6 +22,6 @@ torchmetrics
 tqdm~=4.66.1
 textgrid
 
-torch
-torchaudio
+# torch
+# torchaudio
 pandas~=2.0.3
