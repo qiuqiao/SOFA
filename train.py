@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
 from modules.layer.backbone.unet import UNetBackbone
-from modules.layer.block.resnet_block import ResidualBottleNeckBlock
+from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 from modules.task.forced_alignment import LitForcedAlignmentTask
 
@@ -97,10 +97,10 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         config["melspec_config"]["n_mels"],
         config["hidden_dims"],
         config["hidden_dims"],
-        ResidualBottleNeckBlock,
+        ResidualBasicBlock,
         DownSampling,
         UpSampling,
-        down_sampling_factor=3,
+        down_sampling_factor=4,
         down_sampling_times=5,
     )
     lightning_alignment_model = LitForcedAlignmentTask(
