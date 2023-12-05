@@ -40,4 +40,4 @@ devices: auto # num_devices
 precision: bf16-mixed # bf16-mixed , 32-true
 gradient_clip_val: 1.0
 gradient_clip_algorithm: norm #value
-val_check_interval: 387 # 0.25
+val_check_interval: 500 # 0.25
