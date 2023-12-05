@@ -723,7 +723,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
                     self.optimizer_config["lr"]["head"],
                 ],
                 total_steps=self.optimizer_config["total_steps"],
-            )
+            ),
+            "interval": "step",
         }
 
         for k, v in self.optimizer_config["freeze"].items():
