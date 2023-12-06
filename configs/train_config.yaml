@@ -17,8 +17,8 @@ optimizer_config:
   total_steps: 10000
   weight_decay: 0.1
   lr:
-    backbone: 0.001 # if finetune, set to 0.000001
-    head: 0.001
+    backbone: 0.0005 # if finetune, set to 0.000001
+    head: 0.0005
   freeze:
     backbone: False
     head: False
