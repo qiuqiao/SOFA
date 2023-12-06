@@ -375,7 +375,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # ph_frame_loss
         # print((mask.unsqueeze(-1) * ph_mask.unsqueeze(1)).shape, ph_frame_pred.shape)
         ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
-            ph_frame_logits, ph_frame_gt, mask, valid
+            ph_frame_logits,
+            ph_frame_gt,
+            (mask.unsqueeze(-1) * ph_mask.unsqueeze(1)),
+            valid,
         )
 
         # ph_edge loss
