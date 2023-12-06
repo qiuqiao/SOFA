@@ -217,7 +217,7 @@ class ForcedAlignmentBinarizer:
                 # ph_edge: [scale_factor * T]
                 ph_dur = np.array(item.ph_dur).astype("float32")
                 ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / (
-                    self.frame_length * self.scale_factor
+                    self.frame_length / self.scale_factor
                 )
                 ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
 
