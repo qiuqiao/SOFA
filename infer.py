@@ -36,7 +36,8 @@ def save_textgrids(predictions):
 @click.option(
     "--ckpt",
     "-c",
-    default="ckpt/mandarin_opencpop-extension_singing/lightning_logs/version_15/checkpoints/epoch=1-step=1100.ckpt",
+    default=None,
+    required=True,
     type=str,
     help="path to the checkpoint",
 )
@@ -54,7 +55,7 @@ def save_textgrids(predictions):
     "-d",
     default="dictionary/opencpop-extension.txt",
     type=str,
-    help="(only used when --g2p=='Dictionary')path to the dictionary",
+    help="(only used when --g2p=='Dictionary') path to the dictionary",
 )
 def main(ckpt, folder, mode, g2p, **g2p_kwargs):
     if not g2p.endswith("G2P"):
