@@ -1,12 +1,13 @@
 melspec_config:
   n_mels: 128
-  sample_rate: 48000
+  sample_rate: 44100
   win_length: 1024
-  hop_length: 480
+  hop_length: 512
   n_fft: 2048
   fmin: 40
   fmax: 32000
   clamp: 0.00001
+  scale_factor: 4
 
 data_folder: data/
 valid_set_size: 15

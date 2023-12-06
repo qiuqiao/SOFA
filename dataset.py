@@ -79,6 +79,10 @@ class MixedDataset(torch.utils.data.Dataset):
         # ph_mask
         ph_mask = np.array(item["ph_mask"])
 
+        input_feature = np.repeat(
+            input_feature, len(ph_frame) // input_feature.shape[-1], axis=-1
+        )
+
         return input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type
 
 
@@ -290,7 +294,7 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
     dataset = MixedDataset(2)
-    # print(dataset[0])
+    print(dataset[0])
     # sampler = WeightedBinningAudioBatchSampler(dataset.get_label_types(), dataset.get_wav_lengths(), [1, 0.3, 0.4])
     # for i in tqdm(sampler):
     #     print(len(i))

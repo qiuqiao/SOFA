@@ -32,6 +32,7 @@ class ForcedAlignmentBinarizer:
         )
         self.ignored_phonemes = ignored_phonemes
         self.melspec_config = melspec_config
+        self.scale_factor = melspec_config["scale_factor"]
         self.max_frame_num = max_frame_num
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -140,7 +141,7 @@ class ForcedAlignmentBinarizer:
                 continue
             else:
                 h5py_item_data = h5py_items.create_group(str(idx))
-                wav_length = T * self.frame_length
+                wav_length = len(waveform) / self.sample_rate
                 items_meta_data["wav_lengths"].append(wav_length)
                 idx += 1
                 total_time += wav_length
@@ -179,15 +180,16 @@ class ForcedAlignmentBinarizer:
             h5py_item_data["label_type"] = label_type_id
             items_meta_data["label_types"].append(label_type_id)
 
+            T_ = T * self.scale_factor
             if label_type_id == 0:
                 # ph_seq: [S]
                 ph_seq = np.array([]).astype("int32")
 
-                # ph_edge: [T]
-                ph_edge = np.zeros([T], dtype="float32")
+                # ph_edge: [scale_factor * T]
+                ph_edge = np.zeros([T_], dtype="float32")
 
-                # ph_frame: [T]
-                ph_frame = np.zeros(T, dtype="int32")
+                # ph_frame: [scale_factor * T]
+                ph_frame = np.zeros(T_, dtype="int32")
 
                 # ph_mask: [vocab_size]
                 ph_mask = np.ones(vocab["<vocab_size>"], dtype="int32")
@@ -196,11 +198,11 @@ class ForcedAlignmentBinarizer:
                 ph_seq = np.array(item.ph_seq).astype("int32")
                 ph_seq = ph_seq[ph_seq != 0]
 
-                # ph_edge: [T]
-                ph_edge = np.zeros([T], dtype="float32")
+                # ph_edge: [scale_factor * T]
+                ph_edge = np.zeros([T_], dtype="float32")
 
-                # ph_frame: [T]
-                ph_frame = np.zeros(T, dtype="int32")
+                # ph_frame: [scale_factor * T]
+                ph_frame = np.zeros(T_, dtype="int32")
 
                 # ph_mask: [vocab_size]
                 ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
@@ -212,10 +214,10 @@ class ForcedAlignmentBinarizer:
                 not_sp_idx = ph_seq != 0
                 ph_seq = ph_seq[not_sp_idx]
 
-                # ph_edge: [T]
+                # ph_edge: [scale_factor * T]
                 ph_dur = np.array(item.ph_dur).astype("float32")
-                ph_time = (
-                    np.array(np.concatenate(([0], ph_dur))).cumsum() / self.frame_length
+                ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / (
+                    self.frame_length * self.scale_factor
                 )
                 ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
 
@@ -223,9 +225,9 @@ class ForcedAlignmentBinarizer:
                 ph_seq = ph_seq
                 ph_time = np.unique(ph_interval.flatten())
 
-                ph_edge = np.zeros([T], dtype="float32")
+                ph_edge = np.zeros([T_], dtype="float32")
                 if len(ph_seq) > 0:
-                    if ph_time[-1] + 0.5 > T:
+                    if ph_time[-1] + 0.5 > T_:
                         ph_time = ph_time[:-1]
                     if ph_time[0] - 0.5 < 0:
                         ph_time = ph_time[1:]
@@ -236,14 +238,14 @@ class ForcedAlignmentBinarizer:
                     ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
                     ph_edge = ph_edge * 0.8 + 0.1
 
-                # ph_frame: [T]
-                ph_frame = np.zeros(T, dtype="int32")
+                # ph_frame: [scale_factor * T]
+                ph_frame = np.zeros(T_, dtype="int32")
                 if len(ph_seq) > 0:
                     for ph_id, st, ed in zip(ph_seq, ph_interval[0], ph_interval[1]):
                         if st < 0:
                             st = 0
-                        if ed > T:
-                            ed = T
+                        if ed > T_:
+                            ed = T_
                         ph_frame[int(np.round(st)) : int(np.round(ed))] = ph_id
 
                 # ph_mask: [vocab_size]
@@ -265,6 +267,20 @@ class ForcedAlignmentBinarizer:
             #     h5py_item_data["ph_seq"].shape,
             #     h5py_item_data["ph_edge"].shape,
             #     h5py_item_data["ph_frame"].shape,
+            #     h5py_item_data["ph_mask"].shape,
+            # )
+            # print(
+            #     h5py_item_data["input_feature"].shape[-1] * 4,
+            #     h5py_item_data["ph_edge"].shape[0],
+            #     h5py_item_data["ph_frame"].shape[0],
+            # )
+            # assert (
+            #     h5py_item_data["input_feature"].shape[-1] * 4
+            #     == h5py_item_data["ph_edge"].shape[0]
+            # )
+            # assert (
+            #     h5py_item_data["input_feature"].shape[-1] * 4
+            #     == h5py_item_data["ph_frame"].shape[0]
             # )
 
         for k, v in items_meta_data.items():
