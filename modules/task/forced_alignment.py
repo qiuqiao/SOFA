@@ -5,9 +5,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler_module
+import yaml
 from einops import rearrange, repeat
 
 import modules.scheduler as scheduler_module
+from modules.layer.backbone.unet import UNetBackbone
+from modules.layer.block.resnet_block import ResidualBasicBlock
+from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 from modules.loss.BinaryEMDLoss import BinaryEMDLoss
 from modules.loss.GHMLoss import CTCGHMLoss, MultiLabelGHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
@@ -18,17 +22,32 @@ from modules.utils.plot import plot_for_valid
 class LitForcedAlignmentTask(pl.LightningModule):
     def __init__(
         self,
-        backbone,
-        vocab,
+        vocab_text,
+        model_config,
         melspec_config,
         optimizer_config,
         loss_config,
         data_augmentation_enabled,
     ):
         super().__init__()
-        self.backbone = backbone
-        self.head = nn.Linear(backbone.output_dims, vocab["<vocab_size>"] + 2)
-        self.vocab = vocab
+        self.save_hyperparameters()
+
+        self.vocab = yaml.safe_load(vocab_text)
+
+        self.backbone = UNetBackbone(
+            melspec_config["n_mels"],
+            model_config["hidden_dims"],
+            model_config["hidden_dims"],
+            ResidualBasicBlock,
+            DownSampling,
+            UpSampling,
+            down_sampling_factor=model_config["down_sampling_factor"],  # 3
+            down_sampling_times=model_config["down_sampling_times"],  # 7
+            channels_scaleup_factor=model_config["channels_scaleup_factor"],  # 1.5
+        )
+        self.head = nn.Linear(
+            model_config["hidden_dims"], self.vocab["<vocab_size>"] + 2
+        )
         self.melspec_config = melspec_config  # Required for inference
         self.optimizer_config = optimizer_config
 
@@ -296,9 +315,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 word_intervals_pred.append([ph_intervals[i, 0], ph_intervals[i, 1]])
                 word_idx_last = word_idx
         ph_seq_pred = np.array(ph_seq_pred)
-        ph_intervals_pred = np.array(ph_intervals_pred)
+        ph_intervals_pred = np.array(ph_intervals_pred).clip(min=0, max=None)
         word_seq_pred = np.array(word_seq_pred)
-        word_intervals_pred = np.array(word_intervals_pred)
+        word_intervals_pred = np.array(word_intervals_pred).clip(min=0, max=None)
 
         # ctc decode
         ctc = None

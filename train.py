@@ -8,9 +8,6 @@ import yaml
 from torch.utils.data import DataLoader
 
 from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
-from modules.layer.backbone.unet import UNetBackbone
-from modules.layer.block.resnet_block import ResidualBasicBlock
-from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 from modules.task.forced_alignment import LitForcedAlignmentTask
 
 
@@ -55,8 +52,11 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+
     with open(data_folder / "binary" / "vocab.yaml") as f:
         vocab = yaml.safe_load(f)
+    vocab_text = yaml.safe_dump(vocab)
+
     with open(data_folder / "binary" / "global_config.yaml") as f:
         config_global = yaml.safe_load(f)
     config.update(config_global)
@@ -93,20 +93,9 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
     )
 
     # model
-    backbone = UNetBackbone(
-        config["melspec_config"]["n_mels"],
-        config["hidden_dims"],
-        config["hidden_dims"],
-        ResidualBasicBlock,
-        DownSampling,
-        UpSampling,
-        down_sampling_factor=3,
-        down_sampling_times=7,
-        channels_scaleup_factor=1.5,
-    )
     lightning_alignment_model = LitForcedAlignmentTask(
-        backbone,
-        vocab,
+        vocab_text,
+        config["model"],
         config["melspec_config"],
         config["optimizer_config"],
         config["loss_config"],

@@ -7,12 +7,17 @@ random_seed: 114514
 # dataloader
 dataloader_workers: 0
 oversampling_weights: [ 1, 1, 1 ] # full_label, weak_label, no_label
-batch_max_length: 50 # unit: seconds
+batch_max_length: 100 # unit: seconds
 binning_length: 1000 # unit: seconds
 drop_last: False
 
 # model
-hidden_dims: 96
+model:
+  hidden_dims: 96
+  down_sampling_factor: 3
+  down_sampling_times: 7
+  channels_scaleup_factor: 1.5
+
 optimizer_config:
   total_steps: 10000
   weight_decay: 0.1
