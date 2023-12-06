@@ -117,7 +117,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def load_pretrained(self, pretrained_model):
         self.backbone = pretrained_model.backbone
-        if self.vocab["vocab_size"] == pretrained_model.vocab["vocab_size"]:
+        if self.vocab["<vocab_size>"] == pretrained_model.vocab["<vocab_size>"]:
             self.head = pretrained_model.head
         else:
             self.head = nn.Linear(
