@@ -17,6 +17,7 @@ class UNetBackbone(nn.Module):
         up_sampling,
         down_sampling_factor=2,
         down_sampling_times=5,
+        channels_scaleup_factor=2,
         **kwargs
     ):
         """_summary_
@@ -47,28 +48,32 @@ class UNetBackbone(nn.Module):
             self.encoders.append(
                 nn.Sequential(
                     down_sampling(
-                        2 ** (i - 1) * hidden_dims,
-                        2**i * hidden_dims,
+                        int(channels_scaleup_factor ** (i - 1)) * hidden_dims,
+                        int(channels_scaleup_factor**i) * hidden_dims,
                         down_sampling_factor,
                     ),
-                    block(2**i * hidden_dims, 2**i * hidden_dims, **kwargs),
+                    block(
+                        int(channels_scaleup_factor**i) * hidden_dims,
+                        int(channels_scaleup_factor**i) * hidden_dims,
+                        **kwargs
+                    ),
                 )
             )
 
         self.bottle_neck = nn.Sequential(
             down_sampling(
-                2 ** (down_sampling_times - 1) * hidden_dims,
-                2**down_sampling_times * hidden_dims,
+                int(channels_scaleup_factor ** (down_sampling_times - 1)) * hidden_dims,
+                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
                 down_sampling_factor,
             ),
             block(
-                2**down_sampling_times * hidden_dims,
-                2**down_sampling_times * hidden_dims,
+                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
+                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
                 **kwargs
             ),
             up_sampling(
-                2**down_sampling_times * hidden_dims,
-                2 ** (down_sampling_times - 1) * hidden_dims,
+                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
+                int(channels_scaleup_factor ** (down_sampling_times - 1)) * hidden_dims,
                 down_sampling_factor,
             ),
         )
@@ -79,13 +84,17 @@ class UNetBackbone(nn.Module):
             self.decoders.append(
                 nn.Sequential(
                     block(
-                        2 ** (down_sampling_times - i) * hidden_dims,
-                        2 ** (down_sampling_times - i) * hidden_dims,
+                        int(channels_scaleup_factor ** (down_sampling_times - i))
+                        * hidden_dims,
+                        int(channels_scaleup_factor ** (down_sampling_times - i))
+                        * hidden_dims,
                         **kwargs
                     ),
                     up_sampling(
-                        2 ** (down_sampling_times - i) * hidden_dims,
-                        2 ** (down_sampling_times - i - 1) * hidden_dims,
+                        int(channels_scaleup_factor ** (down_sampling_times - i))
+                        * hidden_dims,
+                        int(channels_scaleup_factor ** (down_sampling_times - i - 1))
+                        * hidden_dims,
                         down_sampling_factor,
                     ),
                 )

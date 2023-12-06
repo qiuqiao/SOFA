@@ -100,8 +100,9 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         ResidualBasicBlock,
         DownSampling,
         UpSampling,
-        down_sampling_factor=4,
-        down_sampling_times=5,
+        down_sampling_factor=3,
+        down_sampling_times=8,
+        channels_scaleup_factor=1.5,
     )
     lightning_alignment_model = LitForcedAlignmentTask(
         backbone,
