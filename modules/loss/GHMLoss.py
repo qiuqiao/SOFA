@@ -9,105 +9,6 @@ def update_ema(ema, alpha, num_bins, hist):
     return ema
 
 
-class GHMLoss(torch.nn.Module):
-    def __init__(
-        self,
-        num_classes,
-        num_loss_bins=10,
-        alpha=0.99,
-        label_smoothing=0.0,
-    ):
-        super().__init__()
-        self.num_classes = num_classes
-        self.register_buffer("classes_ema", torch.ones(num_classes))
-        self.num_loss_bins = num_loss_bins
-        self.register_buffer("loss_bins_ema", torch.ones(num_loss_bins))
-        self.alpha = alpha
-        self.loss_fn = nn.CrossEntropyLoss(
-            reduction="none", label_smoothing=label_smoothing
-        )
-
-    def forward(self, pred, target, mask=None, valid=False):
-        if len(pred) <= 0:
-            return torch.tensor(0.0).to(pred.device)
-        # pred: [B, C, T]
-        assert len(pred.shape) == 3
-        assert pred.shape[1] == self.num_classes
-        # target: [B, T] or [B, C, T]
-        if len(target.shape) == 2:
-            target = target.long()
-        assert len(target.shape) == 2 or (
-            len(target.shape) == 3 and target.shape[1] == self.num_classes
-        )
-        # mask: [B, T]
-        if mask is not None:
-            assert (
-                mask.shape[0] == target.shape[0] and mask.shape[1] == target.shape[-1]
-            )
-
-        raw_loss = self.loss_fn(pred, target)  # [B, T]
-
-        if pred.shape != target.shape:
-            target_probs = (
-                torch.zeros_like(pred)
-                .to(pred.device)
-                .scatter_(1, target.unsqueeze(1).to(torch.int64), 1)
-            )  # [B, C, T]
-        else:
-            target_probs = target  # [B, C, T]
-        pred_probs = torch.softmax(pred, dim=1).detach()  # [B, C, T]
-
-        # calculate weighted loss
-        # 这里与原版实现不同，这里用了L1 loss，而不是原版的梯度模长。这是为了兼容概率张量输入。
-        # 这里的L1_loss值域是[0,2]，除以2以保证范围在[0,1]
-        L1_loss = (pred_probs - target_probs).abs().sum(dim=1).clamp(
-            1e-6, 2 - 1e-6
-        ) / 2  # [B, T]
-        weight = torch.sqrt(
-            (
-                self.classes_ema.unsqueeze(0).unsqueeze(-1)
-                * torch.sqrt(pred_probs * target_probs)
-            ).sum(dim=1)
-            * self.loss_bins_ema[torch.floor(L1_loss * self.num_loss_bins).long()]
-            + 1e-10
-        )  # [B, T]
-        loss_weighted = raw_loss / weight  # [B, T]
-
-        # apply mask
-        if mask is not None:
-            loss_weighted = loss_weighted * mask.float()
-            loss_final = torch.sum(loss_weighted) / torch.sum(mask.float())
-        else:
-            loss_final = torch.mean(loss_weighted)
-
-        if not valid:
-            # update ema
-            # "Elements lower than min and higher than max and NaN elements are ignored."
-            if mask is not None:
-                L1_loss = L1_loss - 10 * mask.logical_not()
-                classes_hist = (
-                    (
-                        torch.sqrt(pred_probs * target_probs)
-                        * (mask.float()).unsqueeze(1)
-                    )
-                    .sum(dim=0)
-                    .sum(dim=-1)
-                )  # [C]
-            else:
-                classes_hist = (
-                    (torch.sqrt(pred_probs * target_probs)).sum(dim=0).sum(dim=-1)
-                )  # [C]
-            loss_hist = torch.histc(L1_loss, bins=self.num_loss_bins, min=0, max=1)
-            self.loss_bins_ema = update_ema(
-                self.loss_bins_ema, self.alpha, self.num_loss_bins, loss_hist
-            )
-            self.classes_ema = update_ema(
-                self.classes_ema, self.alpha, self.num_classes, classes_hist
-            )
-
-        return loss_final
-
-
 class CTCGHMLoss(torch.nn.Module):
     def __init__(self, num_bins=10, alpha=0.999):
         super().__init__()
@@ -306,3 +207,87 @@ if __name__ == "__main__":
     input = torch.nn.functional.sigmoid(torch.randn(3, 3, 10) * 10)
     target = (torch.nn.functional.sigmoid(torch.randn(3, 3, 10)) > 0.5).float()
     print(loss_fn(input, target))
+
+
+class GHMLoss(torch.nn.Module):
+    def __init__(self, num_classes, num_bins=10, alpha=1 - 1e-6, label_smoothing=0.0):
+        super().__init__()
+        self.num_classes = num_classes
+        self.register_buffer("class_ema", torch.ones(num_classes))
+        self.num_bins = num_bins
+        self.register_buffer("GD_ema", torch.ones(num_bins))
+        self.alpha = alpha
+        self.loss_fn = nn.CrossEntropyLoss(reduction="none")
+        self.label_smoothing = label_smoothing
+
+    def forward(self, pred_logits, target_label, mask=None, valid=False):
+        if len(pred_logits) <= 0:
+            return torch.tensor(0.0).to(pred_logits.device)
+
+        # pred: [B, T, C]
+        assert len(pred_logits.shape) == 3 and pred_logits.shape[-1] == self.num_classes
+
+        # target: [B, T]
+        assert len(target_label.shape) == 2
+        assert target_label.shape[0] == pred_logits.shape[0]
+        assert target_label.shape[1] == pred_logits.shape[1]
+        target_label = target_label.long()
+
+        # mask: [B, T] or [B, T, C]
+        if mask is None:
+            mask = torch.ones_like(pred_logits).to(pred_logits.device)
+        if len(mask.shape) == 2:
+            mask = mask.unsqueeze(-1)
+        assert mask.shape[0] == target_label.shape[0]
+        assert mask.shape[1] == target_label.shape[1]
+        assert mask.shape[-1] == 1 or mask.shape[-1] == self.num_classes
+        time_mask = mask.any(dim=-1)  # [B, T]
+
+        pred_logits = pred_logits - 1e9 * mask.logical_not().float()
+        target_prob = (
+            nn.functional.one_hot(target_label, num_classes=self.num_classes)
+            .float()
+            .clamp(self.label_smoothing, 1 - self.label_smoothing)
+        )
+        target_prob = target_prob * mask.float()
+        raw_loss = self.loss_fn(
+            pred_logits.transpose(1, 2), target_prob.transpose(1, 2)
+        )  # [B, T]
+        pred_probs = torch.softmax(pred_logits, dim=-1).detach()  # [B, T, C]
+
+        # calculate weighted loss
+        GD = (pred_probs - target_prob).abs()
+        GD = torch.gather(GD, -1, target_label.unsqueeze(-1)).squeeze(-1)  # [B, T]
+        GD_index = torch.floor(GD * self.num_bins).long().clamp(0, self.num_bins - 1)
+        # GD = GD - 1e9 * time_mask.logical_not().float()
+        weights = torch.sqrt(
+            self.class_ema[target_label].detach() * self.GD_ema[GD_index].detach()
+        )  # [B, T]
+        loss_weighted = (raw_loss / weights) * time_mask.float()  # [B, T]
+        loss_final = torch.sum(loss_weighted) / torch.sum(time_mask.float())
+
+        if not valid:
+            # update ema
+            # "Elements lower than min and higher than max and NaN elements are ignored."
+            target_label = (
+                target_label + (self.num_classes + 10) * time_mask.logical_not().long()
+            )
+            GD_index = GD_index + (self.num_bins + 10) * time_mask.logical_not().long()
+            class_hist = torch.bincount(
+                input=target_label.flatten(),
+                weights=time_mask.flatten(),
+                minlength=self.num_classes,
+            )
+            class_hist = class_hist[: self.num_classes]
+            GD_hist = torch.bincount(
+                input=GD_index.flatten(),
+                weights=time_mask.flatten(),
+                minlength=self.num_bins,
+            )
+            GD_hist = GD_hist[: self.num_bins]
+            self.GD_ema = update_ema(self.GD_ema, self.alpha, self.num_bins, GD_hist)
+            self.class_ema = update_ema(
+                self.class_ema, self.alpha, self.num_classes, class_hist
+            )
+
+        return loss_final
