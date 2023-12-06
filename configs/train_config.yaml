@@ -12,7 +12,7 @@ binning_length: 1000 # unit: seconds
 drop_last: False
 
 # model
-hidden_dims: 64
+hidden_dims: 96
 optimizer_config:
   total_steps: 10000
   weight_decay: 0.1
