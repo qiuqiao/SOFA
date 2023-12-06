@@ -13,7 +13,6 @@ class MixedDataset(torch.utils.data.Dataset):
         augmentation_size,
         binary_data_folder="data/binary",
         prefix="train",
-        binning_length=1800,
     ):
         # do not open hdf5 here
         self.h5py_items = None
@@ -26,7 +25,6 @@ class MixedDataset(torch.utils.data.Dataset):
 
         self.binary_data_folder = binary_data_folder
         self.prefix = prefix
-        self.binning_length = binning_length
 
     def get_label_types(self):
         if self.label_types is None:
