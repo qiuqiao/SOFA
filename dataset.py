@@ -158,7 +158,8 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
 
                 if bin_data["batch_size"] <= 0:
                     raise ValueError(
-                        "batch_size <= 0, maybe batch_max_length is too small or wav length is too long."
+                        "batch_size <= 0, maybe batch_max_length in training config is too small "
+                        "or max_length in binarizing config is too long."
                     )
                 num_batches = item_num / bin_data["batch_size"]
                 if self.drop_last:
