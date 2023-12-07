@@ -11,6 +11,8 @@ def plot_for_valid(
     ph_frame_id_gt,
     edge_prob,
 ):
+    ph_seq = [i.split("/")[-1] for i in ph_seq]
+
     fig, (ax1, ax2) = plt.subplots(2)
     ax1.imshow(melspec[0], origin="lower", aspect="auto")
 

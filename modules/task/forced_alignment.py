@@ -143,11 +143,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
 
     def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
-        # ph_seq_id: (T)
+        # ph_seq_id: (S)
         # ph_prob_log: (T, vocab_size)
         # edge_prob: (T,2)
         T = ph_prob_log.shape[0]
         S = len(ph_seq_id)
+        prob_log = ph_prob_log[:, ph_seq_id]
 
         edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
         not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
@@ -160,23 +161,23 @@ class LitForcedAlignmentTask(pl.LightningModule):
         backtrack_s = np.zeros_like(dp).astype("int32") - 1
         # 如果mode==forced，只能从SP开始或者从第一个音素开始
         if self.inference_mode == "force":
-            dp[0, 0] = ph_prob_log[0, ph_seq_id[0]]
+            dp[0, 0] = prob_log[0, 0]
             if ph_seq_id[0] == 0:
-                dp[0, 1] = ph_prob_log[0, ph_seq_id[1]]
+                dp[0, 1] = prob_log[0, 1]
         # 如果mode==match，可以从任意音素开始
         elif self.inference_mode == "match":
             for i, ph_id in enumerate(ph_seq_id):
-                dp[0, i] = ph_prob_log[0, ph_id]
+                dp[0, i] = prob_log[0, i]
 
         # forward
         for t in range(1, T):
             # [t-1,s] -> [t,s]
-            prob1 = dp[t - 1, :] + ph_prob_log[t, ph_seq_id[:]] + not_edge_prob_log[t]
+            prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
             # [t-1,s-1] -> [t,s]
-            prob2 = dp[t - 1, :-1] + ph_prob_log[t, ph_seq_id[:-1]] + edge_prob_log[t]
+            prob2 = dp[t - 1, :-1] + prob_log[t, :-1] + edge_prob_log[t]
             prob2 = np.pad(prob2, (1, 0), "constant", constant_values=-np.inf)
             # [t-1,s-2] -> [t,s]
-            prob3 = dp[t - 1, :-2] + ph_prob_log[t, ph_seq_id[:-2]] + edge_prob_log[t]
+            prob3 = dp[t - 1, :-2] + prob_log[t, :-2] + edge_prob_log[t]
             prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过SP
             prob3 = np.pad(prob3, (2, 0), "constant", constant_values=-np.inf)
 
@@ -333,17 +334,19 @@ class LitForcedAlignmentTask(pl.LightningModule):
             (ph_intervals_pred / frame_length).round().astype("int32")
         )
         if return_plot:
-            ph_frame_id_gt = np.zeros(T)
-            for ph, interval in zip(ph_seq_pred, ph_intervals_pred_int):
-                ph_frame_id_gt[int(interval[0]) : int(interval[1])] = self.vocab[ph]
-
+            ph_idx_frame = np.zeros(T).astype("int32")
+            last_ph_idx = 0
+            for ph_idx, ph_time in zip(ph_idx_seq, ph_time_int_pred):
+                ph_idx_frame[ph_time] += ph_idx - last_ph_idx
+                last_ph_idx = ph_idx
+            ph_idx_frame = np.cumsum(ph_idx_frame)
             args = {
                 "melspec": melspec.cpu().numpy(),
                 "ph_seq": ph_seq_pred,
                 "ph_intervals": ph_intervals_pred_int,
                 "frame_confidence": frame_confidence,
-                "ph_frame_prob": ph_frame_pred,
-                "ph_frame_id_gt": ph_frame_id_gt,
+                "ph_frame_prob": ph_frame_pred[:, ph_seq_id],
+                "ph_frame_id_gt": ph_idx_frame,
                 "edge_prob": edge_prob,
             }
             fig = plot_for_valid(**args)
