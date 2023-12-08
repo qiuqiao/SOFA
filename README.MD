@@ -113,7 +113,7 @@ It has the following advantages:
    
 # Version Log
 
-- 1.0.0 beta
+- 0.1.0 beta
   - All the code has been refactored
   - The model structure and loss function have been optimized for higher alignment accuracy
   - A training tutorial has been added

@@ -112,7 +112,7 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
    
 # 版本日志
 
-- 1.0.0 beta
+- 0.1.0 beta
   - 重构了所有代码
   - 优化了模型结构、loss函数等，使得对齐的准确率更高
   - 增加了训练教程
