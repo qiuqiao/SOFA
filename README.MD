@@ -68,6 +68,7 @@ It has the following advantages:
 
    - Using a custom g2p instead of a dictionary
      - See [g2p module instructions](modules/g2p/readme_g2p.md)
+   - In the matching mode, you can activate it by specifying `-m` during inference. It finds the most probable contiguous sequence segment within the given phoneme sequence, rather than having to use all the phonemes.
 
 ## Training
 

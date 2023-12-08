@@ -68,7 +68,7 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
 
    - 使用自定义的g2p，而不是使用词典
      - 参见[g2p模块使用说明](modules/g2p/readme_g2p_zh.md)
-
+   - matching模式，推理时指定`-m`即可开启，会在给定的音素序列中找到一个使得概率最大的连续序列片段，而非必须用上所有音素。
 ## 训练
 
 1. 参照上文进行环境配置。建议安装torchaudio以获得更快的binarize速度；
