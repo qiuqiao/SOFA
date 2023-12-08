@@ -34,9 +34,18 @@ class CTCGHMLoss(torch.nn.Module):
             ).to(log_probs.device)
         loss_for_ema = (
             (-raw_loss / input_lengths).exp().clamp(1e-6, 1 - 1e-6)
-        )  # 值域为[0, 1]
-        loss_weighted = raw_loss / (
-            self.ema[torch.floor(loss_for_ema * self.num_bins).long()] + 1e-10
+        ).detach()  # 值域为[0, 1]
+        loss_weighted = (
+            raw_loss
+            / (
+                self.ema[
+                    torch.floor(loss_for_ema * self.num_bins)
+                    .detach()
+                    .long()
+                    .clamp(0, self.num_bins - 1)
+                ].detach()
+                + 1e-10
+            ).detach()
         )
         loss_final = loss_weighted.mean()
 
