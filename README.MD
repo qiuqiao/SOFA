@@ -110,13 +110,3 @@ It has the following advantages:
 3. Modify `binarize_config.yaml` as needed, then execute `python binarize.py`;
 4. Download the pre-trained model you need from releases, modify `train_config.yaml` as needed, then execute `python train.py -p path_to_your_pretrained_model`;
 5. For training visualization: `tensorboard --logdir=ckpt/`.
-   
-# Version Log
-
-- 0.1.0 beta
-  - All the code has been refactored
-  - The model structure and loss function have been optimized for higher alignment accuracy
-  - A training tutorial has been added
-  - AP detection has been removed
-- 0.0.1 beta
-  - First publicly available version
