@@ -10,9 +10,9 @@ melspec_config:
   scale_factor: 4
 
 data_folder: data/
-valid_set_size: 15
+valid_set_size: 8
 valid_set_preferred_folders:
-  - baishuo_0
+  - test
 ignored_phonemes:
   - AP
   - SP
@@ -22,7 +22,7 @@ ignored_phonemes:
   - pau
   - cl
 data_augmentation:
-  size: 2 # if disabled, set to 0
+  size: 2 # must equal or greater than 1
   key_shift_choices: [ 1, 2, 3, 4, 5, 6,-1,-2,-3,-4,-5,-6 ]
 
 max_length: 40 # unit: second
