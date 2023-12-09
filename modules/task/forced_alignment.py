@@ -317,8 +317,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
 
         # postprocess
-        frame_length = (
-            self.melspec_config["hop_length"] / self.melspec_config["sample_rate"]
+        frame_length = self.melspec_config["hop_length"] / (
+            self.melspec_config["sample_rate"] * self.melspec_config["scale_factor"]
         )
         ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
         ph_time_pred = frame_length * (
@@ -405,8 +405,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.get_melspec = MelSpecExtractor(**self.melspec_config)
 
         waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
-        melspec = self.get_melspec(waveform).unsqueeze(0)
+        melspec = self.get_melspec(waveform).detach().unsqueeze(0)
         melspec = (melspec - melspec.mean()) / melspec.std()
+        melspec = repeat(
+            melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
+        )
         (ph_seq, ph_intervals, word_seq, word_intervals, _, _) = self._infer_once(
             melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
         )
