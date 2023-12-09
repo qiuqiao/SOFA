@@ -12,14 +12,17 @@ def plot_for_valid(
     edge_prob,
 ):
     ph_seq = [i.split("/")[-1] for i in ph_seq]
+    x = np.arange(melspec.shape[-1])
 
     fig, (ax1, ax2) = plt.subplots(2)
     ax1.imshow(melspec[0], origin="lower", aspect="auto")
 
     for i, interval in enumerate(ph_intervals):
         if i == 0 or (i > 0 and ph_intervals[i - 1, 1] != interval[0]):
-            ax1.axvline(interval[0], color="r", linewidth=1)
-        ax1.axvline(interval[1], color="r", linewidth=1)
+            if interval[0] > 0:
+                ax1.axvline(interval[0], color="r", linewidth=1)
+        if interval[1] < melspec.shape[-1]:
+            ax1.axvline(interval[1], color="r", linewidth=1)
         if ph_seq[i] != "SP":
             if i % 2:
                 ax1.text(
@@ -40,7 +43,6 @@ def plot_for_valid(
                     color="white",
                 )
 
-    x = np.arange(melspec.shape[-1])
     ax1.plot(
         x, frame_confidence * melspec.shape[-2], color="black", linewidth=1, alpha=0.6
     )
@@ -62,7 +64,6 @@ def plot_for_valid(
     ax2.fill_between(x, edge_prob * ph_frame_prob.shape[-1], color="black", alpha=0.3)
 
     fig.set_size_inches(13, 7)
-    ax1.tick_params(axis="x", which="both", bottom=False, top=False)
     plt.subplots_adjust(hspace=0)
     plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 
