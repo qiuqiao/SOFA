@@ -148,40 +148,65 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # edge_prob: (T,2)
         T = ph_prob_log.shape[0]
         S = len(ph_seq_id)
+        # not_SP_num = (ph_seq_id > 0).sum()
         prob_log = ph_prob_log[:, ph_seq_id]
 
         edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
         not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
-        # 乘上is_phoneme正确分类的概率 TODO: enable this
-        # ph_prob_log[:, 0] += ph_prob_log[:, 0]
-        # ph_prob_log[:, 1:] += 1 / ph_prob_log[:, [0]]
 
         # init
+        curr_ph_max_prob_log = np.zeros(S) - np.inf
         dp = np.zeros([T, S]).astype("float32") - np.inf  # (T, S)
         backtrack_s = np.zeros_like(dp).astype("int32") - 1
         # 如果mode==forced，只能从SP开始或者从第一个音素开始
         if self.inference_mode == "force":
             dp[0, 0] = prob_log[0, 0]
+            curr_ph_max_prob_log[0] = prob_log[0, 0]
             if ph_seq_id[0] == 0:
                 dp[0, 1] = prob_log[0, 1]
+                curr_ph_max_prob_log[1] = prob_log[0, 1]
         # 如果mode==match，可以从任意音素开始
         elif self.inference_mode == "match":
             for i, ph_id in enumerate(ph_seq_id):
                 dp[0, i] = prob_log[0, i]
+                curr_ph_max_prob_log[i] = prob_log[0, i]
 
         # forward
         for t in range(1, T):
             # [t-1,s] -> [t,s]
             prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
             # [t-1,s-1] -> [t,s]
-            prob2 = dp[t - 1, :-1] + prob_log[t, :-1] + edge_prob_log[t]
+            prob2 = (
+                dp[t - 1, :-1]
+                + prob_log[t, :-1]
+                + edge_prob_log[t]
+                + curr_ph_max_prob_log[:-1] * (T / S)
+            )
             prob2 = np.pad(prob2, (1, 0), "constant", constant_values=-np.inf)
             # [t-1,s-2] -> [t,s]
-            prob3 = dp[t - 1, :-2] + prob_log[t, :-2] + edge_prob_log[t]
+            prob3 = (
+                dp[t - 1, :-2]
+                + prob_log[t, :-2]
+                + edge_prob_log[t]
+                + curr_ph_max_prob_log[:-2] * (T / S)
+            )
             prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过SP
             prob3 = np.pad(prob3, (2, 0), "constant", constant_values=-np.inf)
 
             backtrack_s[t, :] = np.argmax(np.stack([prob1, prob2, prob3]), axis=0)
+            curr_ph_max_prob_log[backtrack_s[t, :] == 0] = np.max(
+                np.stack(
+                    [
+                        curr_ph_max_prob_log[backtrack_s[t, :] == 0],
+                        prob_log[t, backtrack_s[t, :] == 0],
+                    ]
+                ),
+                axis=0,
+            )
+            curr_ph_max_prob_log[backtrack_s[t, :] > 0] = prob_log[
+                t, backtrack_s[t, :] > 0
+            ]
+            curr_ph_max_prob_log = curr_ph_max_prob_log * (ph_seq_id > 0)
             dp[t, :] = np.max(np.stack([prob1, prob2, prob3]), axis=0)
 
         # backward
@@ -219,7 +244,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return (
             np.array(ph_idx_seq),
             np.array(ph_time_int),
-            np.array(frame_confidence),
+            np.array(frame_confidence / 2),
         )
 
     def _infer_once(
