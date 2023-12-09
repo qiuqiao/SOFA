@@ -244,7 +244,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return (
             np.array(ph_idx_seq),
             np.array(ph_time_int),
-            np.array(frame_confidence / 2),
+            np.array(frame_confidence),
         )
 
     def _infer_once(
