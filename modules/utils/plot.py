@@ -51,8 +51,8 @@ def plot_for_valid(
         origin="lower",
         aspect="auto",
         interpolation="nearest",
-        vmin=0,
-        vmax=1,
+        # vmin=0,
+        # vmax=1,
     )
 
     ax2.plot(x, ph_frame_id_gt, color="red", linewidth=1.5)

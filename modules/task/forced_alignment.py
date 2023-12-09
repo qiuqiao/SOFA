@@ -13,7 +13,7 @@ from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 from modules.loss.BinaryEMDLoss import BinaryEMDLoss
-from modules.loss.GHMLoss import CTCGHMLoss, MultiLabelGHMLoss
+from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
@@ -79,7 +79,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.data_augmentation_enabled = data_augmentation_enabled
 
         # loss function
-        self.ph_frame_GHM_loss_fn = MultiLabelGHMLoss(
+        self.ph_frame_GHM_loss_fn = GHMLoss(
             self.vocab["<vocab_size>"],
             loss_config["function"]["num_bins"],
             loss_config["function"]["alpha"],
@@ -248,8 +248,21 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ctc_logits,  # (B, T, vocab_size)
             ) = self.forward(melspec.transpose(1, 2))
 
+        ph_mask = (
+            ph_mask.to(ph_frame_logits.device).unsqueeze(0).unsqueeze(0).logical_not()
+            * 1e9
+        )
         ph_frame_pred = (
-            torch.nn.functional.sigmoid(ph_frame_logits.float())
+            torch.nn.functional.softmax(
+                ph_frame_logits.float() - ph_mask.float(), dim=-1
+            )
+            .squeeze(0)
+            .cpu()
+            .numpy()
+            .astype("float32")
+        )
+        ph_prob_log = (
+            torch.log_softmax(ph_frame_logits.float() - ph_mask.float(), dim=-1)
             .squeeze(0)
             .cpu()
             .numpy()
@@ -259,7 +272,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8
         ).clamp(0.0, 1.0)
         ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
-        ph_mask = ph_mask.to(ctc_logits.device).unsqueeze(0).logical_not() * 1e9
         ctc_logits = (
             ctc_logits.float().squeeze(0).cpu().numpy().astype("float32")
         )  # (ctc_logits.squeeze(0) - ph_mask)
@@ -269,7 +281,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # decode
         edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
         edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
-        ph_prob_log = np.log(ph_frame_pred)
         (
             ph_idx_seq,
             ph_time_int_pred,
@@ -387,6 +398,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         valid,
     ):
         T = ph_frame_logits.shape[1]
+
+        # ph_frame_prob_gt = nn.functional.one_hot(
+        #     ph_frame_gt.long(), num_classes=self.vocab["<vocab_size>"]
+        # ).float()
 
         # calculate mask matrix
         # (B, T)
@@ -536,9 +551,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
         not_full_label_idx = label_type < 2
-        ph_frame_prob_gt = nn.functional.one_hot(
-            ph_frame_gt.long(), num_classes=self.vocab["<vocab_size>"]
-        ).float()
         ZERO = torch.tensor(0).to(self.device)
 
         if (full_label_idx).any():
@@ -550,7 +562,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ) = self._get_full_label_loss(
                 ph_frame_logits[full_label_idx, :, :],
                 ph_edge_logits[full_label_idx, :],
-                ph_frame_prob_gt[full_label_idx, :],
+                ph_frame_gt[full_label_idx, :],
                 ph_edge_gt[full_label_idx, :],
                 input_feature_lengths[full_label_idx],
                 ph_mask[full_label_idx, :],
@@ -578,11 +590,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
             consistency_loss = self._get_consistency_loss(
                 ph_frame_logits, ph_edge_logits, input_feature_lengths
             )
-            pseudo_label_loss = self._get_pseudo_label_loss(
-                ph_frame_logits[not_full_label_idx, :, :],
-                input_feature_lengths[not_full_label_idx],
-                valid,
-            )
+            pseudo_label_loss = ZERO
+            # pseudo_label_loss = self._get_pseudo_label_loss(
+            #     ph_frame_logits[not_full_label_idx, :, :],
+            #     input_feature_lengths[not_full_label_idx],
+            #     valid,
+            # )
         else:
             consistency_loss = ZERO
             pseudo_label_loss = ZERO

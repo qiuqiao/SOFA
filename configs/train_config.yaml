@@ -1,4 +1,4 @@
-model_name: mandarin_opencpop-extension_singing
+model_name: mandarin_opencpop-extension
 
 # settings
 float32_matmul_precision: high
