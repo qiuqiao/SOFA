@@ -1,0 +1,47 @@
+model_name: mandarin_opencpop-extension
+
+# settings
+float32_matmul_precision: high
+random_seed: 114514
+
+# dataloader
+dataloader_workers: 0
+oversampling_weights: [ 1, 1, 1 ] # full_label, weak_label, no_label
+batch_max_length: 100 # unit: seconds
+binning_length: 1000 # unit: seconds
+drop_last: False
+
+# model
+model:
+  hidden_dims: 128
+  down_sampling_factor: 3
+  down_sampling_times: 7
+  channels_scaleup_factor: 1.5
+
+optimizer_config:
+  total_steps: 30000
+  weight_decay: 0.1
+  lr:
+    backbone: 0.0005
+    head: 0.0001
+  freeze:
+    backbone: False
+    head: False
+
+loss_config:
+  losses:
+    weights: [10.0, 0.1, 0.01, 0.1, 1.0, 1.0, 5.0]
+    enable_RampUpScheduler: [False,False,False,True,True,True,True]
+  function:
+    num_bins: 10
+    alpha: 0.999
+    label_smoothing: 0.08
+    pseudo_label_ratio: 0.3
+
+# trainer
+accelerator: auto
+devices: auto # num_devices
+precision: bf16-mixed # bf16-mixed , 32-true
+gradient_clip_val: 1.0
+gradient_clip_algorithm: norm #value
+val_check_interval: 500 # 0.25
