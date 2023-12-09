@@ -22,8 +22,8 @@ optimizer_config:
   total_steps: 30000
   weight_decay: 0.1
   lr:
-    backbone: 0.0005
-    head: 0.0001
+    backbone: 0.0001
+    head: 0.0005
   freeze:
     backbone: False
     head: False
