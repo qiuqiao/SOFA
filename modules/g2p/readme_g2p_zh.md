@@ -111,7 +111,7 @@ SP ay SP ae m SP ah SP s t uw d ah n t SP
 
 
 @click.option('--my_param', type=str, default=None, help='My parameter for my g2p module')
-def main(ckpt, folder, g2p, match_mode, **g2p_kwargs):
+def main(ckpt, folder, g2p, match_mode, **kwargs):
     ...
 ```
 
@@ -124,6 +124,8 @@ class MyG2P(BaseG2P):
         self.my_param = kwargs['my_param']
         ...
 ```
+
+**注意：g2p模块和AP_detector模块共用kwargs参数。**
 
 ### 4.2 `_g2p`方法
 

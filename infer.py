@@ -5,6 +5,7 @@ import lightning as pl
 import textgrid
 import torch
 
+import modules.AP_detector
 import modules.g2p
 from train import LitForcedAlignmentTask
 
@@ -51,23 +52,40 @@ def save_textgrids(predictions):
     "--g2p", "-g", default="Dictionary", type=str, help="name of the g2p class"
 )
 @click.option(
+    "--ap_detector",
+    "-a",
+    default="NoneAPDetector",  # "LoudnessSpectralcentroidAPDetector",
+    type=str,
+    help="name of the AP detector class",
+)
+@click.option(
     "--dictionary",
     "-d",
     default="dictionary/opencpop-extension.txt",
     type=str,
     help="(only used when --g2p=='Dictionary') path to the dictionary",
 )
-def main(ckpt, folder, mode, g2p, **g2p_kwargs):
+def main(ckpt, folder, mode, g2p, ap_detector, **kwargs):
     if not g2p.endswith("G2P"):
         g2p += "G2P"
     g2p_class = getattr(modules.g2p, g2p)
-    grapheme_to_phoneme = g2p_class(**g2p_kwargs)
+    grapheme_to_phoneme = g2p_class(**kwargs)
+
+    if not ap_detector.endswith("APDetector"):
+        ap_detector += "APDetector"
+    AP_detector_class = getattr(modules.AP_detector, ap_detector)
+    get_AP = AP_detector_class(**kwargs)
+
     dataset = grapheme_to_phoneme.get_dataset(pathlib.Path(folder).rglob("*.wav"))
+
     torch.set_grad_enabled(False)
     model = LitForcedAlignmentTask.load_from_checkpoint(ckpt)
     model.set_inference_mode(mode)
     trainer = pl.Trainer()
     predictions = trainer.predict(model, dataloaders=dataset, return_predictions=True)
+
+    predictions = get_AP.process(predictions)
+
     save_textgrids(predictions)
     # save_htk(output, predictions)
     # save_transcriptions(output, predictions)

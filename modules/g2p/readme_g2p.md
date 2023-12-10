@@ -121,7 +121,7 @@ Example: If you want to use an additional parameter `--my_param`, you would add 
 
 
 @click.option('--my_param', type=str, default=None, help='My parameter for my g2p module')
-def main(ckpt, folder, g2p, match_mode, **g2p_kwargs):
+def main(ckpt, folder, g2p, match_mode, **kwargs):
     ...
 ```
 
@@ -134,6 +134,7 @@ class MyG2P(BaseG2P):
         self.my_param = kwargs['my_param']
         ...
 ```
+**Note: The g2p module and the AP_detector module share the kwargs parameters.**
 
 ### 4.2 `_g2p` Method
 
