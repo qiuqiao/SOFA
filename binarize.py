@@ -316,7 +316,7 @@ class ForcedAlignmentBinarizer:
         print("Loading metadata...")
         meta_data_df = pd.DataFrame()
         for trans_path in tqdm(trans_path_list):
-            df = pd.read_csv(trans_path)
+            df = pd.read_csv(trans_path, dtype=str)
             df["wav_path"] = df["name"].apply(
                 lambda name: str(trans_path.parent / "wavs" / (str(name) + ".wav")),
             )
