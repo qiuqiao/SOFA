@@ -8,8 +8,8 @@ from modules.utils.load_wav import load_wav
 
 class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
     def __init__(self, **kwargs):
-        self.spectral_centroid_threshold = 50
-        self.spl_threshold = 30
+        self.spectral_centroid_threshold = 40
+        self.spl_threshold = 20
 
         self.device = "cpu" if not torch.cuda.is_available() else "cuda"
 
@@ -57,12 +57,12 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
 
     def _get_diff_intervals(self, intervals_a, intervals_b):
         # get complement of interval_b
-        intervals_b = torch.stack(
+        intervals_b = np.stack(
             [
-                torch.cat([torch.tensor([0.0], device=self.device), intervals_b[:, 1]]),
-                torch.cat([intervals_b[:, 0], intervals_a[[-1], [-1]]]),
+                np.concatenate([[0.0], intervals_b[:, 1]]),
+                np.concatenate([intervals_b[:, 0], intervals_a[[-1], [-1]]]),
             ],
-            dim=-1,
+            axis=-1,
         )
         intervals_b = intervals_b[(intervals_b[:, 0] < intervals_b[:, 1]), :]
 
@@ -115,11 +115,35 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
         ap_intervals = torch.stack([ap_start_idx, ap_end_idx], dim=-1) * (
             self.hop_length / self.sample_rate
         )
-        print(word_intervals)
         ap_intervals = self._get_diff_intervals(
-            ap_intervals, torch.from_numpy(word_intervals).to(self.device)
+            ap_intervals.cpu().numpy(), word_intervals
         )
+        ap_intervals = ap_intervals[(ap_intervals[:, 1] - ap_intervals[:, 0]) > 0.1, :]
 
-        # difference set of ap intervals and ph intervals
+        # merge
+        ap_tuple_list = [
+            ("AP", ap_start, ap_end)
+            for (ap_start, ap_end) in zip(ap_intervals[:, 0], ap_intervals[:, 1])
+        ]
+        word_tuple_list = [
+            (word, word_start, word_end)
+            for (word, (word_start, word_end)) in zip(word_seq, word_intervals)
+        ]
+        word_tuple_list.extend(ap_tuple_list)
+        ph_tuple_list = [
+            (ph, ph_start, ph_end)
+            for (ph, (ph_start, ph_end)) in zip(ph_seq, ph_intervals)
+        ]
+        ph_tuple_list.extend(ap_tuple_list)
+
+        # sort
+        word_tuple_list.sort(key=lambda x: x[1])
+        ph_tuple_list.sort(key=lambda x: x[1])
+
+        ph_seq = [ph for (ph, _, _) in ph_tuple_list]
+        ph_intervals = np.array([(start, end) for (_, start, end) in ph_tuple_list])
+
+        word_seq = [word for (word, _, _) in word_tuple_list]
+        word_intervals = np.array([(start, end) for (_, start, end) in word_tuple_list])
 
         return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
