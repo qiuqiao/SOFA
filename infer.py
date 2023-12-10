@@ -13,10 +13,22 @@ from train import LitForcedAlignmentTask
 def save_textgrids(predictions):
     print("Saving TextGrids...")
 
-    for wav_path, ph_seq, ph_intervals, word_seq, word_intervals in predictions:
+    for (
+        wav_path,
+        wav_length,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
+    ) in predictions:
         tg = textgrid.TextGrid()
         word_tier = textgrid.IntervalTier(name="words")
         ph_tier = textgrid.IntervalTier(name="phones")
+
+        if word_intervals[0].minTime > 0:
+            word_tier.add(minTime=0, maxTime=word_intervals[0].minTime, mark="SP")
+        if ph_intervals[0].minTime > 0:
+            ph_tier.add(minTime=0, maxTime=ph_intervals[0].minTime, mark="SP")
 
         for word, (start, end) in zip(word_seq, word_intervals):
             if len(word_tier) > 0 and word_tier[-1].maxTime < start:
@@ -27,6 +39,11 @@ def save_textgrids(predictions):
             if len(ph_tier) > 0 and ph_tier[-1].maxTime < start:
                 ph_tier.add(minTime=ph_tier[-1].maxTime, maxTime=start, mark="SP")
             ph_tier.add(minTime=start, maxTime=end, mark=ph)
+
+        if len(word_tier) > 0 and word_tier[-1].maxTime < wav_length:
+            word_tier.add(word_tier[-1].maxTime, wav_length, "SP")
+        if len(ph_tier) > 0 and ph_tier[-1].maxTime < wav_length:
+            ph_tier.add(ph_tier[-1].maxTime, wav_length, "SP")
 
         tg.append(word_tier)
         tg.append(ph_tier)

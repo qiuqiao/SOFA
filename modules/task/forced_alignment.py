@@ -405,6 +405,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.get_melspec = MelSpecExtractor(**self.melspec_config)
 
         waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
+        wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
         melspec = self.get_melspec(waveform).detach().unsqueeze(0)
         melspec = (melspec - melspec.mean()) / melspec.std()
         melspec = repeat(
@@ -413,7 +414,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         (ph_seq, ph_intervals, word_seq, word_intervals, _, _) = self._infer_once(
             melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
         )
-        return wav_path, ph_seq, ph_intervals, word_seq, word_intervals
+        return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
 
     def _get_full_label_loss(
         self,

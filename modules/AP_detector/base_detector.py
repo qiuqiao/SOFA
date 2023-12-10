@@ -15,16 +15,25 @@ class BaseAPDetector:
         # output: same as the input.
 
         res = []
-        for wav_path, ph_seq, ph_intervals, word_seq, word_intervals in predictions:
+        for (
+            wav_path,
+            wav_length,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
+        ) in predictions:
             res.append(
                 self.process_one(
-                    wav_path, ph_seq, ph_intervals, word_seq, word_intervals
+                    wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
                 )
             )
 
         return res
 
-    def process_one(self, wav_path, ph_seq, ph_intervals, word_seq, word_intervals):
+    def process_one(
+        self, wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+    ):
         # input:
         #     wav_path: pathlib.Path
         #     ph_seq: list of phonemes, SP is the silence phoneme.
