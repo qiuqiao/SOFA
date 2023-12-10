@@ -87,7 +87,7 @@ def save_textgrids(predictions):
 @click.option(
     "--ap_detector",
     "-a",
-    default="NoneAPDetector",  # "LoudnessSpectralcentroidAPDetector",
+    default="LoudnessSpectralcentroidAPDetector",  # "NoneAPDetector",
     type=str,
     help="name of the AP detector class",
 )
