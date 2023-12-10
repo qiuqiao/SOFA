@@ -1,5 +1,3 @@
-SP	SP
-AP	AP
 a	a
 ai	ai
 an	an

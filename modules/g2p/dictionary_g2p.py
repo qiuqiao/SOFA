@@ -14,10 +14,16 @@ class DictionaryG2P(BaseG2P):
         }
 
     def _g2p(self, input_text):
-        word_seq = input_text.strip().split(" ")
+        word_seq_raw = input_text.strip().split(" ")
+        word_seq = []
+        word_seq_idx = 0
         ph_seq = ["SP"]
         ph_idx_to_word_idx = [-1]
-        for word_idx, word in enumerate(word_seq):
+        for word in word_seq_raw:
+            if word not in self.dictionary:
+                warnings.warn(f"Word {word} is not in the dictionary. Ignored.")
+                continue
+            word_seq.append(word)
             phones = self.dictionary[word]
             for i, ph in enumerate(phones):
                 if (i == 0 or i == len(phones) - 1) and ph == "SP":
@@ -27,11 +33,12 @@ class DictionaryG2P(BaseG2P):
                     )
                     continue
                 ph_seq.append(ph)
-                ph_idx_to_word_idx.append(word_idx)
-
+                ph_idx_to_word_idx.append(word_seq_idx)
             if ph_seq[-1] != "SP":
                 ph_seq.append("SP")
                 ph_idx_to_word_idx.append(-1)
+            word_seq_idx += 1
+
         return ph_seq, word_seq, ph_idx_to_word_idx
 
 
