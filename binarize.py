@@ -354,9 +354,12 @@ class ForcedAlignmentBinarizer:
         meta_data_df["ph_seq"] = meta_data_df["ph_seq"].apply(
             lambda x: ([vocab[i] for i in x.split(" ")] if isinstance(x, str) else [])
         )
-        meta_data_df["ph_dur"] = meta_data_df["ph_dur"].apply(
-            lambda x: ([float(i) for i in x.split(" ")] if isinstance(x, str) else [])
-        )
+        if "ph_dur" in meta_data_df.columns:
+            meta_data_df["ph_dur"] = meta_data_df["ph_dur"].apply(
+                lambda x: (
+                    [float(i) for i in x.split(" ")] if isinstance(x, str) else []
+                )
+            )
         meta_data_df = meta_data_df.sort_values(by="label_type").reset_index(drop=True)
 
         return meta_data_df
