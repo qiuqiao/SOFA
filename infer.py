@@ -2,6 +2,7 @@ import pathlib
 
 import click
 import lightning as pl
+import numpy as np
 import textgrid
 import torch
 
@@ -9,7 +10,67 @@ import modules.AP_detector
 import modules.g2p
 from train import LitForcedAlignmentTask
 
-MIN_SP_LENGTH = 0.05
+MIN_SP_LENGTH = 0.1
+
+
+def add_SP(word_seq, word_intervals, wav_length):
+    word_seq_res = []
+    word_intervals_res = []
+    if word_intervals[0, 0] > 0:
+        word_seq_res.append("SP")
+        word_intervals_res.append([0, word_intervals[0, 0]])
+    for word, (start, end) in zip(word_seq, word_intervals):
+        if word_intervals_res[-1][1] < start:
+            word_seq_res.append("SP")
+            word_intervals_res.append([word_intervals_res[-1][1], start])
+        word_seq_res.append(word)
+        word_intervals_res.append([start, end])
+    if word_intervals_res[-1][1] < wav_length:
+        word_seq_res.append("SP")
+        word_intervals_res.append([word_intervals_res[-1][1], wav_length])
+
+    return word_seq_res, word_intervals_res
+
+
+def fill_small_gaps(word_seq, word_intervals):
+    for idx in range(len(word_seq) - 1):
+        if word_intervals[idx, 1] < word_intervals[idx + 1, 0]:
+            if word_intervals[idx + 1, 0] - word_intervals[idx, 1] < MIN_SP_LENGTH:
+                if word_seq[idx] == "AP":
+                    word_intervals[idx, 1] = word_intervals[idx + 1, 0]
+                elif word_seq[idx + 1] == "AP":
+                    word_intervals[idx + 1, 0] = word_intervals[idx, 1]
+                else:
+                    mean = (word_intervals[idx, 1] + word_intervals[idx + 1, 0]) / 2
+                    word_intervals[idx, 1] = mean
+                    word_intervals[idx + 1, 0] = mean
+
+    return word_seq, word_intervals
+
+
+def post_processing(predictions):
+    print("Post-processing...")
+
+    res = []
+    for (
+        wav_path,
+        wav_length,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
+    ) in predictions:
+        # fill small gaps
+        word_seq, word_intervals = fill_small_gaps(word_seq, word_intervals)
+        ph_seq, ph_intervals = fill_small_gaps(ph_seq, ph_intervals)
+        # add SP
+        word_seq, word_intervals = add_SP(word_seq, word_intervals, wav_length)
+        ph_seq, ph_intervals = add_SP(ph_seq, ph_intervals, wav_length)
+
+        res.append(
+            [wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals]
+        )
+    return res
 
 
 def save_textgrids(predictions):
@@ -27,39 +88,11 @@ def save_textgrids(predictions):
         word_tier = textgrid.IntervalTier(name="words")
         ph_tier = textgrid.IntervalTier(name="phones")
 
-        if word_intervals[0, 0] > 0:
-            word_tier.add(minTime=0, maxTime=word_intervals[0, 0], mark="SP")
-        if ph_intervals[0, 0] > 0:
-            ph_tier.add(minTime=0, maxTime=ph_intervals[0, 0], mark="SP")
-
         for word, (start, end) in zip(word_seq, word_intervals):
-            if len(word_tier) > 0:
-                if start - word_tier[-1].maxTime >= MIN_SP_LENGTH:
-                    word_tier.add(word_tier[-1].maxTime, start, "SP")
-                else:
-                    word_tier[-1].maxTime = start
-
-            if word != "SP" or (word == "SP" and end - start >= MIN_SP_LENGTH):
-                word_tier.add(start, end, word)
-            else:
-                word_tier[-1].maxTime = end
+            word_tier.add(start, end, word)
 
         for ph, (start, end) in zip(ph_seq, ph_intervals):
-            if len(ph_tier) > 0:
-                if start - ph_tier[-1].maxTime >= MIN_SP_LENGTH:
-                    ph_tier.add(ph_tier[-1].maxTime, start, "SP")
-                else:
-                    ph_tier[-1].maxTime = start
-
-            if ph != "SP" or (ph == "SP" and end - start >= MIN_SP_LENGTH):
-                ph_tier.add(minTime=start, maxTime=end, mark=ph)
-            else:
-                ph_tier[-1].maxTime = end
-
-        if len(word_tier) > 0 and word_tier[-1].maxTime < wav_length:
-            word_tier.add(word_tier[-1].maxTime, wav_length, "SP")
-        if len(ph_tier) > 0 and ph_tier[-1].maxTime < wav_length:
-            ph_tier.add(ph_tier[-1].maxTime, wav_length, "SP")
+            ph_tier.add(minTime=start, maxTime=end, mark=ph)
 
         tg.append(word_tier)
         tg.append(ph_tier)
@@ -118,7 +151,7 @@ def main(ckpt, folder, mode, g2p, ap_detector, **kwargs):
     predictions = trainer.predict(model, dataloaders=dataset, return_predictions=True)
 
     predictions = get_AP.process(predictions)
-
+    predictions = post_processing(predictions)
     save_textgrids(predictions)
     # save_htk(output, predictions)
     # save_transcriptions(output, predictions)
