@@ -25,10 +25,10 @@ def save_textgrids(predictions):
         word_tier = textgrid.IntervalTier(name="words")
         ph_tier = textgrid.IntervalTier(name="phones")
 
-        if word_intervals[0].minTime > 0:
-            word_tier.add(minTime=0, maxTime=word_intervals[0].minTime, mark="SP")
-        if ph_intervals[0].minTime > 0:
-            ph_tier.add(minTime=0, maxTime=ph_intervals[0].minTime, mark="SP")
+        if word_intervals[0, 0] > 0:
+            word_tier.add(minTime=0, maxTime=word_intervals[0, 0], mark="SP")
+        if ph_intervals[0, 0] > 0:
+            ph_tier.add(minTime=0, maxTime=ph_intervals[0, 0], mark="SP")
 
         for word, (start, end) in zip(word_seq, word_intervals):
             if len(word_tier) > 0 and word_tier[-1].maxTime < start:
