@@ -44,11 +44,15 @@ class BaseG2P:
         # dataset is a pandas dataframe with columns: wav_path, ph_seq, word_seq, ph_idx_to_word_idx
         dataset = []
         for wav_path in wav_paths:
-            if wav_path.with_suffix(".lab").exists():
-                with open(wav_path.with_suffix(".lab"), "r") as f:
-                    lab_text = f.read().strip()
-                ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)
-                dataset.append((wav_path, ph_seq, word_seq, ph_idx_to_word_idx))
+            try:
+                if wav_path.with_suffix(".lab").exists():
+                    with open(wav_path.with_suffix(".lab"), "r") as f:
+                        lab_text = f.read().strip()
+                    ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)
+                    dataset.append((wav_path, ph_seq, word_seq, ph_idx_to_word_idx))
+            except Exception as e:
+                e.args = (f" Error when processing {wav_path}: {e} ",)
+                raise e
         dataset = pd.DataFrame(
             dataset, columns=["wav_path", "ph_seq", "word_seq", "ph_idx_to_word_idx"]
         )
