@@ -9,6 +9,8 @@ import modules.AP_detector
 import modules.g2p
 from train import LitForcedAlignmentTask
 
+MIN_SP_LENGTH = 0.05
+
 
 def save_textgrids(predictions):
     print("Saving TextGrids...")
@@ -31,14 +33,28 @@ def save_textgrids(predictions):
             ph_tier.add(minTime=0, maxTime=ph_intervals[0, 0], mark="SP")
 
         for word, (start, end) in zip(word_seq, word_intervals):
-            if len(word_tier) > 0 and word_tier[-1].maxTime < start:
-                word_tier.add(word_tier[-1].maxTime, start, "SP")
-            word_tier.add(start, end, word)
+            if len(word_tier) > 0:
+                if start - word_tier[-1].maxTime >= MIN_SP_LENGTH:
+                    word_tier.add(word_tier[-1].maxTime, start, "SP")
+                else:
+                    word_tier[-1].maxTime = start
+
+            if word != "SP" or (word == "SP" and end - start >= MIN_SP_LENGTH):
+                word_tier.add(start, end, word)
+            else:
+                word_tier[-1].maxTime = end
 
         for ph, (start, end) in zip(ph_seq, ph_intervals):
-            if len(ph_tier) > 0 and ph_tier[-1].maxTime < start:
-                ph_tier.add(minTime=ph_tier[-1].maxTime, maxTime=start, mark="SP")
-            ph_tier.add(minTime=start, maxTime=end, mark=ph)
+            if len(ph_tier) > 0:
+                if start - ph_tier[-1].maxTime >= MIN_SP_LENGTH:
+                    ph_tier.add(ph_tier[-1].maxTime, start, "SP")
+                else:
+                    ph_tier[-1].maxTime = start
+
+            if ph != "SP" or (ph == "SP" and end - start >= MIN_SP_LENGTH):
+                ph_tier.add(minTime=start, maxTime=end, mark=ph)
+            else:
+                ph_tier[-1].maxTime = end
 
         if len(word_tier) > 0 and word_tier[-1].maxTime < wav_length:
             word_tier.add(word_tier[-1].maxTime, wav_length, "SP")
