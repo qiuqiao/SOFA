@@ -29,7 +29,7 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
 5. （可选，用于提高wav读取速度）去[pytorch官网](https://pytorch.org/get-started/locally/)安装torchaudio
 6. 安装其他python库
     ```bash
-    pip -r requirements.txt
+    pip install -r requirements.txt
     ```
 
 ## 推理
