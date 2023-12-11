@@ -286,7 +286,8 @@ class ForcedAlignmentBinarizer:
                 # )
             except Exception as e:
                 e.args += (item.wav_path,)
-                raise e
+                print(e)
+                continue
         for k, v in items_meta_data.items():
             h5py_meta_data[k] = np.array(v)
         h5py_file.close()
