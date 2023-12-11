@@ -224,6 +224,8 @@ class ForcedAlignmentBinarizer:
                     ph_interval = ph_interval[:, not_sp_idx]
                     ph_seq = ph_seq
                     ph_time = np.unique(ph_interval.flatten())
+                    if ph_time[-1] >= T:
+                        ph_time = ph_time[:-1]
 
                     ph_edge = np.zeros([T], dtype="float32")
                     if len(ph_seq) > 0:
