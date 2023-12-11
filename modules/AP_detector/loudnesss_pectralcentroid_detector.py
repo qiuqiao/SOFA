@@ -108,7 +108,14 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
             spectral_centroid > self.spectral_centroid_threshold
         )
         ap_frame_diff = torch.diff(
-            torch.cat([torch.tensor([0], device=self.device), ap_frame]), dim=0
+            torch.cat(
+                [
+                    torch.tensor([0], device=self.device),
+                    ap_frame,
+                    torch.tensor([0], device=self.device),
+                ]
+            ),
+            dim=0,
         )
         ap_start_idx = torch.where(ap_frame_diff == 1)[0]
         ap_end_idx = torch.where(ap_frame_diff == -1)[0]
@@ -118,6 +125,8 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
         ap_intervals = self._get_diff_intervals(
             ap_intervals.cpu().numpy(), word_intervals
         )
+        if ap_intervals.shape[0] <= 0:
+            return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
         ap_intervals = ap_intervals[(ap_intervals[:, 1] - ap_intervals[:, 0]) > 0.1, :]
 
         # merge

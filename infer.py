@@ -2,7 +2,6 @@ import pathlib
 
 import click
 import lightning as pl
-import numpy as np
 import textgrid
 import torch
 
@@ -19,6 +18,10 @@ def add_SP(word_seq, word_intervals, wav_length):
     if word_intervals[0, 0] > 0:
         word_seq_res.append("SP")
         word_intervals_res.append([0, word_intervals[0, 0]])
+    if len(word_seq) == 0:
+        word_seq_res.append("SP")
+        word_intervals_res.append([0, wav_length])
+        return word_seq_res, word_intervals_res
     for word, (start, end) in zip(word_seq, word_intervals):
         if word_intervals_res[-1][1] < start:
             word_seq_res.append("SP")
@@ -60,16 +63,20 @@ def post_processing(predictions):
         word_seq,
         word_intervals,
     ) in predictions:
-        # fill small gaps
-        word_seq, word_intervals = fill_small_gaps(word_seq, word_intervals)
-        ph_seq, ph_intervals = fill_small_gaps(ph_seq, ph_intervals)
-        # add SP
-        word_seq, word_intervals = add_SP(word_seq, word_intervals, wav_length)
-        ph_seq, ph_intervals = add_SP(ph_seq, ph_intervals, wav_length)
+        try:
+            # fill small gaps
+            word_seq, word_intervals = fill_small_gaps(word_seq, word_intervals)
+            ph_seq, ph_intervals = fill_small_gaps(ph_seq, ph_intervals)
+            # add SP
+            word_seq, word_intervals = add_SP(word_seq, word_intervals, wav_length)
+            ph_seq, ph_intervals = add_SP(ph_seq, ph_intervals, wav_length)
 
-        res.append(
-            [wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals]
-        )
+            res.append(
+                [wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals]
+            )
+        except Exception as e:
+            e.args += (wav_path,)
+            raise e
     return res
 
 
