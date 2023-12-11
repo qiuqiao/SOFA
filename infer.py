@@ -157,7 +157,7 @@ def main(ckpt, folder, mode, g2p, ap_detector, **kwargs):
     torch.set_grad_enabled(False)
     model = LitForcedAlignmentTask.load_from_checkpoint(ckpt)
     model.set_inference_mode(mode)
-    trainer = pl.Trainer()
+    trainer = pl.Trainer(logger=False)
     predictions = trainer.predict(model, dataloaders=dataset, return_predictions=True)
 
     predictions = get_AP.process(predictions)
