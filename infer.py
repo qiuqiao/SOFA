@@ -15,13 +15,13 @@ MIN_SP_LENGTH = 0.1
 def add_SP(word_seq, word_intervals, wav_length):
     word_seq_res = []
     word_intervals_res = []
-    if word_intervals[0, 0] > 0:
-        word_seq_res.append("SP")
-        word_intervals_res.append([0, word_intervals[0, 0]])
     if len(word_seq) == 0:
         word_seq_res.append("SP")
         word_intervals_res.append([0, wav_length])
         return word_seq_res, word_intervals_res
+
+    word_seq_res.append("SP")
+    word_intervals_res.append([0, word_intervals[0, 0]])
     for word, (start, end) in zip(word_seq, word_intervals):
         if word_intervals_res[-1][1] < start:
             word_seq_res.append("SP")
@@ -31,6 +31,9 @@ def add_SP(word_seq, word_intervals, wav_length):
     if word_intervals_res[-1][1] < wav_length:
         word_seq_res.append("SP")
         word_intervals_res.append([word_intervals_res[-1][1], wav_length])
+    if word_intervals[0, 0] <= 0:
+        word_seq_res = word_seq_res[1:]
+        word_intervals_res = word_intervals_res[1:]
 
     return word_seq_res, word_intervals_res
 
