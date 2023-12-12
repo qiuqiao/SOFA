@@ -137,6 +137,11 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         ckpt_path=ckpt_path,
     )
 
+    # Discard the optimizer and save
+    trainer.save_checkpoint(
+        str(pathlib.Path("ckpt") / config["model_name"]) + ".ckpt", weights_only=True
+    )
+
 
 if __name__ == "__main__":
     main()
