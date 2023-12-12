@@ -57,6 +57,10 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
 
     def _get_diff_intervals(self, intervals_a, intervals_b):
         # get complement of interval_b
+        if intervals_a.shape[0] <= 0:
+            return np.array([])
+        if intervals_b.shape[0] <= 0:
+            return intervals_a
         intervals_b = np.stack(
             [
                 np.concatenate([[0.0], intervals_b[:, 1]]),
