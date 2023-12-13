@@ -220,7 +220,7 @@ def collate_fn(batch):
         input_feature_lengths: (B)
         ph_seq: (B S)
         ph_seq_lengths: (B)
-        attn_target: (S T)
+        attn_target: (B T)
         label_type: (B)
     """
     input_feature_lengths = torch.tensor([i[0].shape[-1] for i in batch])
@@ -279,7 +279,7 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
     dataset = MixedDataset(2)
-    print(dataset[0])
+    print([i.shape for i in dataset[0]])
     # sampler = WeightedBinningAudioBatchSampler(dataset.get_label_types(), dataset.get_wav_lengths(), [1, 0.3, 0.4])
     # for i in tqdm(sampler):
     #     print(len(i))
