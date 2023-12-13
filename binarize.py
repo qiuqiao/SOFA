@@ -179,25 +179,25 @@ class ForcedAlignmentBinarizer:
                 items_meta_data["label_types"].append(label_type_id)
 
                 if label_type_id == 0:
-                    # ctc_target: [S]
-                    ctc_target = np.array([]).astype("int32")
+                    # ph_seq: [S]
+                    ph_seq = np.array([]).astype("int32")
 
                     # attn_target: [T]
                     attn_target = np.zeros(T, dtype="int32")
 
                 elif label_type_id == 1:
-                    # ctc_target: [S]
-                    ctc_target = np.array(item.ph_seq).astype("int32")
-                    ctc_target = ctc_target[ctc_target != 0]
+                    # ph_seq: [S]
+                    ph_seq = np.array(item.ph_seq).astype("int32")
+                    ph_seq = ph_seq[ph_seq != 0]
 
                     # attn_target: [T]
                     attn_target = np.zeros([T], dtype="int32")
 
                 elif label_type_id == 2:
-                    # ctc_target: [S]
-                    ctc_target = np.array(item.ph_seq).astype("int32")
-                    not_sp_idx = ctc_target != 0
-                    ctc_target = ctc_target[not_sp_idx]
+                    # ph_seq: [S]
+                    ph_seq = np.array(item.ph_seq).astype("int32")
+                    not_sp_idx = ph_seq != 0
+                    ph_seq = ph_seq[not_sp_idx]
 
                     # attn_target: [T]
                     attn_target = np.zeros(T, dtype="int32")
@@ -209,7 +209,7 @@ class ForcedAlignmentBinarizer:
                     ph_interval = np.stack((ph_location[:-1], ph_location[1:]))
                     ph_interval = ph_interval[:, not_sp_idx]
 
-                    if len(ctc_target) > 0:
+                    if len(ph_seq) > 0:
                         for i, (st, ed) in enumerate(
                             zip(ph_interval[0], ph_interval[1])
                         ):
@@ -223,13 +223,13 @@ class ForcedAlignmentBinarizer:
                 else:
                     raise ValueError("Unknown label type.")
 
-                h5py_item_data["ctc_target"] = ctc_target.astype("int32")
+                h5py_item_data["ph_seq"] = ph_seq.astype("int32")
                 h5py_item_data["attn_target"] = attn_target.astype("int32")
 
                 # print(
                 #     h5py_item_data["input_feature"].shape,
                 #     np.array(h5py_item_data["label_type"]),
-                #     np.array(h5py_item_data["ctc_target"]),
+                #     np.array(h5py_item_data["ph_seq"]),
                 #     np.array(h5py_item_data["attn_target"]),
                 # )
 
