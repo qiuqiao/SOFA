@@ -35,9 +35,8 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
 ## 推理
 
 1. 下载模型文件。你可以在[本仓库的release](github.com/qiuqiao/SOFA/releases)中找到训练好的模型，也可以从[discussion板块](github.com/qiuqiao/SOFA/discussions/categories/pretrained-model-sharing)中找到用户分享的模型下载链接，文件后缀为`.ckpt`。
-2. 把模型文件移动到`/ckpt`​​文件夹下。
-3. 把字典文件放入`/dictionary`​​文件夹中。默认字典为`opencpop-extension.txt`​​
-4. 准备需要强制对齐的数据，放入一个文件夹中（默认放在`/segments`​​文件夹），格式如下
+2. 把字典文件放入`/dictionary`​​文件夹中。默认字典为`opencpop-extension.txt`​​
+3. 准备需要强制对齐的数据，放入一个文件夹中（默认放在`/segments`​​文件夹），格式如下
     ```text
     - segments
         - singer1
@@ -52,7 +51,7 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
             - ...
     ```
     保证`.wav`文件和对应的`.lab`在同一个文件夹即可。
-5. 命令行推理
+4. 命令行推理
 
     使用`python infer.py`进行推理。
 
@@ -62,7 +61,7 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
     - `--dictionary`：字典文件​（默认为`dictionary/opencpop-extension.txt`​）；
 
     ```bash
-    python infer.py -c checkpoint_name -s segments_path -d dictionary_path
+    python infer.py -c checkpoint_path -s segments_path -d dictionary_path
     ```
 ### 高级功能
 
