@@ -94,7 +94,6 @@ class ForcedAlignmentBinarizer:
         self.binarize(
             "valid",
             meta_data_valid,
-            vocab,
             self.data_folder / "binary",
             False,
         )
@@ -103,7 +102,6 @@ class ForcedAlignmentBinarizer:
         self.binarize(
             "train",
             meta_data_train,
-            vocab,
             self.data_folder / "binary",
             self.data_augmentation["size"] > 0,
         )
@@ -112,7 +110,6 @@ class ForcedAlignmentBinarizer:
         self,
         prefix: str,
         meta_data: pd.DataFrame,
-        vocab: dict,
         binary_data_folder: str,
         enable_data_augmentation: bool,
     ):
@@ -130,7 +127,6 @@ class ForcedAlignmentBinarizer:
         total_time = 0.0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
             try:
-                # input_feature: [data_augmentation.size+1,input_dim,T]
                 waveform = load_wav(item.wav_path, self.device, self.sample_rate)
                 input_feature = self.get_melspec(waveform)
 
@@ -147,6 +143,7 @@ class ForcedAlignmentBinarizer:
                     idx += 1
                     total_time += wav_length
 
+                # input_feature: [data_augmentation.size+1,input_dim,T]
                 if enable_data_augmentation:
                     input_features = [input_feature]
                     key_shifts = np.random.choice(
@@ -182,114 +179,63 @@ class ForcedAlignmentBinarizer:
                 items_meta_data["label_types"].append(label_type_id)
 
                 if label_type_id == 0:
-                    # ph_seq: [S]
-                    ph_seq = np.array([]).astype("int32")
+                    # ctc_target: [S]
+                    ctc_target = np.array([]).astype("int32")
 
-                    # ph_edge: [scale_factor * T]
-                    ph_edge = np.zeros([T], dtype="float32")
+                    # attn_target: [T]
+                    attn_target = np.zeros(T, dtype="int32")
 
-                    # ph_frame: [scale_factor * T]
-                    ph_frame = np.zeros(T, dtype="int32")
-
-                    # ph_mask: [vocab_size]
-                    ph_mask = np.ones(vocab["<vocab_size>"], dtype="int32")
                 elif label_type_id == 1:
-                    # ph_seq: [S]
-                    ph_seq = np.array(item.ph_seq).astype("int32")
-                    ph_seq = ph_seq[ph_seq != 0]
+                    # ctc_target: [S]
+                    ctc_target = np.array(item.ph_seq).astype("int32")
+                    ctc_target = ctc_target[ctc_target != 0]
 
-                    # ph_edge: [scale_factor * T]
-                    ph_edge = np.zeros([T], dtype="float32")
+                    # attn_target: [T]
+                    attn_target = np.zeros([T], dtype="int32")
 
-                    # ph_frame: [scale_factor * T]
-                    ph_frame = np.zeros(T, dtype="int32")
-
-                    # ph_mask: [vocab_size]
-                    ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
-                    ph_mask[ph_seq] = 1
-                    ph_mask[0] = 1
                 elif label_type_id == 2:
-                    # ph_seq: [S]
-                    ph_seq = np.array(item.ph_seq).astype("int32")
-                    not_sp_idx = ph_seq != 0
-                    ph_seq = ph_seq[not_sp_idx]
+                    # ctc_target: [S]
+                    ctc_target = np.array(item.ph_seq).astype("int32")
+                    not_sp_idx = ctc_target != 0
+                    ctc_target = ctc_target[not_sp_idx]
 
-                    # ph_edge: [scale_factor * T]
+                    # attn_target: [T]
+                    attn_target = np.zeros(T, dtype="int32")
+
                     ph_dur = np.array(item.ph_dur).astype("float32")
-                    ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / (
+                    ph_location = np.concatenate(([0.0], ph_dur)).cumsum() / (
                         self.frame_length / self.scale_factor
                     )
-                    ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
-
+                    ph_interval = np.stack((ph_location[:-1], ph_location[1:]))
                     ph_interval = ph_interval[:, not_sp_idx]
-                    ph_seq = ph_seq
-                    ph_time = np.unique(ph_interval.flatten())
-                    if ph_time[-1] >= T:
-                        ph_time = ph_time[:-1]
 
-                    ph_edge = np.zeros([T], dtype="float32")
-                    if len(ph_seq) > 0:
-                        if ph_time[-1] + 0.5 > T:
-                            ph_time = ph_time[:-1]
-                        if ph_time[0] - 0.5 < 0:
-                            ph_time = ph_time[1:]
-                        ph_time_int = np.round(ph_time).astype("int32")
-                        ph_time_fractional = ph_time - ph_time_int
-
-                        ph_edge[ph_time_int] = 0.5 + ph_time_fractional
-                        ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
-                        ph_edge = ph_edge * 0.8 + 0.1
-
-                    # ph_frame: [scale_factor * T]
-                    ph_frame = np.zeros(T, dtype="int32")
-                    if len(ph_seq) > 0:
-                        for ph_id, st, ed in zip(
-                            ph_seq, ph_interval[0], ph_interval[1]
+                    if len(ctc_target) > 0:
+                        for i, (st, ed) in enumerate(
+                            zip(ph_interval[0], ph_interval[1])
                         ):
                             if st < 0:
                                 st = 0
                             if ed > T:
                                 ed = T
-                            ph_frame[int(np.round(st)) : int(np.round(ed))] = ph_id
-
-                    # ph_mask: [vocab_size]
-                    ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
-                    if len(ph_seq) > 0:
-                        ph_mask[ph_seq] = 1
-                    ph_mask[0] = 1
+                            attn_target[int(np.round(st)) : int(np.round(ed))] = (
+                                i + 1
+                            )  # 0表示空白
                 else:
                     raise ValueError("Unknown label type.")
 
-                h5py_item_data["ph_seq"] = ph_seq.astype("int32")
-                h5py_item_data["ph_edge"] = ph_edge.astype("float32")
-                h5py_item_data["ph_frame"] = ph_frame.astype("int32")
-                h5py_item_data["ph_mask"] = ph_mask.astype("int32")
+                h5py_item_data["ctc_target"] = ctc_target.astype("int32")
+                h5py_item_data["attn_target"] = attn_target.astype("int32")
 
                 # print(
                 #     h5py_item_data["input_feature"].shape,
                 #     np.array(h5py_item_data["label_type"]),
-                #     h5py_item_data["ph_seq"].shape,
-                #     h5py_item_data["ph_edge"].shape,
-                #     h5py_item_data["ph_frame"].shape,
-                #     h5py_item_data["ph_mask"].shape,
+                #     np.array(h5py_item_data["ctc_target"]),
+                #     np.array(h5py_item_data["attn_target"]),
                 # )
-                # print(
-                #     h5py_item_data["input_feature"].shape[-1] * 4,
-                #     h5py_item_data["ph_edge"].shape[0],
-                #     h5py_item_data["ph_frame"].shape[0],
-                # )
-                # assert (
-                #     h5py_item_data["input_feature"].shape[-1] * 4
-                #     == h5py_item_data["ph_edge"].shape[0]
-                # )
-                # assert (
-                #     h5py_item_data["input_feature"].shape[-1] * 4
-                #     == h5py_item_data["ph_frame"].shape[0]
-                # )
+
             except Exception as e:
                 e.args += (item.wav_path,)
-                print(e)
-                continue
+                raise e
         for k, v in items_meta_data.items():
             h5py_meta_data[k] = np.array(v)
         h5py_file.close()
