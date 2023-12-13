@@ -65,23 +65,17 @@ class MixedDataset(torch.utils.data.Dataset):
         # label_type
         label_type = np.array(item["label_type"])
 
-        # ph_seq
-        ph_seq = np.array(item["ph_seq"])
+        # ctc_target
+        ctc_target = np.array(item["ctc_target"])
 
-        # ph_edge
-        ph_edge = np.array(item["ph_edge"])
-
-        # ph_frame
-        ph_frame = np.array(item["ph_frame"])
-
-        # ph_mask
-        ph_mask = np.array(item["ph_mask"])
+        # attn_target
+        attn_target = np.array(item["attn_target"])
 
         input_feature = np.repeat(
-            input_feature, len(ph_frame) // input_feature.shape[-1], axis=-1
+            input_feature, attn_target.shape[-1] // input_feature.shape[-1], axis=-1
         )
 
-        return input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type
+        return input_feature, ctc_target, attn_target, label_type
 
 
 class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
@@ -219,22 +213,20 @@ def collate_fn(batch):
     """_summary_
 
     Args:
-        batch (tuple): input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type from MixedDataset
+        batch (tuple): input_feature, ctc_target, attn_target, label_type from MixedDataset
 
     Returns:
         input_feature: (B C T)
         input_feature_lengths: (B)
-        ph_seq: (B S)
-        ph_seq_lengths: (B)
-        ph_edge: (B T)
-        ph_frame: (B T)
-        ph_mask: (B vocab_size)
+        ctc_target: (B S)
+        ctc_target_lengths: (B)
+        attn_target: (S T)
         label_type: (B)
     """
     input_feature_lengths = torch.tensor([i[0].shape[-1] for i in batch])
-    max_len = max(input_feature_lengths)
-    ph_seq_lengths = torch.tensor([len(item[1]) for item in batch])
-    max_ph_seq_len = max(ph_seq_lengths)
+    max_feature_len = max(input_feature_lengths)
+    ctc_target_lengths = torch.tensor([len(item[1]) for item in batch])
+    max_ctc_len = max(ctc_target_lengths)
     if batch[0][0].shape[0] > 1:
         augmentation_enabled = True
     else:
@@ -243,16 +235,16 @@ def collate_fn(batch):
     # padding
     for i, item in enumerate(batch):
         item = list(item)
-        for param in [0, 2, 3]:
+        for param in [0, 2]:
             item[param] = torch.nn.functional.pad(
                 torch.tensor(item[param]),
-                (0, max_len - item[param].shape[-1]),
+                (0, max_feature_len - item[param].shape[-1]),
                 "constant",
                 0,
             )
         item[1] = torch.nn.functional.pad(
             torch.tensor(item[1]),
-            (0, max_ph_seq_len - item[1].shape[-1]),
+            (0, max_ctc_len - item[1].shape[-1]),
             "constant",
             0,
         )
@@ -261,10 +253,8 @@ def collate_fn(batch):
 
     input_feature = torch.stack([item[0] for item in batch], dim=1)
     input_feature = rearrange(input_feature, "n b c t -> (n b) c t")
-    ph_seq = torch.stack([item[1] for item in batch])
-    ph_edge = torch.stack([item[2] for item in batch])
-    ph_frame = torch.stack([item[3] for item in batch])
-    ph_mask = torch.stack([item[4] for item in batch])
+    ctc_target = torch.stack([item[1] for item in batch])
+    attn_target = torch.stack([item[2] for item in batch])
 
     label_type = torch.tensor(np.array([item[5] for item in batch]))
 
@@ -272,21 +262,19 @@ def collate_fn(batch):
         input_feature_lengths = torch.concat(
             [input_feature_lengths, input_feature_lengths], dim=0
         )
-        ph_seq = torch.concat([ph_seq, ph_seq], dim=0)
-        ph_seq_lengths = torch.concat([ph_seq_lengths, ph_seq_lengths], dim=0)
-        ph_edge = torch.concat([ph_edge, ph_edge], dim=0)
-        ph_frame = torch.concat([ph_frame, ph_frame], dim=0)
-        ph_mask = torch.concat([ph_mask, ph_mask], dim=0)
+        ctc_target = torch.concat([ctc_target, ctc_target], dim=0)
+        ctc_target_lengths = torch.concat(
+            [ctc_target_lengths, ctc_target_lengths], dim=0
+        )
+        attn_target = torch.concat([attn_target, attn_target], dim=0)
         label_type = torch.concat([label_type, label_type], dim=0)
 
     return (
         input_feature,
         input_feature_lengths,
-        ph_seq,
-        ph_seq_lengths,
-        ph_edge,
-        ph_frame,
-        ph_mask,
+        ctc_target,
+        ctc_target_lengths,
+        attn_target,
         label_type,
     )
 
