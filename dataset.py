@@ -248,7 +248,7 @@ def collate_fn(batch):
             "constant",
             0,
         )
-        item[4] = torch.from_numpy(item[4])
+        item[3] = torch.from_numpy(item[3])
         batch[i] = tuple(item)
 
     input_feature = torch.stack([item[0] for item in batch], dim=1)
@@ -256,7 +256,7 @@ def collate_fn(batch):
     ph_seq = torch.stack([item[1] for item in batch])
     attn_target = torch.stack([item[2] for item in batch])
 
-    label_type = torch.tensor(np.array([item[5] for item in batch]))
+    label_type = torch.tensor(np.array([item[3] for item in batch]))
 
     if augmentation_enabled:
         input_feature_lengths = torch.concat(
