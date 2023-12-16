@@ -12,8 +12,6 @@ import modules.scheduler as scheduler_module
 from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
-from modules.loss.BinaryEMDLoss import BinaryEMDLoss
-from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
@@ -34,20 +32,25 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         self.vocab = yaml.safe_load(vocab_text)
 
-        self.backbone = UNetBackbone(
+        # model
+        self.audio_encoder = UNetBackbone(
             melspec_config["n_mels"],
-            model_config["hidden_dims"],
-            model_config["hidden_dims"],
+            model_config["audio_encoder"]["hidden_dims"] + 1,
+            model_config["num_embeddings"],
             ResidualBasicBlock,
             DownSampling,
             UpSampling,
-            down_sampling_factor=model_config["down_sampling_factor"],  # 3
-            down_sampling_times=model_config["down_sampling_times"],  # 7
-            channels_scaleup_factor=model_config["channels_scaleup_factor"],  # 1.5
+            down_sampling_factor=model_config["audio_encoder"]["down_sampling_factor"],
+            down_sampling_times=model_config["audio_encoder"]["down_sampling_times"],
+            channels_scaleup_factor=model_config["audio_encoder"][
+                "channels_scaleup_factor"
+            ],
         )
-        self.head = nn.Linear(
-            model_config["hidden_dims"], self.vocab["<vocab_size>"] + 2
+        self.phoneme_encoder = nn.Embedding(
+            self.vocab["<vocab_size>"], model_config["num_embeddings"]
         )
+        self.sp_logits = nn.Parameter(torch.ones(2) * -1)
+
         self.melspec_config = melspec_config  # Required for inference
         self.optimizer_config = optimizer_config
 
@@ -55,14 +58,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.pseudo_label_auto_theshold = 0.5
 
         self.losses_names = [
-            "ph_frame_GHM_loss",
-            "ph_edge_GHM_loss",
-            "ph_edge_EMD_loss",
-            "ph_edge_diff_loss",
-            "ctc_GHM_loss",
+            "full_label_loss",
+            "ctc_loss",
             "consistency_loss",
-            "pseudo_label_loss",
-            "total_loss",
         ]
         self.losses_weights = torch.tensor(loss_config["losses"]["weights"])
 
@@ -78,34 +76,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 self.losses_schedulers.append(scheduler_module.NoneScheduler())
         self.data_augmentation_enabled = data_augmentation_enabled
 
-        # loss function
-        self.ph_frame_GHM_loss_fn = GHMLoss(
-            self.vocab["<vocab_size>"],
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            loss_config["function"]["label_smoothing"],
-        )
-        self.pseudo_label_GHM_loss_fn = MultiLabelGHMLoss(
-            self.vocab["<vocab_size>"],
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            loss_config["function"]["label_smoothing"],
-        )
-        self.ph_edge_GHM_loss_fn = MultiLabelGHMLoss(
-            1,
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            label_smoothing=0.0,
-        )
-        self.EMD_loss_fn = BinaryEMDLoss()
-        self.ph_edge_diff_GHM_loss_fn = MultiLabelGHMLoss(
-            1,
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            label_smoothing=0.0,
-        )
-        self.MSE_loss_fn = nn.MSELoss()
-        self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=1 - 1e-3)
+        # loss functions
 
         # get_melspec
         self.get_melspec = None
@@ -116,13 +87,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.inference_mode = "force"
 
     def load_pretrained(self, pretrained_model):
-        self.backbone = pretrained_model.backbone
-        if self.vocab["<vocab_size>"] == pretrained_model.vocab["<vocab_size>"]:
-            self.head = pretrained_model.head
+        self.audio_encoder = pretrained_model.audio_encoder
+        self.sp_logits = pretrained_model.sp_logits
+        if pretrained_model.vocab["<vocab_size>"] == self.vocab["<vocab_size>"]:
+            self.phoneme_encoder = pretrained_model.phoneme_encoder
         else:
-            self.head = nn.Linear(
-                self.backbone.output_dims, self.vocab["<vocab_size>"] + 2
-            )
+            print("phoneme_encoder not loaded. vocab size mismatch.")
 
     def on_validation_start(self):
         self.on_train_start()
@@ -142,76 +112,69 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.device
         )
 
-    def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
+    def _decode(self, ph_seq_id, alignment_matrix):
         # ph_seq_id: (S)
-        # ph_prob_log: (T, vocab_size)
-        # edge_prob: (T,2)
-        T = ph_prob_log.shape[0]
-        S = len(ph_seq_id)
-        # not_SP_num = (ph_seq_id > 0).sum()
-        prob_log = ph_prob_log[:, ph_seq_id]
-
-        edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
-        not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
+        # alignment_matrix: (T, S)
+        T, S = alignment_matrix.shape
+        assert len(ph_seq_id) == S
 
         # init
-        curr_ph_max_prob_log = np.zeros(S) - np.inf
+        curr_ph_max_logprob = np.zeros(S) - np.inf
         dp = np.zeros([T, S]).astype("float32") - np.inf  # (T, S)
         backtrack_s = np.zeros_like(dp).astype("int32") - 1
         # 如果mode==forced，只能从SP开始或者从第一个音素开始
         if self.inference_mode == "force":
-            dp[0, 0] = prob_log[0, 0]
-            curr_ph_max_prob_log[0] = prob_log[0, 0]
+            dp[0, 0] = alignment_matrix[0, 0]
+            curr_ph_max_logprob[0] = alignment_matrix[0, 0]
             if ph_seq_id[0] == 0:
-                dp[0, 1] = prob_log[0, 1]
-                curr_ph_max_prob_log[1] = prob_log[0, 1]
+                dp[0, 1] = alignment_matrix[0, 1]
+                curr_ph_max_logprob[1] = alignment_matrix[0, 1]
         # 如果mode==match，可以从任意音素开始
         elif self.inference_mode == "match":
-            for i, ph_id in enumerate(ph_seq_id):
-                dp[0, i] = prob_log[0, i]
-                curr_ph_max_prob_log[i] = prob_log[0, i]
+            dp[0, :] = alignment_matrix[0, :]
+            curr_ph_max_logprob[:] = alignment_matrix[0, :]
+        else:
+            raise ValueError("inference_mode must be 'force' or 'match'")
 
         # forward
         for t in range(1, T):
             # [t-1,s] -> [t,s]
-            prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
+            prob1 = dp[t - 1, :] + alignment_matrix[t, :]
             # [t-1,s-1] -> [t,s]
             prob2 = (
                 dp[t - 1, :-1]
-                + prob_log[t, :-1]
-                + edge_prob_log[t]
-                + curr_ph_max_prob_log[:-1] * (T / S)
+                + alignment_matrix[t, :-1]
+                + curr_ph_max_logprob[:-1] * (T / S)
             )
             prob2 = np.pad(prob2, (1, 0), "constant", constant_values=-np.inf)
             # [t-1,s-2] -> [t,s]
             prob3 = (
                 dp[t - 1, :-2]
-                + prob_log[t, :-2]
-                + edge_prob_log[t]
-                + curr_ph_max_prob_log[:-2] * (T / S)
+                + alignment_matrix[t, :-2]
+                + curr_ph_max_logprob[:-2] * (T / S)
             )
             prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过SP
             prob3 = np.pad(prob3, (2, 0), "constant", constant_values=-np.inf)
 
             backtrack_s[t, :] = np.argmax(np.stack([prob1, prob2, prob3]), axis=0)
-            curr_ph_max_prob_log[backtrack_s[t, :] == 0] = np.max(
+            curr_ph_max_logprob[backtrack_s[t, :] == 0] = np.max(
                 np.stack(
                     [
-                        curr_ph_max_prob_log[backtrack_s[t, :] == 0],
-                        prob_log[t, backtrack_s[t, :] == 0],
+                        curr_ph_max_logprob[backtrack_s[t, :] == 0],
+                        alignment_matrix[t, backtrack_s[t, :] == 0],
                     ]
                 ),
                 axis=0,
             )
-            curr_ph_max_prob_log[backtrack_s[t, :] > 0] = prob_log[
+            curr_ph_max_logprob[backtrack_s[t, :] > 0] = alignment_matrix[
                 t, backtrack_s[t, :] > 0
             ]
-            curr_ph_max_prob_log = curr_ph_max_prob_log * (ph_seq_id > 0)
+            curr_ph_max_logprob = curr_ph_max_logprob * (ph_seq_id > 0)
             dp[t, :] = np.max(np.stack([prob1, prob2, prob3]), axis=0)
 
         # backward
         ph_idx_seq = []
-        ph_time_int = []
+        ph_position_idx = []
         frame_confidence = []
         # 如果mode==forced，只能从最后一个音素或者SP结束
         if self.inference_mode == "force":
@@ -230,10 +193,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
             frame_confidence.append(dp[t, s])
             if backtrack_s[t, s] != 0:
                 ph_idx_seq.append(s)
-                ph_time_int.append(t)
+                ph_position_idx.append(t)
                 s -= backtrack_s[t, s]
         ph_idx_seq.reverse()
-        ph_time_int.reverse()
+        ph_position_idx.reverse()
         frame_confidence.reverse()
         frame_confidence = np.exp(
             np.diff(
@@ -243,7 +206,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return (
             np.array(ph_idx_seq),
-            np.array(ph_time_int),
+            np.array(ph_position_idx),
             np.array(frame_confidence),
         )
 
@@ -257,79 +220,48 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return_plot=False,
     ):
         ph_seq_id = np.array([self.vocab[ph] for ph in ph_seq])
-        ph_mask = np.zeros(self.vocab["<vocab_size>"])
-        ph_mask[ph_seq_id] = 1
-        ph_mask[0] = 1
-        ph_mask = torch.from_numpy(ph_mask)
+        ph_seq_id_without_SP = ph_seq_id[ph_seq_id != 0]
         if word_seq is None:
             word_seq = ph_seq
             ph_idx_to_word_idx = np.arange(len(ph_seq))
+        alignment_matrix_index = np.cumsum((ph_seq_id != 0).astype("int32")) * (
+            ph_seq_id != 0
+        ).astype("int32")
+        T = melspec.shape[-1]
 
         # forward
         with torch.no_grad():
-            (
-                ph_frame_logits,  # (B, T, vocab_size)
-                ph_edge_logits,  # (B, T)
-                ctc_logits,  # (B, T, vocab_size)
-            ) = self.forward(melspec.transpose(1, 2))
-
-        ph_mask = (
-            ph_mask.to(ph_frame_logits.device).unsqueeze(0).unsqueeze(0).logical_not()
-            * 1e9
-        )
-        ph_frame_pred = (
-            torch.nn.functional.softmax(
-                ph_frame_logits.float() - ph_mask.float(), dim=-1
+            audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
+                melspec.transpose(1, 2),
+                torch.from_numpy(ph_seq_id_without_SP).to(self.device).unsqueeze(0),
             )
-            .squeeze(0)
-            .cpu()
-            .numpy()
-            .astype("float32")
-        )
-        ph_prob_log = (
-            torch.log_softmax(ph_frame_logits.float() - ph_mask.float(), dim=-1)
-            .squeeze(0)
-            .cpu()
-            .numpy()
-            .astype("float32")
-        )
-        ph_edge_pred = (
-            (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8
-        ).clamp(0.0, 1.0)
-        ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
-        ctc_logits = (
-            ctc_logits.float().squeeze(0).cpu().numpy().astype("float32")
-        )  # (ctc_logits.squeeze(0) - ph_mask)
+        attn_probs = (
+            nn.functional.softmax(attn_logits, dim=-1).cpu().numpy()
+        )  # (B T S+1)
+        attn_logprobs = (
+            nn.functional.log_softmax(attn_logits, dim=-1).cpu().numpy()
+        )  # (B T S+1)
 
-        T, vocab_size = ph_frame_pred.shape
-
+        alignment_matrix_probs = attn_probs[:, :, alignment_matrix_index]
+        alignment_matrix_logprobs = attn_logprobs[:, :, alignment_matrix_index]
         # decode
-        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
-        edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
         (
             ph_idx_seq,
-            ph_time_int_pred,
+            ph_position_idx,
             frame_confidence,
         ) = self._decode(
             ph_seq_id,
-            ph_prob_log,
-            edge_prob,
+            alignment_matrix_logprobs.squeeze(0),
         )
 
         # postprocess
+        ph_intervals_idx = np.stack(
+            [ph_position_idx[:], np.concatenate([ph_position_idx[1:], [T]])], axis=-1
+        )
         frame_length = self.melspec_config["hop_length"] / (
             self.melspec_config["sample_rate"] * self.melspec_config["scale_factor"]
         )
-        ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
-        ph_time_pred = frame_length * (
-            np.concatenate(
-                [
-                    ph_time_int_pred.astype("float32") + ph_time_fractional,
-                    [T],
-                ]
-            )
-        )
-        ph_intervals = np.stack([ph_time_pred[:-1], ph_time_pred[1:]], axis=1)
+        ph_intervals = ph_intervals_idx * frame_length
 
         ph_seq_pred = []
         ph_intervals_pred = []
@@ -356,34 +288,19 @@ class LitForcedAlignmentTask(pl.LightningModule):
         word_seq_pred = np.array(word_seq_pred)
         word_intervals_pred = np.array(word_intervals_pred).clip(min=0, max=None)
 
-        # ctc decode
         ctc = None
-        if return_ctc:
-            ctc = np.argmax(ctc_logits, axis=-1)
-            ctc_index = np.concatenate([[0], ctc])
-            ctc_index = (ctc_index[1:] != ctc_index[:-1]) * ctc != 0
-            ctc = ctc[ctc_index]
-            ctc = np.array([self.vocab[ph] for ph in ctc if ph != 0])
-
         fig = None
-        ph_intervals_pred_int = (
-            (ph_intervals_pred / frame_length).round().astype("int32")
-        )
         if return_plot:
             ph_idx_frame = np.zeros(T).astype("int32")
-            last_ph_idx = 0
-            for ph_idx, ph_time in zip(ph_idx_seq, ph_time_int_pred):
-                ph_idx_frame[ph_time] += ph_idx - last_ph_idx
-                last_ph_idx = ph_idx
-            ph_idx_frame = np.cumsum(ph_idx_frame)
+            for ph_idx, (start, end) in zip(ph_idx_seq, ph_intervals_idx):
+                ph_idx_frame[start:end] = ph_idx
             args = {
                 "melspec": melspec.cpu().numpy(),
                 "ph_seq": ph_seq_pred,
-                "ph_intervals": ph_intervals_pred_int,
+                "ph_intervals": (ph_intervals_pred / frame_length),
                 "frame_confidence": frame_confidence,
-                "ph_frame_prob": ph_frame_pred[:, ph_seq_id],
+                "ph_frame_prob": alignment_matrix_probs,
                 "ph_frame_id_gt": ph_idx_frame,
-                "edge_prob": edge_prob,
             }
             fig = plot_for_valid(**args)
 
@@ -418,267 +335,208 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def _get_full_label_loss(
         self,
-        ph_frame_logits,
-        ph_edge_logits,
-        ph_frame_gt,
-        ph_edge_gt,
-        input_feature_lengths,
-        ph_mask,
+        attn_logits,  # (B T S+1)
+        attn_target,  # (B T), item in [0,S]
+        input_feature_lengths,  # (B)
+        ph_seq_lengths,  # (B)
         valid,
     ):
-        T = ph_frame_logits.shape[1]
-
-        # ph_frame_prob_gt = nn.functional.one_hot(
-        #     ph_frame_gt.long(), num_classes=self.vocab["<vocab_size>"]
-        # ).float()
-
-        # calculate mask matrix
-        # (B, T)
-        mask = torch.arange(T).to(self.device)
-        mask = repeat(mask, "T -> B T", B=ph_frame_logits.shape[0])
-        mask = (mask < input_feature_lengths.unsqueeze(1)).to(ph_frame_logits.dtype)
-
-        # ph_frame_loss
-        # print((mask.unsqueeze(-1) * ph_mask.unsqueeze(1)).shape, ph_frame_pred.shape)
-        ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
-            ph_frame_logits,
-            ph_frame_gt,
-            (mask.unsqueeze(-1) * ph_mask.unsqueeze(1)),
-            valid,
+        B, T, S_ = attn_logits.shape
+        # mask
+        # (B T)
+        feature_len_mask = (
+            (
+                torch.arange(T).to(self.device).unsqueeze(0)
+                < (input_feature_lengths.unsqueeze(1))
+            )
+            .to(self.device)
+            .detach()
         )
-
-        # ph_edge loss
-        # BCE_GHM loss
-        ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
-            ph_edge_logits.unsqueeze(-1), ph_edge_gt.unsqueeze(-1), mask, valid
+        # (B S+1)
+        sequence_len_mask = (
+            (
+                torch.arange(S_).to(self.device).unsqueeze(0)
+                < (ph_seq_lengths.unsqueeze(1) + 1)
+            )
+            .to(self.device)
+            .detach()
         )
+        # (B T S+1)
+        mask_matrix = feature_len_mask.unsqueeze(-1) * sequence_len_mask.unsqueeze(1)
+        attn_logits = attn_logits - mask_matrix.logical_not().float() * 1e9
 
-        # EMD loss
-        ph_edge_pred = torch.nn.functional.sigmoid(ph_edge_logits.float())
-        ph_edge_EMD_loss = self.EMD_loss_fn(ph_edge_pred * mask, ph_edge_gt * mask)
-
-        # diff loss
-        ph_edge_diff_loss = self.ph_edge_diff_GHM_loss_fn(
-            (torch.diff(ph_edge_logits, 1, dim=-1) + 1).unsqueeze(-1) / 2,
-            (torch.diff(ph_edge_gt, 1, dim=-1) + 1).unsqueeze(-1) / 2,
-            mask[:, 1:],
-            valid,
+        # calculate loss
+        # (B T)
+        # TODO: add weight、GHM
+        loss = nn.functional.cross_entropy(
+            attn_logits.transpose(1, 2),
+            attn_target.long(),
+            reduction="none",
         )
-        return ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss
+        # apply mask
+        loss = loss * feature_len_mask.float()
+        loss = loss.sum() / feature_len_mask.sum()
+
+        return loss
 
     def _get_weak_label_loss(
-        self,
-        ctc_logits,
-        ph_mask,
-        ph_seq_gt,
-        ph_seq_lengths_gt,
-        input_feature_lengths,
-        valid,
+        self, attn_logits, input_feature_lengths, ph_seq_lengths, valid
     ):
-        ctc_logits = ctc_logits - ph_mask.unsqueeze(1).logical_not().float() * 1e9
-        log_probs_pred = nn.functional.log_softmax(ctc_logits, dim=-1)
+        log_probs = nn.functional.log_softmax(attn_logits, dim=-1)
+        log_probs = rearrange(log_probs, "B T S -> T B S")
+        targets = torch.arange(max(ph_seq_lengths)).to(self.device) + 1
+        targets = repeat(targets, "S -> B S", B=attn_logits.shape[0])
+        targets = targets * (targets < (ph_seq_lengths.unsqueeze(1) + 1)).float()
+        targets = targets.long()
         # ctc loss
-        log_probs_pred = rearrange(log_probs_pred, "B T C -> T B C")
-        ctc_GHM_loss = self.CTC_GHM_loss_fn(
-            log_probs_pred,
-            ph_seq_gt,
-            input_feature_lengths,
-            ph_seq_lengths_gt,
-            valid,
+        # TODO: use ghm loss
+        loss = nn.functional.ctc_loss(
+            log_probs,
+            targets,
+            input_lengths=input_feature_lengths,
+            target_lengths=ph_seq_lengths,
+            reduction="sum",
         )
 
-        return ctc_GHM_loss
+        return loss
 
     def _get_consistency_loss(
-        self, ph_frame_logits, ph_edge_logits, input_feature_lengths
+        self, audio_embed, input_feature_lengths, ph_seq_lengths, valid
     ):
-        output_tensors = torch.cat(
-            [ph_frame_logits, ph_edge_logits.unsqueeze(-1)], dim=-1
+        B, T, E = audio_embed.shape  # (B T E)
+        S = torch.max(ph_seq_lengths)  # ()
+        # mask
+        # (B T)
+        feature_len_mask = torch.arange(T).to(self.device).unsqueeze(0) < (
+            input_feature_lengths.unsqueeze(1)
         )
-        output_tensors = torch.nn.functional.sigmoid(output_tensors.float())
-        B = output_tensors.shape[0]
-        T = output_tensors.shape[1]
-
-        # calculate mask matrix
-        # (B//2, T, 1)
-        mask = torch.arange(T).to(self.device)
-        mask = repeat(mask, "T -> B T", B=B // 2)
-        mask = (
-            (mask < input_feature_lengths[: B // 2].unsqueeze(1))
-            .to(torch.bool)
-            .unsqueeze(-1)
+        # (B S)
+        sequence_len_mask = torch.arange(S).to(self.device).unsqueeze(0) < (
+            ph_seq_lengths.unsqueeze(1)
         )
+        # (B T S)
+        mask_matrix = feature_len_mask.unsqueeze(-1) * sequence_len_mask.unsqueeze(1)
 
         # consistency loss
-        consistency_loss = self.MSE_loss_fn(
-            output_tensors[: B // 2, :, :] * mask,
-            output_tensors[B // 2 :, :, :] * mask,
-        )
-
+        consistency_loss = (
+            audio_embed[: B // 2]
+            * audio_embed[B // 2 :]
+            * feature_len_mask[B // 2 :].unsqueeze(-1).float()
+        ).abs().sum() / (mask_matrix.sum() + 1)
         return consistency_loss
-
-    def _get_pseudo_label_loss(self, ph_frame_logits, input_feature_lengths, valid):
-        B = ph_frame_logits.shape[0]
-        T = ph_frame_logits.shape[1]
-
-        ph_edge_prob = torch.nn.functional.sigmoid(ph_frame_logits.float())
-
-        pred1 = ph_edge_prob[: B // 2, :]
-        pred2 = ph_edge_prob[B // 2 :, :]
-        pseudo_label1 = (pred1 >= 0.5).float()
-        pseudo_label2 = (pred2 >= 0.5).float()
-        gradient_magnitude1 = torch.abs(pred1 - pseudo_label1)
-        gradient_magnitude2 = torch.abs(pred2 - pseudo_label2)
-        gradient_magnitude = (gradient_magnitude1 + gradient_magnitude2) / 2
-
-        # calculate mask matrix
-        # (B//2, T, 1)
-        mask = torch.arange(T).to(self.device)
-        mask = repeat(mask, "T -> B T", B=B // 2)
-        mask = (
-            (mask < input_feature_lengths[: B // 2].unsqueeze(1))
-            .to(torch.bool)
-            .unsqueeze(-1)
-        )
-        pseudo_label_mask = (  # (B//2, T)
-            mask
-            & (pseudo_label1 == pseudo_label2)
-            & (gradient_magnitude < self.pseudo_label_auto_theshold)
-        )
-
-        if pseudo_label_mask.sum() / mask.sum() < self.pseudo_label_ratio:
-            self.pseudo_label_auto_theshold += 0.005
-        else:
-            self.pseudo_label_auto_theshold -= 0.005
-
-        if pseudo_label_mask.any():
-            pseudo_label_loss = self.pseudo_label_GHM_loss_fn(
-                ph_frame_logits,
-                torch.cat([pseudo_label1, pseudo_label2], dim=0),
-                torch.cat([pseudo_label_mask, pseudo_label_mask], dim=0),
-                valid,
-            )
-        else:
-            pseudo_label_loss = torch.tensor(0).to(self.device)
-
-        return pseudo_label_loss
 
     def _get_loss(
         self,
-        ph_frame_logits,  # (B, T, vocab_size)
-        ph_edge_logits,  # (B, T)
-        ctc_logits,  # (B, T, vocab_size)
-        ph_frame_gt,  # (B, T)
-        ph_edge_gt,  # (B, T)
-        ph_seq_gt,  # (B S)
-        ph_seq_lengths_gt,  # (B)
-        ph_mask,  # (B vocab_size)
+        audio_embed,  # (B T E)
+        phoneme_embed,  # (B S E)
+        attn_logits,  # (B T S+1)
+        ctc_logits,  # (B T S+1)
         input_feature_lengths,  # (B)
+        ph_seq,  # (B S)
+        ph_seq_lengths,  # (B)
+        attn_target,  # (B T), item in [0,S]
         label_type,  # (B)
         valid=False,
     ):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
-        not_full_label_idx = label_type < 2
+        # not_full_label_idx = label_type < 2
         ZERO = torch.tensor(0).to(self.device)
 
         if (full_label_idx).any():
-            (
-                ph_frame_GHM_loss,
-                ph_edge_GHM_loss,
-                ph_edge_EMD_loss,
-                ph_edge_diff_loss,
-            ) = self._get_full_label_loss(
-                ph_frame_logits[full_label_idx, :, :],
-                ph_edge_logits[full_label_idx, :],
-                ph_frame_gt[full_label_idx, :],
-                ph_edge_gt[full_label_idx, :],
+            full_label_loss = self._get_full_label_loss(
+                attn_logits[full_label_idx],
+                attn_target[full_label_idx],
                 input_feature_lengths[full_label_idx],
-                ph_mask[full_label_idx, :],
+                ph_seq_lengths[full_label_idx],
                 valid,
             )
         else:
-            ph_frame_GHM_loss = ph_edge_GHM_loss = ZERO
-            ph_edge_EMD_loss = ph_edge_diff_loss = ZERO
+            full_label_loss = ZERO
 
-        # TODO:这种pack方式无法处理只有batch中的一部分需要计算Loss的情况，改掉
         if (weak_label_idx).any():
-            ctc_GHM_loss = ZERO
-            ctc_GHM_loss = self._get_weak_label_loss(
-                ctc_logits[weak_label_idx, :, :],
-                ph_mask[weak_label_idx, :],
-                ph_seq_gt[weak_label_idx, :],
-                ph_seq_lengths_gt[weak_label_idx],
+            ctc_loss = self._get_weak_label_loss(
+                ctc_logits[weak_label_idx],
                 input_feature_lengths[weak_label_idx],
+                ph_seq_lengths[weak_label_idx],
                 valid,
             )
         else:
-            ctc_GHM_loss = ZERO
+            ctc_loss = ZERO
 
         if not valid and self.data_augmentation_enabled:
             consistency_loss = self._get_consistency_loss(
-                ph_frame_logits, ph_edge_logits, input_feature_lengths
+                audio_embed, input_feature_lengths, ph_seq_lengths, valid
             )
-            pseudo_label_loss = ZERO
-            # pseudo_label_loss = self._get_pseudo_label_loss(
-            #     ph_frame_logits[not_full_label_idx, :, :],
-            #     input_feature_lengths[not_full_label_idx],
-            #     valid,
-            # )
+            # TODO: add reconstruction loss
         else:
             consistency_loss = ZERO
-            pseudo_label_loss = ZERO
 
+        if torch.isinf(full_label_loss):
+            raise ValueError("full_label_loss is inf")
+        if torch.isinf(ctc_loss):
+            raise ValueError("ctc_loss is inf")
+        if torch.isinf(consistency_loss):
+            raise ValueError("consistency_loss is inf")
         losses = [
-            ph_frame_GHM_loss,
-            ph_edge_GHM_loss,
-            ph_edge_EMD_loss,
-            ph_edge_diff_loss,
-            ctc_GHM_loss,
+            full_label_loss,
+            ctc_loss,
             consistency_loss,
-            pseudo_label_loss,
         ]
 
         return losses
 
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        h = self.backbone(*args, **kwargs)
-        logits = self.head(h)
-        ph_frame_logits = logits[:, :, 2:]
-        ph_edge_logits = logits[:, :, 0]
-        ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
-        return ph_frame_logits, ph_edge_logits, ctc_logits
+    def forward(self, melspec, ph_seq) -> Any:
+        audio_embed = self.audio_encoder(melspec)  # (B T E+1)
+        audio_embed = audio_embed[:, :, :-1]  # (B T E)
+        ctc_blank_logits = audio_embed[:, :, [-1]]  # (B T 1)
+        phoneme_embed = self.phoneme_encoder(ph_seq)  # (B S E)
+        attn_logits = torch.matmul(audio_embed, phoneme_embed.transpose(1, 2))
+        ctc_logits = torch.cat(
+            (
+                ctc_blank_logits,
+                attn_logits,
+            ),
+            dim=-1,
+        )
+        attn_rms = (
+            torch.linalg.vector_norm(attn_logits, ord=2, dim=-1)
+            / (attn_logits.shape[-1] ** 0.5 + 1e-6)
+        ).unsqueeze(-1)
+        attn_logits = torch.cat(
+            (
+                self.sp_logits[0] * attn_rms + self.sp_logits[1],
+                attn_logits,
+            ),
+            dim=-1,
+        )
+        return audio_embed, phoneme_embed, attn_logits, ctc_logits  # (B T S+1)
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
         (
-            input_feature,  # (B, n_mels, T)
+            input_feature,  # (B C T)
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
-            ph_edge,  # (B, T)
-            ph_frame,  # (B, T)
-            ph_mask,  # (B vocab_size)
+            attn_target,  # (B T), item in [0,S]
             label_type,  # (B)
         ) = batch
 
-        (
-            ph_frame_logits,  # (B, T, vocab_size)
-            ph_edge_logits,  # (B, T)
-            ctc_logits,  # (B, T, vocab_size)
-        ) = self.forward(input_feature.transpose(1, 2))
+        audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
+            input_feature.transpose(1, 2), ph_seq
+        )
 
         losses = self._get_loss(
-            ph_frame_logits,
-            ph_edge_logits,
-            ctc_logits,
-            ph_frame,
-            ph_edge,
-            ph_seq,
-            ph_seq_lengths,
-            ph_mask,
-            input_feature_lengths,
-            label_type,
+            audio_embed,  # (B T E)
+            phoneme_embed,  # (B S E)
+            attn_logits,  # (B T S+1)
+            ctc_logits,  # (B T S+1)
+            input_feature_lengths,  # (B)
+            ph_seq,  # (B S)
+            ph_seq_lengths,  # (B)
+            attn_target,  # (B T) , item in [0,S]
+            label_type,  # (B)
             valid=False,
         )
 
@@ -699,17 +557,16 @@ class LitForcedAlignmentTask(pl.LightningModule):
             }
         )
         self.log_dict(log_dict)
+        self.log("train_loss/total", total_loss)
         return total_loss
 
     def validation_step(self, batch, batch_idx):
         (
-            input_feature,  # (B, n_mels, T)
+            input_feature,  # (B C T)
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
-            ph_edge,  # (B, T)
-            ph_frame,  # (B, T)
-            ph_mask,  # (B vocab_size)
+            attn_target,  # (B T), item in [0,S]
             label_type,  # (B)
         ) = batch
 
@@ -727,30 +584,28 @@ class LitForcedAlignmentTask(pl.LightningModule):
             True,
             True,
         )
-        self.logger.experiment.add_text(
-            f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
-        )
+        if ctc is not None:
+            self.logger.experiment.add_text(
+                f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
+            )
         self.logger.experiment.add_figure(
             f"valid/plot_{batch_idx}", fig, self.global_step
         )
 
-        (
-            ph_frame_logits,  # (B, T, vocab_size)
-            ph_edge_logits,  # (B, T)
-            ctc_logits,  # (B, T, vocab_size)
-        ) = self.forward(input_feature.transpose(1, 2))
+        audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
+            input_feature.transpose(1, 2), ph_seq
+        )
 
         losses = self._get_loss(
-            ph_frame_logits,
-            ph_edge_logits,
-            ctc_logits,
-            ph_frame,
-            ph_edge,
-            ph_seq,
-            ph_seq_lengths,
-            ph_mask,
-            input_feature_lengths,
-            label_type,
+            audio_embed,  # (B T E)
+            phoneme_embed,  # (B S E)
+            attn_logits,  # (B T S+1)
+            ctc_logits,  # (B T S+1)
+            input_feature_lengths,  # (B)
+            ph_seq,  # (B S)
+            ph_seq_lengths,  # (B)
+            attn_target,  # (B T)
+            label_type,  # (B)
             valid=True,
         )
 
@@ -772,12 +627,16 @@ class LitForcedAlignmentTask(pl.LightningModule):
         optimizer = torch.optim.AdamW(
             [
                 {
-                    "params": self.backbone.parameters(),
-                    "lr": self.optimizer_config["lr"]["backbone"],
+                    "params": self.audio_encoder.parameters(),
+                    "lr": self.optimizer_config["lr"]["audio_encoder"],
                 },
                 {
-                    "params": self.head.parameters(),
-                    "lr": self.optimizer_config["lr"]["head"],
+                    "params": self.phoneme_encoder.parameters(),
+                    "lr": self.optimizer_config["lr"]["phoneme_encoder"],
+                },
+                {
+                    "params": self.sp_logits,
+                    "lr": self.optimizer_config["lr"]["phoneme_encoder"],
                 },
             ],
             weight_decay=self.optimizer_config["weight_decay"],
@@ -786,8 +645,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
             "scheduler": lr_scheduler_module.OneCycleLR(
                 optimizer,
                 max_lr=[
-                    self.optimizer_config["lr"]["backbone"],
-                    self.optimizer_config["lr"]["head"],
+                    self.optimizer_config["lr"]["audio_encoder"],
+                    self.optimizer_config["lr"]["phoneme_encoder"],
+                    self.optimizer_config["lr"]["phoneme_encoder"],  # TODO: remove this
                 ],
                 total_steps=self.optimizer_config["total_steps"],
             ),
