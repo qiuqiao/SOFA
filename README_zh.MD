@@ -58,11 +58,16 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
     需要指定的参数：
     - `--ckpt`：（必须指定）模型权重路径；
     - `--folder`：存放待对齐数据的文件夹​（默认为`segments`）；
+    - `--out_formats`：推理出来的文件的标注格式，可指定多个，使用逗号分隔（默认为`TextGrid,htk`）
     - `--dictionary`：字典文件​（默认为`dictionary/opencpop-extension.txt`​）；
 
     ```bash
-    python infer.py -c checkpoint_path -s segments_path -d dictionary_path
+    python infer.py -c checkpoint_path -s segments_path -d dictionary_path -of output_format1,output_format2...
     ```
+5. 获取最终标注
+
+    最终的标注保存在文件夹中，文件夹的名称是你选择的标注格式，这个文件夹的位置和推理所用的wav文件处于同一个文件夹中。
+
 ### 高级功能
 
    - 使用自定义的g2p，而不是使用词典
