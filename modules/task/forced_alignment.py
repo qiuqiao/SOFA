@@ -491,7 +491,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
         audio_embed = audio_embed[:, :, :-1]  # (B T E)
         ctc_blank_logits = audio_embed[:, :, [-1]]  # (B T 1)
         phoneme_embed = self.phoneme_encoder(ph_seq)  # (B S E)
-        attn_logits = torch.matmul(audio_embed, phoneme_embed.transpose(1, 2))
+        attn_logits = torch.matmul(audio_embed, phoneme_embed.transpose(1, 2)) / (
+            phoneme_embed.shape[-1] ** 0.5
+        )  # (B T S)
         ctc_logits = torch.cat(
             (
                 ctc_blank_logits,
