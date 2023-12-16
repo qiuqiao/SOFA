@@ -400,21 +400,27 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.inference_mode = mode
 
     def predict_step(self, batch, batch_idx):
-        wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
-        if self.get_melspec is None:
-            self.get_melspec = MelSpecExtractor(**self.melspec_config)
+        try:
+            wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
+            if self.get_melspec is None:
+                self.get_melspec = MelSpecExtractor(**self.melspec_config)
 
-        waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
-        wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
-        melspec = self.get_melspec(waveform).detach().unsqueeze(0)
-        melspec = (melspec - melspec.mean()) / melspec.std()
-        melspec = repeat(
-            melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
-        )
-        (ph_seq, ph_intervals, word_seq, word_intervals, _, _) = self._infer_once(
-            melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
-        )
-        return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+            waveform = load_wav(
+                wav_path, self.device, self.melspec_config["sample_rate"]
+            )
+            wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
+            melspec = self.get_melspec(waveform).detach().unsqueeze(0)
+            melspec = (melspec - melspec.mean()) / melspec.std()
+            melspec = repeat(
+                melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
+            )
+            (ph_seq, ph_intervals, word_seq, word_intervals, _, _) = self._infer_once(
+                melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
+            )
+            return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+        except Exception as e:
+            e.args += (wav_path,)
+            raise e
 
     def _get_full_label_loss(
         self,
