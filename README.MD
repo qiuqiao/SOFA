@@ -58,11 +58,17 @@ It has the following advantages:
     Parameters that need to be specified:
     - `--ckpt`: (must be specified) The path to the model weights;
     - `--folder`: The folder where the data to be aligned is stored (default is `segments`);
+    - `--out_formats`: The annotation format of the inferred files, multiple formats can be specified, separated by commas (default is `TextGrid,htk`).
+
     - `--dictionary`: The dictionary file (default is `dictionary/opencpop-extension.txt`);
 
     ```bash
-    python infer.py --ckpt checkpoint_path --folder segments_path --dictionary dictionary_path
+    python infer.py --ckpt checkpoint_path --folder segments_path --dictionary dictionary_path -out_formats output_format1,output_format2...
     ```
+5. Retrieve the Final Annotation
+
+   The final annotation is saved in a folder, the name of which is the annotation format you have chosen. This folder is located in the same directory as the wav files used for inference.
+
 ### Advanced Features
 
    - Using a custom g2p instead of a dictionary
