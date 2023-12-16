@@ -102,11 +102,54 @@ def save_textgrids(predictions):
             word_tier.add(start, end, word)
 
         for ph, (start, end) in zip(ph_seq, ph_intervals):
-            ph_tier.add(minTime=start, maxTime=end, mark=ph)
+            ph_tier.add(minTime=float(start), maxTime=end, mark=ph)
 
         tg.append(word_tier)
         tg.append(ph_tier)
-        tg.write(wav_path.with_suffix(".TextGrid"))
+
+        label_path = (
+            wav_path.parent / "TextGrid" / wav_path.with_suffix(".TextGrid").name
+        )
+        label_path.parent.mkdir(parents=True, exist_ok=True)
+        tg.write(label_path)
+
+
+def save_htk(predictions):
+    print("Saving htk labels...")
+
+    for (
+        wav_path,
+        wav_length,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
+    ) in predictions:
+        label = ""
+        for ph, (start, end) in zip(ph_seq, ph_intervals):
+            start_time = int(float(start) * 10000000)
+            end_time = int(float(end) * 10000000)
+            label += f"{start_time} {end_time} {ph}\n"
+        label_path = (
+            wav_path.parent / "htk" / "phones" / wav_path.with_suffix(".lab").name
+        )
+        label_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(label_path, "w", encoding="utf-8") as f:
+            f.write(label)
+            f.close()
+
+        label = ""
+        for word, (start, end) in zip(word_seq, word_intervals):
+            start_time = int(float(start) * 10000000)
+            end_time = int(float(end) * 10000000)
+            label += f"{start_time} {end_time} {word}\n"
+        label_path = (
+            wav_path.parent / "htk" / "words" / wav_path.with_suffix(".lab").name
+        )
+        label_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(label_path, "w", encoding="utf-8") as f:
+            f.write(label)
+            f.close()
 
 
 @click.command()
@@ -141,11 +184,20 @@ def save_textgrids(predictions):
     type=str,
     help="(only used when --g2p=='Dictionary') path to the dictionary",
 )
-def main(ckpt, folder, mode, g2p, ap_detector, **kwargs):
+@click.option(
+    "--out_formats",
+    "-of",
+    default="TextGrid,htk",
+    required=False,
+    type=str,
+    help="Types of output file, separated by comma. Supported types: TextGrid(textgrid,praat), htk(lab,nnsvs,sinsy)",
+)
+def main(ckpt, folder, mode, g2p, ap_detector, out_formats, **kwargs):
     if not g2p.endswith("G2P"):
         g2p += "G2P"
     g2p_class = getattr(modules.g2p, g2p)
     grapheme_to_phoneme = g2p_class(**kwargs)
+    out_formats = [i.strip() for i in out_formats.split(",")]
 
     if not ap_detector.endswith("APDetector"):
         ap_detector += "APDetector"
@@ -162,8 +214,15 @@ def main(ckpt, folder, mode, g2p, ap_detector, **kwargs):
 
     predictions = get_AP.process(predictions)
     predictions = post_processing(predictions)
-    save_textgrids(predictions)
-    # save_htk(output, predictions)
+    if "TextGrid" in out_formats or "textgrid" in out_formats or "praat" in out_formats:
+        save_textgrids(predictions)
+    if (
+        "htk" in out_formats
+        or "lab" in out_formats
+        or "nnsvs" in out_formats
+        or "sinsy" in out_formats
+    ):
+        save_htk(predictions)
     # save_transcriptions(output, predictions)
     print("Output files are saved to the same folder as the input wav files.")
 
