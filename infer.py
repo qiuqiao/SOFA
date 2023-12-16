@@ -106,11 +106,11 @@ def save_textgrids(predictions):
 
         tg.append(word_tier)
         tg.append(ph_tier)
-        tg.write(wav_path.with_suffix(".TextGrid"))
+        tg.write(wav_path.parent / "TextGrid" / wav_path.stem + ".TextGrid")
 
 
 def save_htk(predictions):
-    print("Saving Labels...")
+    print("Saving htk labels...")
 
     for (
         wav_path,
@@ -125,7 +125,11 @@ def save_htk(predictions):
             start_time = int(float(start) * 10000000)
             end_time = int(float(end) * 10000000)
             label += f"{start_time} {end_time} {ph}\n"
-        with open(wav_path.with_suffix(".lab"), "w+", encoding="utf-8") as f:
+        with open(
+            wav_path.parent / "htk" / "phones" / wav_path.stem + ".lab",
+            "w",
+            encoding="utf-8",
+        ) as f:
             f.write(label)
             f.close()
 
