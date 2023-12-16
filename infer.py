@@ -133,6 +133,19 @@ def save_htk(predictions):
             f.write(label)
             f.close()
 
+        label = ""
+        for word, (start, end) in zip(word_seq, word_intervals):
+            start_time = int(float(start) * 10000000)
+            end_time = int(float(end) * 10000000)
+            label += f"{start_time} {end_time} {word}\n"
+        with open(
+            wav_path.parent / "htk" / "words" / wav_path.stem + ".lab",
+            "w",
+            encoding="utf-8",
+        ) as f:
+            f.write(label)
+            f.close()
+
 
 @click.command()
 @click.option(
