@@ -419,7 +419,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             )
             return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
         except Exception as e:
-            e.args += (wav_path,)
+            e.args += (f"{str(wav_path)}",)
             raise e
 
     def _get_full_label_loss(
