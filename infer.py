@@ -102,11 +102,32 @@ def save_textgrids(predictions):
             word_tier.add(start, end, word)
 
         for ph, (start, end) in zip(ph_seq, ph_intervals):
-            ph_tier.add(minTime=start, maxTime=end, mark=ph)
+            ph_tier.add(minTime=float(start), maxTime=end, mark=ph)
 
         tg.append(word_tier)
         tg.append(ph_tier)
         tg.write(wav_path.with_suffix(".TextGrid"))
+
+def save_labels(predictions):
+    print("Saving Labels...")
+
+    for (
+        wav_path,
+        wav_length,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
+    ) in predictions:
+        label = ''
+        for ph, (start, end) in zip(ph_seq, ph_intervals):
+            start_time = int(float(start) * 10000000)
+            end_time = int(float(end) * 10000000)
+            label += f"{start_time} {end_time} {ph}\n"
+        with open(wav_path.with_suffix(".lab"), "w+", encoding='utf-8') as f:
+            f.write(label)
+            f.close()
+
 
 
 @click.command()
@@ -141,7 +162,15 @@ def save_textgrids(predictions):
     type=str,
     help="(only used when --g2p=='Dictionary') path to the dictionary",
 )
-def main(ckpt, folder, mode, g2p, ap_detector, **kwargs):
+@click.option(
+    "--out_format",
+    "-of",
+    default="TextGrid",
+    required=False,
+    type=click.Choice(['TextGrid', 'lab']),
+    help="Type of output file"
+)
+def main(ckpt, folder, mode, g2p, ap_detector, out_format, **kwargs):
     if not g2p.endswith("G2P"):
         g2p += "G2P"
     g2p_class = getattr(modules.g2p, g2p)
@@ -162,7 +191,10 @@ def main(ckpt, folder, mode, g2p, ap_detector, **kwargs):
 
     predictions = get_AP.process(predictions)
     predictions = post_processing(predictions)
-    save_textgrids(predictions)
+    if out_format == 'TextGrid':
+        save_textgrids(predictions)
+    elif out_format == 'lab':
+        save_labels(predictions)
     # save_htk(output, predictions)
     # save_transcriptions(output, predictions)
     print("Output files are saved to the same folder as the input wav files.")
