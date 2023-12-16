@@ -109,7 +109,7 @@ def save_textgrids(predictions):
         tg.write(wav_path.with_suffix(".TextGrid"))
 
 
-def save_labels(predictions):
+def save_htk(predictions):
     print("Saving Labels...")
 
     for (
@@ -200,7 +200,7 @@ def main(ckpt, folder, mode, g2p, ap_detector, out_formats, **kwargs):
         or "nnsvs" in out_formats
         or "sinsy" in out_formats
     ):
-        save_labels(predictions)
+        save_htk(predictions)
     # save_transcriptions(output, predictions)
     print("Output files are saved to the same folder as the input wav files.")
 
