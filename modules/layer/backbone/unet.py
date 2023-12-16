@@ -103,9 +103,12 @@ class UNetBackbone(nn.Module):
 
     def forward(self, x):
         T = x.shape[1]
-        padding_len = T % self.divisible_factor
-        if padding_len != 0:
-            x = nn.functional.pad(x, (0, 0, 0, self.divisible_factor - padding_len))
+        if T < self.divisible_factor:
+            x = nn.functional.pad(x, (0, 0, 0, self.divisible_factor - T))
+        else:
+            padding_len = T % self.divisible_factor
+            if padding_len != 0:
+                x = nn.functional.pad(x, (0, 0, 0, self.divisible_factor - padding_len))
 
         h = [x]
         for encoder in self.encoders:
