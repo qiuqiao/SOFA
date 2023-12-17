@@ -105,6 +105,8 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
             - audio2.wav
             - ...
     ```
+    关于`transcriptions.csv`的格式，参见：https://github.com/qiuqiao/SOFA/discussions/5
+    
     其中：
 
     `transcriptions.csv`只需要和`wavs`文件夹的相对位置正确即可；

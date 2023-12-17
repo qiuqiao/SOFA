@@ -107,6 +107,8 @@ It has the following advantages:
             - audio2.wav
             - ...
     ```
+    Regarding the format of `transcriptions.csv`, see: https://github.com/qiuqiao/SOFA/discussions/5
+    
     Where:
 
     `transcriptions.csv` only needs to have the correct relative path to the `wavs` folder;
