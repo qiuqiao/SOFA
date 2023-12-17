@@ -1,5 +1,3 @@
-from typing import Any
-
 import lightning as pl
 import numpy as np
 import torch
@@ -49,7 +47,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.phoneme_encoder = nn.Embedding(
             self.vocab["<vocab_size>"], model_config["num_embeddings"]
         )
-        self.sp_logits = nn.Parameter(torch.ones(2) * -1)
+        self.position_encoder = nn.Sequential(
+            nn.Linear(2, model_config["num_embeddings"], bias=False),
+            nn.ReLU(),
+        )
+        self.parameter = nn.Parameter(torch.ones(2) * -1)
 
         self.melspec_config = melspec_config  # Required for inference
         self.optimizer_config = optimizer_config
@@ -88,7 +90,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def load_pretrained(self, pretrained_model):
         self.audio_encoder = pretrained_model.audio_encoder
-        self.sp_logits = pretrained_model.sp_logits
+        self.parameter = pretrained_model.parameter
         if pretrained_model.vocab["<vocab_size>"] == self.vocab["<vocab_size>"]:
             self.phoneme_encoder = pretrained_model.phoneme_encoder
         else:
@@ -228,12 +230,15 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_seq_id != 0
         ).astype("int32")
         T = melspec.shape[-1]
+        S = len(ph_seq_id_without_SP)
 
         # forward
         with torch.no_grad():
             audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
                 melspec.transpose(1, 2),
+                torch.tensor([T]).to(self.device),
                 torch.from_numpy(ph_seq_id_without_SP).to(self.device).unsqueeze(0),
+                torch.tensor([S]).to(self.device),
             )
         attn_probs = (
             nn.functional.softmax(attn_logits, dim=-1).cpu().numpy()
@@ -472,12 +477,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
         else:
             consistency_loss = ZERO
 
-        if torch.isinf(full_label_loss):
-            raise ValueError("full_label_loss is inf")
-        if torch.isinf(ctc_loss):
-            raise ValueError("ctc_loss is inf")
-        if torch.isinf(consistency_loss):
-            raise ValueError("consistency_loss is inf")
+        if torch.isinf(full_label_loss) or torch.isnan(full_label_loss):
+            raise ValueError("full_label_loss is inf or nan")
+        if torch.isinf(ctc_loss) or torch.isnan(ctc_loss):
+            raise ValueError("ctc_loss is inf or nan")
+        if torch.isinf(consistency_loss) or torch.isnan(consistency_loss):
+            raise ValueError("consistency_loss is inf or nan")
         losses = [
             full_label_loss,
             ctc_loss,
@@ -486,12 +491,29 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return losses
 
-    def forward(self, melspec, ph_seq) -> Any:
-        audio_embed = self.audio_encoder(melspec)  # (B T E+2)
+    def forward(self, input_feature, input_feature_lengths, ph_seq, ph_seq_lengths):
+        audio_embed = self.audio_encoder(input_feature)  # (B T E+2)
         sp_logits = audio_embed[:, :, [0]]  # (B T 1)
         ctc_blank_logits = audio_embed[:, :, [1]]  # (B T 1)
         audio_embed = audio_embed[:, :, 2:]  # (B T E)
         phoneme_embed = self.phoneme_encoder(ph_seq)  # (B S E)
+        # position embedding
+        position = torch.arange(ph_seq.shape[1]).to(self.device)
+        position = repeat(position, "S -> B S", B=ph_seq.shape[0])
+        position = position / (ph_seq_lengths.unsqueeze(-1) + 1e-6)
+        position = (
+            torch.stack(
+                (
+                    position * (position < 1).float(),
+                    (1 - position) * (position < 1).float(),
+                ),
+                -1,
+            )
+            + 1e-6
+        )
+        position_embedding = self.position_encoder(position)  # (B S E)
+        phoneme_embed = phoneme_embed + position_embedding
+
         attn_logits = torch.matmul(audio_embed, phoneme_embed.transpose(1, 2)) / (
             phoneme_embed.shape[-1] ** 0.5
         )  # (B T S)
@@ -527,7 +549,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         ) = batch
 
         audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
-            input_feature.transpose(1, 2), ph_seq
+            input_feature.transpose(1, 2), input_feature_lengths, ph_seq, ph_seq_lengths
         )
 
         losses = self._get_loss(
@@ -596,7 +618,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
 
         audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
-            input_feature.transpose(1, 2), ph_seq
+            input_feature.transpose(1, 2), input_feature_lengths, ph_seq, ph_seq_lengths
         )
 
         losses = self._get_loss(
@@ -638,7 +660,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
                     "lr": self.optimizer_config["lr"]["phoneme_encoder"],
                 },
                 {
-                    "params": self.sp_logits,
+                    "params": self.parameter,
+                    "lr": self.optimizer_config["lr"]["phoneme_encoder"],
+                },
+                {
+                    "params": self.position_encoder.parameters(),
                     "lr": self.optimizer_config["lr"]["phoneme_encoder"],
                 },
             ],
@@ -650,6 +676,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 max_lr=[
                     self.optimizer_config["lr"]["audio_encoder"],
                     self.optimizer_config["lr"]["phoneme_encoder"],
+                    self.optimizer_config["lr"]["phoneme_encoder"],  # TODO: remove this
                     self.optimizer_config["lr"]["phoneme_encoder"],  # TODO: remove this
                 ],
                 total_steps=self.optimizer_config["total_steps"],
