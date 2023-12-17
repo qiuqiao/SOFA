@@ -35,7 +35,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # model
         self.audio_encoder = UNetBackbone(
             melspec_config["n_mels"],
-            model_config["audio_encoder"]["hidden_dims"] + 1,
+            model_config["audio_encoder"]["hidden_dims"] + 2,
             model_config["num_embeddings"],
             ResidualBasicBlock,
             DownSampling,
@@ -487,9 +487,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return losses
 
     def forward(self, melspec, ph_seq) -> Any:
-        audio_embed = self.audio_encoder(melspec)  # (B T E+1)
-        audio_embed = audio_embed[:, :, :-1]  # (B T E)
-        ctc_blank_logits = audio_embed[:, :, [-1]]  # (B T 1)
+        audio_embed = self.audio_encoder(melspec)  # (B T E+2)
+        sp_logits = audio_embed[:, :, [0]]  # (B T 1)
+        ctc_blank_logits = audio_embed[:, :, [1]]  # (B T 1)
+        audio_embed = audio_embed[:, :, 2:]  # (B T E)
         phoneme_embed = self.phoneme_encoder(ph_seq)  # (B S E)
         attn_logits = torch.matmul(audio_embed, phoneme_embed.transpose(1, 2)) / (
             phoneme_embed.shape[-1] ** 0.5
@@ -501,13 +502,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ),
             dim=-1,
         )
-        attn_rms = (
-            torch.linalg.vector_norm(attn_logits, ord=2, dim=-1)
-            / (attn_logits.shape[-1] ** 0.5 + 1e-6)
-        ).unsqueeze(-1)
+        # attn_rms = (
+        #     torch.linalg.vector_norm(attn_logits, ord=2, dim=-1)
+        #     / (attn_logits.shape[-1] ** 0.5 + 1e-6)
+        # ).unsqueeze(-1)
         attn_logits = torch.cat(
             (
-                self.sp_logits[0] * attn_rms + self.sp_logits[1],
+                sp_logits,
                 attn_logits,
             ),
             dim=-1,
