@@ -175,7 +175,8 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
         return self.len
 
     def __iter__(self):
-        np.random.shuffle(self.bins)
+        # curriculum learning: learn short audio first
+        self.bins.reverse()
 
         for bin_data in self.bins:
             batch_size = bin_data["batch_size"]
@@ -206,7 +207,11 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
                 idx_list = np.concatenate([idx_list, random_idx])
 
             for i in range(num_batches):
-                yield idx_list[int(i * batch_size) : int((i + 1) * batch_size)]
+                res = idx_list[int(i * batch_size) : int((i + 1) * batch_size)]
+                np.random.shuffle(res)
+                yield res
+
+        np.random.shuffle(self.bins)
 
 
 def collate_fn(batch):
