@@ -19,9 +19,14 @@ model:
     down_sampling_factor: 3
     down_sampling_times: 7
     channels_scaleup_factor: 1.5
+  phoneme_encoder:
+    hidden_dims: 128
+    down_sampling_factor: 2
+    down_sampling_times: 2
+    channels_scaleup_factor: 1.5
 
 optimizer_config:
-  total_steps: 100000
+  total_steps: 10000
   weight_decay: 0.1
   lr:
     audio_encoder: 0.0005
@@ -31,14 +36,7 @@ optimizer_config:
     phoneme_encoder: False
 
 loss_config:
-  losses:
-    weights: [10.0,1.0, 1.0]
-    enable_RampUpScheduler: [False,True,True]
-  function:
-    num_bins: 10
-    alpha: 0.999
-    label_smoothing: 0.08
-    pseudo_label_ratio: 0.3 # TODO: remove unused
+  blank_log_prob: -1.0
 
 # trainer
 accelerator: auto
