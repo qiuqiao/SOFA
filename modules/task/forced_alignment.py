@@ -315,26 +315,26 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return loss
 
     def _get_weak_label_loss(
-        self, attn_logits, input_feature_lengths, ph_seq_lengths, valid
+        self, attn_log_prob, input_feature_lengths, ph_seq_lengths, valid
     ):
-        B, T, S = attn_logits.shape
+        B, T, S = attn_log_prob.shape
 
-        log_probs = nn.functional.log_softmax(attn_logits, dim=-1)
-        log_probs = rearrange(log_probs, "B T S -> T B S")
+        attn_log_prob
+        attn_log_prob = rearrange(attn_log_prob, "B T S -> T B S")
         blank_log_prob = (
             torch.ones(T, B, 1).to(self.device) * self.loss_config["blank_log_prob"]
         ).detach()
-        log_probs = torch.cat([blank_log_prob, log_probs], dim=-1)
+        attn_log_prob = torch.cat([blank_log_prob, attn_log_prob], dim=-1)
 
         targets = torch.arange(max(ph_seq_lengths)).to(self.device) + 1
-        targets = repeat(targets, "S -> B S", B=attn_logits.shape[0])
+        targets = repeat(targets, "S -> B S", B=B)
         targets = targets * (targets < (ph_seq_lengths.unsqueeze(1) + 1)).float()
         targets = targets.long()
 
         # ctc loss
         # TODO: use ghm loss
         loss = nn.functional.ctc_loss(
-            log_probs,
+            attn_log_prob,
             targets,
             input_lengths=input_feature_lengths,
             target_lengths=ph_seq_lengths,
@@ -371,7 +371,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def _get_loss(
         self,
-        attn_logits,  # (B T S)
+        attn_log_prob,  # (B T S)
         input_feature_lengths,  # (B)
         ph_seq_lengths,  # (B)
         attn_target,  # (B T) , item in [0,S]
@@ -396,7 +396,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         if (weak_label_idx).any():
             forward_sum_loss = self._get_weak_label_loss(
-                attn_logits[weak_label_idx],
+                attn_log_prob[weak_label_idx],
                 input_feature_lengths[weak_label_idx],
                 ph_seq_lengths[weak_label_idx],
                 valid,
@@ -458,7 +458,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def forward(self, input_feature, ph_seq):
         attn_logits = self.model(input_feature, ph_seq)
-        return attn_logits
+        attn_log_prob = nn.functional.log_softmax(attn_logits, dim=-1)
+        return attn_log_prob
 
     def on_train_start(self):
         pass
@@ -477,10 +478,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
             label_type,  # (B)
         ) = batch
 
-        attn_logits = self.forward(input_feature.transpose(1, 2), ph_seq)
+        attn_log_prob = self.forward(input_feature.transpose(1, 2), ph_seq)
 
         total_loss, losses_dict = self._get_loss(
-            attn_logits,  # (B T S)
+            attn_log_prob,  # (B T S)
             input_feature_lengths,  # (B)
             ph_seq_lengths,  # (B)
             attn_target,  # (B T) , item in [0,S]
@@ -510,10 +511,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
             label_type,  # (B)
         ) = batch
 
-        attn_logits = self.forward(input_feature.transpose(1, 2), ph_seq)
+        attn_log_prob = self.forward(input_feature.transpose(1, 2), ph_seq)
 
         total_loss, losses_dict = self._get_loss(
-            attn_logits,  # (B T S)
+            attn_log_prob,  # (B T S)
             input_feature_lengths,  # (B)
             ph_seq_lengths,  # (B)
             attn_target,  # (B T) , item in [0,S]
@@ -527,7 +528,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_seq=None,
             ph_intervals=None,
             frame_confidence=None,
-            alignment_spec=torch.softmax(attn_logits, dim=-1).cpu().numpy(),
+            alignment_spec=attn_log_prob.exp().cpu().numpy(),
             ph_frame_id_gt=None,
         )
         self.logger.experiment.add_figure(f"plot_{batch_idx}", fig, self.global_step)
