@@ -656,56 +656,63 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return ph_frame_logits, ph_edge_logits, ctc_logits
 
     def training_step(self, batch, batch_idx):
-        # training_step defines the train loop.
-        (
-            input_feature,  # (B, n_mels, T)
-            input_feature_lengths,  # (B)
-            ph_seq,  # (B S)
-            ph_seq_lengths,  # (B)
-            ph_edge,  # (B, T)
-            ph_frame,  # (B, T)
-            ph_mask,  # (B vocab_size)
-            label_type,  # (B)
-        ) = batch
+        try:
+            (
+                input_feature,  # (B, n_mels, T)
+                input_feature_lengths,  # (B)
+                ph_seq,  # (B S)
+                ph_seq_lengths,  # (B)
+                ph_edge,  # (B, T)
+                ph_frame,  # (B, T)
+                ph_mask,  # (B vocab_size)
+                label_type,  # (B)
+            ) = batch
 
-        (
-            ph_frame_logits,  # (B, T, vocab_size)
-            ph_edge_logits,  # (B, T)
-            ctc_logits,  # (B, T, vocab_size)
-        ) = self.forward(input_feature.transpose(1, 2))
+            (
+                ph_frame_logits,  # (B, T, vocab_size)
+                ph_edge_logits,  # (B, T)
+                ctc_logits,  # (B, T, vocab_size)
+            ) = self.forward(input_feature.transpose(1, 2))
 
-        losses = self._get_loss(
-            ph_frame_logits,
-            ph_edge_logits,
-            ctc_logits,
-            ph_frame,
-            ph_edge,
-            ph_seq,
-            ph_seq_lengths,
-            ph_mask,
-            input_feature_lengths,
-            label_type,
-            valid=False,
-        )
+            losses = self._get_loss(
+                ph_frame_logits,
+                ph_edge_logits,
+                ctc_logits,
+                ph_frame,
+                ph_edge,
+                ph_seq,
+                ph_seq_lengths,
+                ph_mask,
+                input_feature_lengths,
+                label_type,
+                valid=False,
+            )
 
-        schedule_weight = self._losses_schedulers_call()
-        self._losses_schedulers_step()
-        total_loss = (torch.stack(losses) * self.losses_weights * schedule_weight).sum()
-        losses.append(total_loss)
+            schedule_weight = self._losses_schedulers_call()
+            self._losses_schedulers_step()
+            total_loss = (
+                torch.stack(losses) * self.losses_weights * schedule_weight
+            ).sum()
+            losses.append(total_loss)
 
-        log_dict = {
-            f"train_loss/{k}": v for k, v in zip(self.losses_names, losses) if v != 0
-        }
-        log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
-        log_dict.update(
-            {
-                f"scheduler/{k}": v
-                for k, v in zip(self.losses_names, schedule_weight)
-                if v != 1
+            log_dict = {
+                f"train_loss/{k}": v
+                for k, v in zip(self.losses_names, losses)
+                if v != 0
             }
-        )
-        self.log_dict(log_dict)
-        return total_loss
+            log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
+            log_dict.update(
+                {
+                    f"scheduler/{k}": v
+                    for k, v in zip(self.losses_names, schedule_weight)
+                    if v != 1
+                }
+            )
+            self.log_dict(log_dict)
+            return total_loss
+        except Exception as e:
+            print(f"Error: {e}. skip this batch.")
+            return torch.tensor(torch.nan).to(self.device)
 
     def validation_step(self, batch, batch_idx):
         (
