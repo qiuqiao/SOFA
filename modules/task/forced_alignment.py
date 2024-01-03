@@ -162,7 +162,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         if self.inference_mode == "force":
             dp[0, 0] = prob_log[0, 0]
             curr_ph_max_prob_log[0] = prob_log[0, 0]
-            if ph_seq_id[0] == 0:
+            if ph_seq_id[0] == 0 and prob_log.shape[-1] > 1:
                 dp[0, 1] = prob_log[0, 1]
                 curr_ph_max_prob_log[1] = prob_log[0, 1]
         # 如果mode==match，可以从任意音素开始
