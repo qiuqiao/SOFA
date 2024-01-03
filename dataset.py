@@ -211,6 +211,8 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
                 )
                 idx_list = np.concatenate([idx_list, random_idx])
 
+            np.random.shuffle(idx_list)
+
             for i in range(num_batches):
                 yield idx_list[int(i * batch_size) : int((i + 1) * batch_size)]
 
