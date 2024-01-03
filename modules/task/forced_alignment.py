@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler_module
 import yaml
 from einops import rearrange, repeat
+from scipy.stats import betabinom
 
 from modules.layer.model.forced_alignment import ForcedAlignmentModel
 from modules.utils.get_melspec import MelSpecExtractor
@@ -425,6 +426,38 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return total_loss, losses_dict
 
+    def _get_one_prior(self, T, S, W):
+        T_sec = T * (
+            self.melspec_config["hop_length"]
+            / self.melspec_config["sample_rate"]
+            / self.melspec_config["scale_factor"]
+        )
+        # TODO: scipy出来的不可导，不能用可训练的W
+        alpha = (W * T_sec / T) * np.arange(T)  # (T,)
+        beta = (W * T_sec / T) * (T - 1) - alpha
+        k = np.arange(S)  # (S,)
+        batched_k = k[..., None]  # (S,1)
+        prior_log_prob = betabinom.logpmf(batched_k, S, alpha + 1, beta + 1)  # (S,T)
+        prior_log_prob = torch.from_numpy(prior_log_prob).to(self.device)
+
+        return prior_log_prob.T.detach()  # (T,S)
+
+    def _get_prior(
+        self,
+        attn_log_prob,  # (B T S)
+        input_feature_lengths,  # (B)
+        ph_seq_lengths,  # (B)
+    ):
+        # TODO
+        B, T, S = attn_log_prob.shape
+        prior = (-1e9) * torch.ones_like(attn_log_prob, device=self.device)
+        for b, t, s in zip(range(B), input_feature_lengths, ph_seq_lengths):
+            prior[b, :t, :s] = self._get_one_prior(
+                t.item(), s.item(), self.loss_config["prior_weight"]
+            )
+
+        return prior.detach()
+
     def configure_optimizers(self):
         optimizer_params = []
         scheduler_learning_rates = []
@@ -456,9 +489,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
-    def forward(self, input_feature, ph_seq):
+    def forward(self, input_feature, input_feature_lengths, ph_seq, ph_seq_lengths):
         attn_logits = self.model(input_feature, ph_seq)
         attn_log_prob = nn.functional.log_softmax(attn_logits, dim=-1)
+        # attn_log_prob = 0.5 * attn_log_prob + 0.5 * self._get_prior(
+        #     attn_log_prob, input_feature_lengths, ph_seq_lengths
+        # )
         return attn_log_prob
 
     def on_train_start(self):
@@ -478,7 +514,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
             label_type,  # (B)
         ) = batch
 
-        attn_log_prob = self.forward(input_feature.transpose(1, 2), ph_seq)
+        attn_log_prob = self.forward(
+            input_feature.transpose(1, 2), input_feature_lengths, ph_seq, ph_seq_lengths
+        )
 
         total_loss, losses_dict = self._get_loss(
             attn_log_prob,  # (B T S)
@@ -511,7 +549,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
             label_type,  # (B)
         ) = batch
 
-        attn_log_prob = self.forward(input_feature.transpose(1, 2), ph_seq)
+        attn_log_prob = self.forward(
+            input_feature.transpose(1, 2), input_feature_lengths, ph_seq, ph_seq_lengths
+        )
 
         total_loss, losses_dict = self._get_loss(
             attn_log_prob,  # (B T S)

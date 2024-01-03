@@ -37,6 +37,7 @@ optimizer_config:
 
 loss_config:
   blank_log_prob: -1.0
+  prior_weight: 10
 
 # trainer
 accelerator: auto
