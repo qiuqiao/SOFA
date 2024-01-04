@@ -253,7 +253,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_idx_frame[start:end] = ph_idx
             args = {
                 "melspec": melspec.cpu().numpy(),
-                "ph_seq": ph_seq_id,
+                "ph_seq": [self.vocab[i] for i in ph_seq_id],
                 "ph_intervals": ph_intervals_idx,
                 "frame_confidence": frame_confidence,
                 "ph_frame_prob": attn_probs,
@@ -320,12 +320,14 @@ class LitForcedAlignmentTask(pl.LightningModule):
             .detach()
         )
         # (B T S)
-        mask_matrix = (
-            feature_len_mask.unsqueeze(-1)
-            * sequence_len_mask.unsqueeze(1)
-            * sp_mask.unsqueeze(-1)
+        # mask_matrix = (
+        #     feature_len_mask.unsqueeze(-1)
+        #     * sequence_len_mask.unsqueeze(1)
+        #     * sp_mask.unsqueeze(-1)
+        # )
+        attn_log_prob = (
+            attn_log_prob - sequence_len_mask.unsqueeze(1).logical_not().float() * 1e9
         )
-        attn_log_prob = attn_log_prob - mask_matrix.logical_not().float() * 1e9
 
         # calculate loss
         # (B T)
@@ -347,8 +349,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         B, T, S = attn_log_prob.shape
         attn_log_prob = rearrange(attn_log_prob, "B T S -> T B S")
         attn_log_prob = torch.cat(
-            (torch.ones(T, B, 1).to(self.device).detach(), attn_log_prob), dim=-1
-        )
+            (-1 * torch.ones(T, B, 1).to(self.device).detach(), attn_log_prob), dim=-1
+        )  # TODO: can be changed by config
 
         targets = torch.arange(max(ph_seq_lengths)).to(self.device) + 1
         targets = repeat(targets, "S -> B S", B=B)
