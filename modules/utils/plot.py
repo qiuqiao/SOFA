@@ -10,7 +10,7 @@ def plot_for_valid(
     ph_frame_prob,
     ph_frame_id_gt,
 ):
-    ph_seq = [i.split("/")[-1] for i in ph_seq]
+    ph_seq = [str(i).split("/")[-1] for i in ph_seq]
     x = np.arange(melspec.shape[-1])
 
     fig, (ax1, ax2) = plt.subplots(2)

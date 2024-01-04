@@ -12,8 +12,6 @@ import modules.scheduler as scheduler_module
 from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
-from modules.utils.get_melspec import MelSpecExtractor
-from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
 
 
@@ -35,7 +33,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # model
         self.audio_encoder = UNetBackbone(
             melspec_config["n_mels"],
-            model_config["audio_encoder"]["hidden_dims"] + 2,
+            model_config["audio_encoder"]["hidden_dims"],
             model_config["num_embeddings"],
             ResidualBasicBlock,
             DownSampling,
@@ -214,44 +212,29 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self,
         melspec,
         ph_seq,
-        word_seq=None,
-        ph_idx_to_word_idx=None,
         return_ctc=False,
         return_plot=False,
     ):
-        ph_seq_id = np.array([self.vocab[ph] for ph in ph_seq])
-        ph_seq_id_without_SP = ph_seq_id[ph_seq_id != 0]
-        if word_seq is None:
-            word_seq = ph_seq
-            ph_idx_to_word_idx = np.arange(len(ph_seq))
-        alignment_matrix_index = np.cumsum((ph_seq_id != 0).astype("int32")) * (
-            ph_seq_id != 0
-        ).astype("int32")
+        ph_seq_id = np.array([self.vocab[ph] for ph in ph_seq if self.vocab[ph] != 0])
         T = melspec.shape[-1]
 
         # forward
         with torch.no_grad():
-            audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
+            audio_embed, phoneme_embed, attn_log_prob = self.forward(
                 melspec.transpose(1, 2),
-                torch.from_numpy(ph_seq_id_without_SP).to(self.device).unsqueeze(0),
+                torch.from_numpy(ph_seq_id).to(self.device).unsqueeze(0),
             )
-        attn_probs = (
-            nn.functional.softmax(attn_logits, dim=-1).cpu().numpy()
-        )  # (B T S+1)
-        attn_logprobs = (
-            nn.functional.log_softmax(attn_logits, dim=-1).cpu().numpy()
-        )  # (B T S+1)
+        attn_probs = attn_log_prob.exp().cpu().numpy()  # (B T S)
+        attn_log_prob = attn_log_prob.cpu().numpy()  # (B T S)
 
-        alignment_matrix_probs = attn_probs[:, :, alignment_matrix_index]
-        alignment_matrix_logprobs = attn_logprobs[:, :, alignment_matrix_index]
         # decode
         (
-            ph_idx_seq,
+            ph_idx_seq,  # TODO: remove this
             ph_position_idx,
             frame_confidence,
         ) = self._decode(
             ph_seq_id,
-            alignment_matrix_logprobs.squeeze(0),
+            attn_log_prob.squeeze(0),  # TODO: batch decode
         )
 
         # postprocess
@@ -263,32 +246,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
         ph_intervals = ph_intervals_idx * frame_length
 
-        ph_seq_pred = []
-        ph_intervals_pred = []
-        word_seq_pred = []
-        word_intervals_pred = []
-
-        word_idx_last = -1
-        for i, ph_idx in enumerate(ph_idx_seq):
-            # ph_idx只能用于两种情况：ph_seq和ph_idx_to_word_idx
-            if ph_seq[ph_idx] == "SP":
-                continue
-            ph_seq_pred.append(ph_seq[ph_idx])
-            ph_intervals_pred.append(ph_intervals[i, :])
-
-            word_idx = ph_idx_to_word_idx[ph_idx]
-            if word_idx == word_idx_last:
-                word_intervals_pred[-1][1] = ph_intervals[i, 1]
-            else:
-                word_seq_pred.append(word_seq[word_idx])
-                word_intervals_pred.append([ph_intervals[i, 0], ph_intervals[i, 1]])
-                word_idx_last = word_idx
-        ph_seq_pred = np.array(ph_seq_pred)
-        ph_intervals_pred = np.array(ph_intervals_pred).clip(min=0, max=None)
-        word_seq_pred = np.array(word_seq_pred)
-        word_intervals_pred = np.array(word_intervals_pred).clip(min=0, max=None)
-
-        ctc = None
         fig = None
         if return_plot:
             ph_idx_frame = np.zeros(T).astype("int32")
@@ -296,20 +253,17 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_idx_frame[start:end] = ph_idx
             args = {
                 "melspec": melspec.cpu().numpy(),
-                "ph_seq": ph_seq_pred,
-                "ph_intervals": (ph_intervals_pred / frame_length),
+                "ph_seq": ph_seq_id,
+                "ph_intervals": ph_intervals_idx,
                 "frame_confidence": frame_confidence,
-                "ph_frame_prob": alignment_matrix_probs,
+                "ph_frame_prob": attn_probs,
                 "ph_frame_id_gt": ph_idx_frame,
             }
             fig = plot_for_valid(**args)
 
         return (
-            ph_seq_pred,
-            ph_intervals_pred,
-            word_seq_pred,
-            word_intervals_pred,
-            ctc,
+            ph_idx_frame,
+            ph_intervals,
             fig,
         )
 
@@ -317,31 +271,32 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.inference_mode = mode
 
     def predict_step(self, batch, batch_idx):
-        wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
-        if self.get_melspec is None:
-            self.get_melspec = MelSpecExtractor(**self.melspec_config)
+        raise NotImplementedError
+        # wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
+        # if self.get_melspec is None:
+        #     self.get_melspec = MelSpecExtractor(**self.melspec_config)
 
-        waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
-        wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
-        melspec = self.get_melspec(waveform).detach().unsqueeze(0)
-        melspec = (melspec - melspec.mean()) / melspec.std()
-        melspec = repeat(
-            melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
-        )
-        (ph_seq, ph_intervals, word_seq, word_intervals, _, _) = self._infer_once(
-            melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
-        )
-        return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+        # waveform = load_wav(wav_path, self.device, self.melspec_config["sample_rate"])
+        # wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
+        # melspec = self.get_melspec(waveform).detach().unsqueeze(0)
+        # melspec = (melspec - melspec.mean()) / melspec.std()
+        # melspec = repeat(
+        #     melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
+        # )
+        # (ph_idx_frame, ph_intervals, _) = self._infer_once(
+        #     melspec, ph_seq, False, False
+        # )
+        # return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
 
     def _get_full_label_loss(
         self,
-        attn_logits,  # (B T S+1)
+        attn_log_prob,  # (B T S)
         attn_target,  # (B T), item in [0,S]
         input_feature_lengths,  # (B)
         ph_seq_lengths,  # (B)
         valid,
     ):
-        B, T, S_ = attn_logits.shape
+        B, T, S = attn_log_prob.shape
         # mask
         # (B T)
         feature_len_mask = (
@@ -352,25 +307,32 @@ class LitForcedAlignmentTask(pl.LightningModule):
             .to(self.device)
             .detach()
         )
-        # (B S+1)
+        # (B T)
+        # SP mask
+        sp_mask = attn_target != 0
+        # (B S)
         sequence_len_mask = (
             (
-                torch.arange(S_).to(self.device).unsqueeze(0)
-                < (ph_seq_lengths.unsqueeze(1) + 1)
+                torch.arange(S).to(self.device).unsqueeze(0)
+                < (ph_seq_lengths.unsqueeze(1))
             )
             .to(self.device)
             .detach()
         )
-        # (B T S+1)
-        mask_matrix = feature_len_mask.unsqueeze(-1) * sequence_len_mask.unsqueeze(1)
-        attn_logits = attn_logits - mask_matrix.logical_not().float() * 1e9
+        # (B T S)
+        mask_matrix = (
+            feature_len_mask.unsqueeze(-1)
+            * sequence_len_mask.unsqueeze(1)
+            * sp_mask.unsqueeze(-1)
+        )
+        attn_log_prob = attn_log_prob - mask_matrix.logical_not().float() * 1e9
 
         # calculate loss
         # (B T)
         # TODO: add weight、GHM
-        loss = nn.functional.cross_entropy(
-            attn_logits.transpose(1, 2),
-            attn_target.long(),
+        loss = nn.functional.nll_loss(
+            attn_log_prob.transpose(1, 2),
+            ((attn_target - 1 > 0) * (attn_target - 1)).long(),
             reduction="none",
         )
         # apply mask
@@ -380,18 +342,23 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return loss
 
     def _get_weak_label_loss(
-        self, attn_logits, input_feature_lengths, ph_seq_lengths, valid
+        self, attn_log_prob, input_feature_lengths, ph_seq_lengths, valid
     ):
-        log_probs = nn.functional.log_softmax(attn_logits, dim=-1)
-        log_probs = rearrange(log_probs, "B T S -> T B S")
+        B, T, S = attn_log_prob.shape
+        attn_log_prob = rearrange(attn_log_prob, "B T S -> T B S")
+        attn_log_prob = torch.cat(
+            (torch.ones(T, B, 1).to(self.device).detach(), attn_log_prob), dim=-1
+        )
+
         targets = torch.arange(max(ph_seq_lengths)).to(self.device) + 1
-        targets = repeat(targets, "S -> B S", B=attn_logits.shape[0])
+        targets = repeat(targets, "S -> B S", B=B)
         targets = targets * (targets < (ph_seq_lengths.unsqueeze(1) + 1)).float()
         targets = targets.long()
+
         # ctc loss
         # TODO: use ghm loss
         loss = nn.functional.ctc_loss(
-            log_probs,
+            attn_log_prob,
             targets,
             input_lengths=input_feature_lengths,
             target_lengths=ph_seq_lengths,
@@ -429,8 +396,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self,
         audio_embed,  # (B T E)
         phoneme_embed,  # (B S E)
-        attn_logits,  # (B T S+1)
-        ctc_logits,  # (B T S+1)
+        attn_log_prob,  # (B T S)
         input_feature_lengths,  # (B)
         ph_seq,  # (B S)
         ph_seq_lengths,  # (B)
@@ -445,7 +411,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         if (full_label_idx).any():
             full_label_loss = self._get_full_label_loss(
-                attn_logits[full_label_idx],
+                attn_log_prob[full_label_idx],
                 attn_target[full_label_idx],
                 input_feature_lengths[full_label_idx],
                 ph_seq_lengths[full_label_idx],
@@ -456,7 +422,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         if (weak_label_idx).any():
             ctc_loss = self._get_weak_label_loss(
-                ctc_logits[weak_label_idx],
+                attn_log_prob[weak_label_idx],
                 input_feature_lengths[weak_label_idx],
                 ph_seq_lengths[weak_label_idx],
                 valid,
@@ -487,33 +453,15 @@ class LitForcedAlignmentTask(pl.LightningModule):
         return losses
 
     def forward(self, melspec, ph_seq) -> Any:
-        audio_embed = self.audio_encoder(melspec)  # (B T E+2)
-        sp_logits = audio_embed[:, :, [0]]  # (B T 1)
-        ctc_blank_logits = audio_embed[:, :, [1]]  # (B T 1)
-        audio_embed = audio_embed[:, :, 2:]  # (B T E)
+        audio_embed = self.audio_encoder(melspec)  # (B T E)
         phoneme_embed = self.phoneme_encoder(ph_seq)  # (B S E)
         attn_logits = torch.matmul(audio_embed, phoneme_embed.transpose(1, 2)) / (
-            phoneme_embed.shape[-1] ** 0.5
+            phoneme_embed.shape[-1]
         )  # (B T S)
-        ctc_logits = torch.cat(
-            (
-                ctc_blank_logits,
-                attn_logits,
-            ),
-            dim=-1,
-        )
-        # attn_rms = (
-        #     torch.linalg.vector_norm(attn_logits, ord=2, dim=-1)
-        #     / (attn_logits.shape[-1] ** 0.5 + 1e-6)
-        # ).unsqueeze(-1)
-        attn_logits = torch.cat(
-            (
-                sp_logits,
-                attn_logits,
-            ),
-            dim=-1,
-        )
-        return audio_embed, phoneme_embed, attn_logits, ctc_logits  # (B T S+1)
+        attn_log_prob = nn.functional.log_softmax(
+            attn_logits.float(), dim=-1
+        )  # (B T S)
+        return audio_embed.float(), phoneme_embed.float(), attn_log_prob.float()
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -526,15 +474,14 @@ class LitForcedAlignmentTask(pl.LightningModule):
             label_type,  # (B)
         ) = batch
 
-        audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
+        audio_embed, phoneme_embed, attn_log_prob = self.forward(
             input_feature.transpose(1, 2), ph_seq
         )
 
         losses = self._get_loss(
             audio_embed,  # (B T E)
             phoneme_embed,  # (B S E)
-            attn_logits,  # (B T S+1)
-            ctc_logits,  # (B T S+1)
+            attn_log_prob,  # (B T S)
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
@@ -579,31 +526,25 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 continue
             ph_seq_g2p.append(self.vocab[ph])
             ph_seq_g2p.append("SP")
-        _, _, _, _, ctc, fig = self._infer_once(
+
+        (ph_idx_frame, ph_intervals, fig) = self._infer_once(
             input_feature,
             ph_seq_g2p,
-            None,
-            None,
             True,
             True,
         )
-        if ctc is not None:
-            self.logger.experiment.add_text(
-                f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
-            )
         self.logger.experiment.add_figure(
             f"valid/plot_{batch_idx}", fig, self.global_step
         )
 
-        audio_embed, phoneme_embed, attn_logits, ctc_logits = self.forward(
+        audio_embed, phoneme_embed, attn_log_prob = self.forward(
             input_feature.transpose(1, 2), ph_seq
         )
 
         losses = self._get_loss(
             audio_embed,  # (B T E)
             phoneme_embed,  # (B S E)
-            attn_logits,  # (B T S+1)
-            ctc_logits,  # (B T S+1)
+            attn_log_prob,  # (B T S)
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
