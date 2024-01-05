@@ -1,5 +1,3 @@
-from typing import Any
-
 import lightning as pl
 import numpy as np
 import torch
@@ -222,7 +220,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
         with torch.no_grad():
             audio_embed, phoneme_embed, attn_log_prob = self.forward(
                 melspec.transpose(1, 2),
+                torch.tensor([T]).to(self.device),
                 torch.from_numpy(ph_seq_id).to(self.device).unsqueeze(0),
+                torch.tensor([len(ph_seq_id)]).to(self.device),
             )
         attn_probs = attn_log_prob.exp().cpu().numpy()  # (B T S)
         attn_log_prob = attn_log_prob.cpu().numpy()  # (B T S)
@@ -297,6 +297,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         valid,
     ):
         B, T, S = attn_log_prob.shape
+
         # mask
         # (B T)
         feature_len_mask = (
@@ -307,27 +308,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             .to(self.device)
             .detach()
         )
-        # (B T)
-        # SP mask
-        sp_mask = attn_target != 0
-        # (B S)
-        sequence_len_mask = (
-            (
-                torch.arange(S).to(self.device).unsqueeze(0)
-                < (ph_seq_lengths.unsqueeze(1))
-            )
-            .to(self.device)
-            .detach()
-        )
-        # (B T S)
-        # mask_matrix = (
-        #     feature_len_mask.unsqueeze(-1)
-        #     * sequence_len_mask.unsqueeze(1)
-        #     * sp_mask.unsqueeze(-1)
-        # )
-        attn_log_prob = (
-            attn_log_prob - sequence_len_mask.unsqueeze(1).logical_not().float() * 1e9
-        )
 
         # calculate loss
         # (B T)
@@ -337,6 +317,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ((attn_target - 1 > 0) * (attn_target - 1)).long(),
             reduction="none",
         )
+
         # apply mask
         loss = loss * feature_len_mask.float()
         loss = loss.sum() / feature_len_mask.sum()
@@ -454,12 +435,29 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return losses
 
-    def forward(self, melspec, ph_seq) -> Any:
+    def forward(self, melspec, input_feature_lengths, ph_seq, ph_seq_lengths):
         audio_embed = self.audio_encoder(melspec)  # (B T E)
         phoneme_embed = self.phoneme_encoder(ph_seq)  # (B S E)
         attn_logits = torch.matmul(audio_embed, phoneme_embed.transpose(1, 2)) / (
             phoneme_embed.shape[-1]
         )  # (B T S)
+
+        # apply mask
+        B, T, S = attn_logits.shape
+        # (B T)
+        feature_len_mask = (
+            torch.arange(T).to(self.device).to(self.device).unsqueeze(0)
+            < (input_feature_lengths.to(self.device).unsqueeze(1))
+        ).detach()
+        # (B S)
+        phoneme_len_mask = (
+            torch.arange(S).to(self.device).unsqueeze(0)
+            < (ph_seq_lengths.to(self.device).unsqueeze(1))
+        ).detach()
+        # (B T S)
+        mask_matrix = feature_len_mask.unsqueeze(-1) * phoneme_len_mask.unsqueeze(1)
+        attn_logits = attn_logits - mask_matrix.logical_not().float() * 1e9
+
         attn_log_prob = nn.functional.log_softmax(
             attn_logits.float(), dim=-1
         )  # (B T S)
@@ -477,7 +475,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         ) = batch
 
         audio_embed, phoneme_embed, attn_log_prob = self.forward(
-            input_feature.transpose(1, 2), ph_seq
+            input_feature.transpose(1, 2),
+            input_feature_lengths,
+            ph_seq,
+            ph_seq_lengths,
         )
 
         losses = self._get_loss(
@@ -540,7 +541,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
 
         audio_embed, phoneme_embed, attn_log_prob = self.forward(
-            input_feature.transpose(1, 2), ph_seq
+            input_feature.transpose(1, 2),
+            input_feature_lengths,
+            ph_seq,
+            ph_seq_lengths,
         )
 
         losses = self._get_loss(
