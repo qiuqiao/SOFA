@@ -308,6 +308,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
             .to(self.device)
             .detach()
         )
+        sp_mask = attn_target != 0
+        mask = feature_len_mask * sp_mask
 
         # calculate loss
         # (B T)
@@ -319,8 +321,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
 
         # apply mask
-        loss = loss * feature_len_mask.float()
-        loss = loss.sum() / feature_len_mask.sum()
+        loss = loss * mask.float()
+        loss = loss.sum() / mask.sum()
 
         return loss
 
