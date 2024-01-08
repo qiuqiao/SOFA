@@ -185,6 +185,14 @@ def save_htk(predictions):
     help="(only used when --g2p=='Dictionary') path to the dictionary",
 )
 @click.option(
+    "--in_format",
+    "-if",
+    default="lab",
+    required=False,
+    type=str,
+    help="File extension of input transcriptions. Default: lab",
+)
+@click.option(
     "--out_formats",
     "-of",
     default="TextGrid,htk",
@@ -192,7 +200,7 @@ def save_htk(predictions):
     type=str,
     help="Types of output file, separated by comma. Supported types: TextGrid(textgrid,praat), htk(lab,nnsvs,sinsy)",
 )
-def main(ckpt, folder, mode, g2p, ap_detector, out_formats, **kwargs):
+def main(ckpt, folder, mode, g2p, ap_detector, in_format, out_formats, **kwargs):
     if not g2p.endswith("G2P"):
         g2p += "G2P"
     g2p_class = getattr(modules.g2p, g2p)
@@ -204,6 +212,7 @@ def main(ckpt, folder, mode, g2p, ap_detector, out_formats, **kwargs):
     AP_detector_class = getattr(modules.AP_detector, ap_detector)
     get_AP = AP_detector_class(**kwargs)
 
+    grapheme_to_phoneme.set_in_format(in_format)
     dataset = grapheme_to_phoneme.get_dataset(pathlib.Path(folder).rglob("*.wav"))
 
     torch.set_grad_enabled(False)

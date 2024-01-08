@@ -51,6 +51,13 @@ It has the following advantages:
             - ...
     ```
     Ensure that the `.wav` files and their corresponding `.lab` files are in the same folder.
+
+    The `.lab` file is the transcription for the `.wav` file with the same name. The file extension for the transcription can be changed using the `--in_format` parameter.
+
+    After the transcription is converted into a phoneme sequence by the `g2p` module, it is fed into the model for alignment.
+
+    For example, when using the `DictionaryG2P` module and the `opencpop-extension` dictionary by default, if the content of the transcription is: `gan shou ting zai wo fa duan de zhi jian`, the `g2p` module will convert it based on the dictionary into the phoneme sequence `g an sh ou t ing z ai w o f a duan d e zh ir j ian`. For how to use other `g2p` modules, see [g2p module usage instructions](modules/g2p/readme_g2p.md).
+
 4. Command-line inference
 
     Use `python infer.py` to perform inference.
@@ -58,8 +65,8 @@ It has the following advantages:
     Parameters that need to be specified:
     - `--ckpt`: (must be specified) The path to the model weights;
     - `--folder`: The folder where the data to be aligned is stored (default is `segments`);
+    - `--in_format`: The file extension of the transcription (default is `lab`);
     - `--out_formats`: The annotation format of the inferred files, multiple formats can be specified, separated by commas (default is `TextGrid,htk`).
-
     - `--dictionary`: The dictionary file (default is `dictionary/opencpop-extension.txt`);
 
     ```bash

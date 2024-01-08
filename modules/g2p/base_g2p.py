@@ -16,7 +16,7 @@ class DataFrameDataset(torch.utils.data.Dataset):
 class BaseG2P:
     def __init__(self, **kwargs):
         # args: list of str
-        pass
+        self.in_format = "lab"
 
     def _g2p(self, input_text):
         # input text, return phoneme sequence, word sequence, and phoneme index to word index mapping
@@ -40,12 +40,15 @@ class BaseG2P:
         )
         return ph_seq, word_seq, ph_idx_to_word_idx
 
+    def set_in_format(self, in_format):
+        self.in_format = in_format
+
     def get_dataset(self, wav_paths):
         # dataset is a pandas dataframe with columns: wav_path, ph_seq, word_seq, ph_idx_to_word_idx
         dataset = []
         for wav_path in wav_paths:
             try:
-                if wav_path.with_suffix(".lab").exists():
+                if wav_path.with_suffix("." + self.in_format).exists():
                     with open(wav_path.with_suffix(".lab"), "r", encoding="utf-8") as f:
                         lab_text = f.read().strip()
                     ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)

@@ -51,6 +51,13 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
             - ...
     ```
     保证`.wav`文件和对应的`.lab`在同一个文件夹即可。
+
+    其中，`.lab`文件是同名`.wav`文件的录音文本。录音文本的文件后缀名可以通过`--in_format`参数更改。
+    
+    录音文本经过`g2p`模块转化为音素序列后，输入模型进行对齐。
+
+    例如，默认情况下使用`DictionaryG2P`模块和`opencpop-extension`词典时，加入录音文本的内容是：`gan shou ting zai wo fa duan de zhi jian`，`g2p`模块根据词典转化为音素序列`g an sh ou t ing z ai w o f a d uan d e zh ir j ian`。其他`g2p`模块的使用方法，参见[g2p模块使用说明](modules/g2p/readme_g2p_zh.md)。
+    
 4. 命令行推理
 
     使用`python infer.py`进行推理。
@@ -58,6 +65,7 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
     需要指定的参数：
     - `--ckpt`：（必须指定）模型权重路径；
     - `--folder`：存放待对齐数据的文件夹​（默认为`segments`）；
+    - `--in_format`： 录音文本的文件后缀名（默认为`lab`）；
     - `--out_formats`：推理出来的文件的标注格式，可指定多个，使用逗号分隔（默认为`TextGrid,htk`）
     - `--dictionary`：字典文件​（默认为`dictionary/opencpop-extension.txt`​）；
 
