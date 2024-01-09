@@ -49,7 +49,7 @@ class BaseG2P:
         for wav_path in wav_paths:
             try:
                 if wav_path.with_suffix("." + self.in_format).exists():
-                    with open(wav_path.with_suffix(".lab"), "r", encoding="utf-8") as f:
+                    with open(wav_path.with_suffix("." + self.in_format), "r", encoding="utf-8") as f:
                         lab_text = f.read().strip()
                     ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)
                     dataset.append((wav_path, ph_seq, word_seq, ph_idx_to_word_idx))
