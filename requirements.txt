@@ -7,15 +7,12 @@ librosa<0.10.0
 lightning>=2.0.0
 matplotlib~=3.7.3
 numpy~=1.24.1
-# onnx==1.14.0
-# onnxsim==0.4.31
-# praat-parselmouth==0.4.3
 PyYAML~=6.0.1
-# scipy~=1.10.1
 tensorboard
 tensorboardX
 tqdm~=4.66.1
 textgrid
+chardet
 
 # torch
 # torchaudio
