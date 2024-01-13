@@ -2,6 +2,8 @@ import pathlib
 
 import click
 import lightning as pl
+import numpy as np
+import pandas as pd
 import textgrid
 import torch
 
@@ -152,6 +154,68 @@ def save_htk(predictions):
             f.close()
 
 
+def save_transcriptions(predictions):
+    print("Saving transcriptions.csv...")
+
+    folder_to_data = {}
+
+    for (
+        wav_path,
+        wav_length,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
+    ) in predictions:
+        folder = wav_path.parent
+        if folder in folder_to_data:
+            curr_data = folder_to_data[folder]
+        else:
+            curr_data = {
+                "name": [],
+                "word_seq": [],
+                "word_dur": [],
+                "ph_seq": [],
+                "ph_dur": [],
+            }
+
+        name = wav_path.with_suffix("").name
+        word_seq = " ".join(word_seq)
+        ph_seq = " ".join(ph_seq)
+        word_dur = []
+        ph_dur = []
+
+        last_word_end = 0
+        for start, end in word_intervals:
+            dur = np.round(end - last_word_end, 5)
+            word_dur.append(dur)
+            last_word_end += dur
+
+        last_ph_end = 0
+        for start, end in ph_intervals:
+            dur = np.round(end - last_ph_end, 5)
+            ph_dur.append(dur)
+            last_ph_end += dur
+
+        word_dur = " ".join([str(i) for i in word_dur])
+        ph_dur = " ".join([str(i) for i in ph_dur])
+
+        curr_data["name"].append(name)
+        curr_data["word_seq"].append(word_seq)
+        curr_data["word_dur"].append(word_dur)
+        curr_data["ph_seq"].append(ph_seq)
+        curr_data["ph_dur"].append(ph_dur)
+
+        folder_to_data[folder] = curr_data
+
+    for folder, data in folder_to_data.items():
+        df = pd.DataFrame(data)
+        path = folder / "transcriptions"
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path / "transcriptions.csv", index=False)
+
+
 @click.command()
 @click.option(
     "--ckpt",
@@ -195,17 +259,20 @@ def save_htk(predictions):
 @click.option(
     "--out_formats",
     "-of",
-    default="TextGrid,htk",
+    default="textgrid,htk,trans",
     required=False,
     type=str,
-    help="Types of output file, separated by comma. Supported types: TextGrid(textgrid,praat), htk(lab,nnsvs,sinsy)",
+    help="Types of output file, separated by comma. Supported types:"
+    "textgrid(praat),"
+    " htk(lab,nnsvs,sinsy),"
+    " transcriptions.csv(diffsinger,trans,transcription,transcriptions)",
 )
 def main(ckpt, folder, mode, g2p, ap_detector, in_format, out_formats, **kwargs):
     if not g2p.endswith("G2P"):
         g2p += "G2P"
     g2p_class = getattr(modules.g2p, g2p)
     grapheme_to_phoneme = g2p_class(**kwargs)
-    out_formats = [i.strip() for i in out_formats.split(",")]
+    out_formats = [i.strip().lower() for i in out_formats.split(",")]
 
     if not ap_detector.endswith("APDetector"):
         ap_detector += "APDetector"
@@ -223,7 +290,7 @@ def main(ckpt, folder, mode, g2p, ap_detector, in_format, out_formats, **kwargs)
 
     predictions = get_AP.process(predictions)
     predictions = post_processing(predictions)
-    if "TextGrid" in out_formats or "textgrid" in out_formats or "praat" in out_formats:
+    if "textgrid" in out_formats or "praat" in out_formats:
         save_textgrids(predictions)
     if (
         "htk" in out_formats
@@ -232,7 +299,15 @@ def main(ckpt, folder, mode, g2p, ap_detector, in_format, out_formats, **kwargs)
         or "sinsy" in out_formats
     ):
         save_htk(predictions)
-    # save_transcriptions(output, predictions)
+    if (
+        "trans" in out_formats
+        or "transcription" in out_formats
+        or "transcriptions" in out_formats
+        or "transcriptions.csv" in out_formats
+        or "diffsinger" in out_formats
+    ):
+        save_transcriptions(predictions)
+
     print("Output files are saved to the same folder as the input wav files.")
 
 
