@@ -124,3 +124,33 @@ It has the following advantages:
 3. Modify `binarize_config.yaml` as needed, then execute `python binarize.py`;
 4. Download the pre-trained model you need from releases, modify `train_config.yaml` as needed, then execute `python train.py -p path_to_your_pretrained_model`;
 5. For training visualization: `tensorboard --logdir=ckpt/`.
+
+## Evaluation (for model developers)
+
+To measure the performance of a model, it is useful to calculate some objective evaluation metrics between the predictions (force-aligned labels) and the targets (manual labels), especially in a k-fold cross-validation.
+
+Some useful metrics are:
+
+- Boundary Edit Distance: the total moving distance from the predicted boundaries to the target boundaries.
+- Boundary Edit Ratio: the boundary edit distance divided by the total duration of target intervals.
+- Boundary Error Rate: the proportion of misplaced boundaries to all target boundaries under a given tolerance of distance.
+
+To evaluate your model on a specific dataset, please first run the inference to get all predictions. You should put your predictions and targets in different folders, with same filenames and relative paths, containing the same phone sequences except for spaces. The script only supports TextGrid format currently.
+
+Run the following command:
+
+```bash
+python evaluate.py <PRED_DIR> <TARGET_DIR> -r -s
+```
+
+where `PRED_DIR` is a directory containing all predictions and `TARGET_DIR` is a directory containing all targets.
+
+Options:
+- `-r`, `--recursive`: compare the files in subdirectories recursively
+- `-s`, `--strict`: use strict mode (raise errors instead of skipping if the phones are not identical)
+- `--ignore`: ignore some phone marks (default: `AP,SP,<AP>,<SP>,,pau,cl`)
+
+The script will calculate:
+
+- The boundary edit ratio
+- The boundary error rate, under 10ms, 20ms and 50ms tolerance

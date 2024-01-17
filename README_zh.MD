@@ -123,3 +123,28 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
 3. 按需修改`binarize_config.yaml`，然后执行`python binarize.py`；
 4. 在release中下载你需要的预训练模型，并按需修改`train_config.yaml`，然后执行`python train.py -p path_to_your_pretrained_model`；
 5. 训练可视化：`tensorboard --logdir=ckpt/`。
+
+## 评估（适用于模型开发者）
+
+可通过在预测（强制对齐）标注与目标（人工）标注之间计算特定的客观评价指标（尤其是在k折交叉验证中）来评估模型性能。
+
+一些有用的指标包括：
+
+- 边界编辑距离：从预测的边界到目标边界的总移动距离。
+- 边界编辑比率：边界编辑距离除以目标的总时长。
+- 边界错误率：在给定的容差值下，位置错误的边界数占据目标边界总数的比例。
+
+若要在特定的数据集上验证你的模型，请先运行推理以得到所有的预测标注。随后，你需要将预测标注与目标标注放置在不同的文件夹中，相对应的标注文件需要保持相同文件名、相同相对路径，并包含相同的音素序列（空白音素除外）。此脚本当前仅支持TextGrid格式。
+
+运行以下命令：
+
+```bash
+python evaluate.py <PRED_DIR> <TARGET_DIR> -r -s
+```
+
+其中 `PRED_DIR` 是包含所有预测标注的目录，`TARGET_DIR` 是包含所有目标标注的目录。
+
+可选项：
+- `-r`, `--recursive`: 递归对比子文件夹中的文件
+- `-s`, `--strict`: 使用严格模式（当音素序列不相同时报错而非跳过）
+- `--ignore`: 忽略部分音素记号（默认值：`AP,SP,<AP>,<SP>,,pau,cl`）
