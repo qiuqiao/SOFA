@@ -388,7 +388,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 "melspec": melspec.cpu().numpy(),
                 "ph_seq": ph_seq_pred,
                 "ph_intervals": ph_intervals_pred_int,
-                "frame_confidence": None,
+                "ph_confidence": ph_confidence,
                 "ph_frame_prob": ph_frame_pred[:, ph_seq_id],
                 "ph_frame_id_gt": ph_idx_frame,
                 "edge_prob": edge_prob,

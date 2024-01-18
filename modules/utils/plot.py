@@ -6,7 +6,7 @@ def plot_for_valid(
     melspec,
     ph_seq,
     ph_intervals,
-    frame_confidence,
+    ph_confidence,
     ph_frame_prob,
     ph_frame_id_gt,
     edge_prob,
@@ -15,6 +15,7 @@ def plot_for_valid(
     x = np.arange(melspec.shape[-1])
 
     fig, (ax1, ax2) = plt.subplots(2)
+
     ax1.imshow(melspec[0], origin="lower", aspect="auto")
 
     for i, interval in enumerate(ph_intervals):
@@ -42,11 +43,36 @@ def plot_for_valid(
                     fontsize=11,
                     color="white",
                 )
+    confidence_x = []
+    confidence_y = []
+    for interval, confidence in zip(ph_intervals, ph_confidence):
+        confidence_x.extend(interval)
+        confidence_y.extend([confidence, confidence])
 
     ax1.plot(
-        x, frame_confidence * melspec.shape[-2], color="black", linewidth=1, alpha=0.6
+        confidence_x,
+        np.array(confidence_y) * melspec.shape[-2],
+        color="black",
+        linewidth=1,
+        alpha=0.6,
     )
-    ax1.fill_between(x, frame_confidence * melspec.shape[-2], color="black", alpha=0.3)
+    ax1.fill_between(
+        confidence_x,
+        np.array(confidence_y) * melspec.shape[-2],
+        color="black",
+        alpha=0.3,
+    )
+    # if frame_confidence is not None:
+    #     ax1.plot(
+    #         x,
+    #         frame_confidence * melspec.shape[-2],
+    #         color="black",
+    #         linewidth=1,
+    #         alpha=0.6,
+    #     )
+    #     ax1.fill_between(
+    #         x, frame_confidence * melspec.shape[-2], color="black", alpha=0.3
+    #     )
 
     ax2.imshow(
         ph_frame_prob.T,
