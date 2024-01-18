@@ -90,7 +90,7 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
 
         return np.array(intersection_intervals)
 
-    def process_one(
+    def _process_one(
         self, wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
     ):
         # input:

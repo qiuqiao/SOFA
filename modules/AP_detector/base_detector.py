@@ -24,14 +24,14 @@ class BaseAPDetector:
             word_intervals,
         ) in predictions:
             res.append(
-                self.process_one(
+                self._process_one(
                     wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
                 )
             )
 
         return res
 
-    def process_one(
+    def _process_one(
         self, wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
     ):
         # input:

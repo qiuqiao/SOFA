@@ -6,7 +6,7 @@ class NoneAPDetector(BaseAPDetector):
         # args: list of str
         pass
 
-    def process_one(
+    def _process_one(
         self, wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
     ):
         # input:
