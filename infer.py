@@ -63,6 +63,7 @@ def post_processing(predictions):
     for (
         wav_path,
         wav_length,
+        confidence,
         ph_seq,
         ph_intervals,
         word_seq,
@@ -77,7 +78,15 @@ def post_processing(predictions):
             ph_seq, ph_intervals = add_SP(ph_seq, ph_intervals, wav_length)
 
             res.append(
-                [wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals]
+                [
+                    wav_path,
+                    wav_length,
+                    confidence,
+                    ph_seq,
+                    ph_intervals,
+                    word_seq,
+                    word_intervals,
+                ]
             )
         except Exception as e:
             e.args += (wav_path,)
@@ -91,6 +100,7 @@ def save_textgrids(predictions):
     for (
         wav_path,
         wav_length,
+        confidence,
         ph_seq,
         ph_intervals,
         word_seq,
@@ -122,6 +132,7 @@ def save_htk(predictions):
     for (
         wav_path,
         wav_length,
+        confidence,
         ph_seq,
         ph_intervals,
         word_seq,
@@ -162,6 +173,7 @@ def save_transcriptions(predictions):
     for (
         wav_path,
         wav_length,
+        confidence,
         ph_seq,
         ph_intervals,
         word_seq,
@@ -216,6 +228,43 @@ def save_transcriptions(predictions):
         df.to_csv(path / "transcriptions.csv", index=False)
 
 
+def save_confidence_fn(predictions):
+    print("saving confidence...")
+
+    folder_to_data = {}
+
+    for (
+        wav_path,
+        wav_length,
+        confidence,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
+    ) in predictions:
+        folder = wav_path.parent
+        if folder in folder_to_data:
+            curr_data = folder_to_data[folder]
+        else:
+            curr_data = {
+                "name": [],
+                "confidence": [],
+            }
+
+        name = wav_path.with_suffix("").name
+        curr_data["name"].append(name)
+        curr_data["confidence"].append(confidence)
+
+        folder_to_data[folder] = curr_data
+
+    for folder, data in folder_to_data.items():
+        df = pd.DataFrame(data)
+        path = folder / "confidence"
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path / "confidence.csv", index=False)
+
+
 @click.command()
 @click.option(
     "--ckpt",
@@ -242,13 +291,6 @@ def save_transcriptions(predictions):
     help="name of the AP detector class",
 )
 @click.option(
-    "--dictionary",
-    "-d",
-    default="dictionary/opencpop-extension.txt",
-    type=str,
-    help="(only used when --g2p=='Dictionary') path to the dictionary",
-)
-@click.option(
     "--in_format",
     "-if",
     default="lab",
@@ -267,7 +309,32 @@ def save_transcriptions(predictions):
     " htk(lab,nnsvs,sinsy),"
     " transcriptions.csv(diffsinger,trans,transcription,transcriptions)",
 )
-def main(ckpt, folder, mode, g2p, ap_detector, in_format, out_formats, **kwargs):
+@click.option(
+    "--save_confidence",
+    "-sc",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="save confidence.csv",
+)
+@click.option(
+    "--dictionary",
+    "-d",
+    default="dictionary/opencpop-extension.txt",
+    type=str,
+    help="(only used when --g2p=='Dictionary') path to the dictionary",
+)
+def main(
+    ckpt,
+    folder,
+    mode,
+    g2p,
+    ap_detector,
+    in_format,
+    out_formats,
+    save_confidence,
+    **kwargs,
+):
     if not g2p.endswith("G2P"):
         g2p += "G2P"
     g2p_class = getattr(modules.g2p, g2p)
@@ -307,6 +374,9 @@ def main(ckpt, folder, mode, g2p, ap_detector, in_format, out_formats, **kwargs)
         or "diffsinger" in out_formats
     ):
         save_transcriptions(predictions)
+
+    if save_confidence:
+        save_confidence_fn(predictions)
 
     print("Output files are saved to the same folder as the input wav files.")
 

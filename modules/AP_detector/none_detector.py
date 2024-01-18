@@ -7,7 +7,14 @@ class NoneAPDetector(BaseAPDetector):
         pass
 
     def _process_one(
-        self, wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+        self,
+        wav_path,
+        wav_length,
+        confidence,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
     ):
         # input:
         #     wav_path: pathlib.Path
@@ -18,4 +25,12 @@ class NoneAPDetector(BaseAPDetector):
         #     word_intervals: np.ndarray of shape (n_word, 2), word_intervals[i] = [start, end]
 
         # output: same as the input.
-        return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+        return (
+            wav_path,
+            wav_length,
+            confidence,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
+        )

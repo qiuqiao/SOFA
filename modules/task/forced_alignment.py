@@ -315,6 +315,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_prob_log,
             edge_prob,
         )
+        total_confidence = np.exp(np.mean(np.log(frame_confidence + 1e-6)) / 3)
 
         # postprocess
         frame_length = self.melspec_config["hop_length"] / (
@@ -392,6 +393,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_intervals_pred,
             word_seq_pred,
             word_intervals_pred,
+            total_confidence,
             ctc,
             fig,
         )
@@ -399,12 +401,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
     def set_inference_mode(self, mode):
         self.inference_mode = mode
 
+    def on_predict_start(self):
+        if self.get_melspec is None:
+            self.get_melspec = MelSpecExtractor(**self.melspec_config)
+
     def predict_step(self, batch, batch_idx):
         try:
             wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
-            if self.get_melspec is None:
-                self.get_melspec = MelSpecExtractor(**self.melspec_config)
-
             waveform = load_wav(
                 wav_path, self.device, self.melspec_config["sample_rate"]
             )
@@ -414,10 +417,28 @@ class LitForcedAlignmentTask(pl.LightningModule):
             melspec = repeat(
                 melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
             )
-            (ph_seq, ph_intervals, word_seq, word_intervals, _, _) = self._infer_once(
+
+            (
+                ph_seq,
+                ph_intervals,
+                word_seq,
+                word_intervals,
+                confidence,
+                _,
+                _,
+            ) = self._infer_once(
                 melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
             )
-            return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+
+            return (
+                wav_path,
+                wav_length,
+                confidence,
+                ph_seq,
+                ph_intervals,
+                word_seq,
+                word_intervals,
+            )
         except Exception as e:
             e.args += (f"{str(wav_path)}",)
             raise e
@@ -732,7 +753,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 continue
             ph_seq_g2p.append(self.vocab[ph])
             ph_seq_g2p.append("SP")
-        _, _, _, _, ctc, fig = self._infer_once(
+        _, _, _, _, _, ctc, fig = self._infer_once(
             input_feature,
             ph_seq_g2p,
             None,

@@ -91,7 +91,14 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
         return np.array(intersection_intervals)
 
     def _process_one(
-        self, wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+        self,
+        wav_path,
+        wav_length,
+        confidence,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
     ):
         # input:
         #     wav_path: pathlib.Path
@@ -159,4 +166,12 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
         word_seq = [word for (word, _, _) in word_tuple_list]
         word_intervals = np.array([(start, end) for (_, start, end) in word_tuple_list])
 
-        return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+        return (
+            wav_path,
+            wav_length,
+            confidence,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
+        )

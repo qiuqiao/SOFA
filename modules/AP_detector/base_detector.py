@@ -18,6 +18,7 @@ class BaseAPDetector:
         for (
             wav_path,
             wav_length,
+            confidence,
             ph_seq,
             ph_intervals,
             word_seq,
@@ -25,17 +26,32 @@ class BaseAPDetector:
         ) in predictions:
             res.append(
                 self._process_one(
-                    wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+                    wav_path,
+                    wav_length,
+                    confidence,
+                    ph_seq,
+                    ph_intervals,
+                    word_seq,
+                    word_intervals,
                 )
             )
 
         return res
 
     def _process_one(
-        self, wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+        self,
+        wav_path,
+        wav_length,
+        confidence,
+        ph_seq,
+        ph_intervals,
+        word_seq,
+        word_intervals,
     ):
         # input:
         #     wav_path: pathlib.Path
+        #     wav_length: float
+        #     confidence: float
         #     ph_seq: list of phonemes, SP is the silence phoneme.
         #     ph_intervals: np.ndarray of shape (n_ph, 2), ph_intervals[i] = [start, end]
         #                   means the i-th phoneme starts at start and ends at end.

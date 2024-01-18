@@ -67,6 +67,7 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
     - `--folder`：存放待对齐数据的文件夹​（默认为`segments`）；
     - `--in_format`： 录音文本的文件后缀名（默认为`lab`）；
     - `--out_formats`：推理出来的文件的标注格式，可指定多个，使用逗号分隔（默认为`TextGrid,htk`）
+    - `--save_confidence`：输出置信度。
     - `--dictionary`：字典文件​（默认为`dictionary/opencpop-extension.txt`​）；
 
     ```bash

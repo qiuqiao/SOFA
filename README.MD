@@ -67,6 +67,7 @@ It has the following advantages:
     - `--folder`: The folder where the data to be aligned is stored (default is `segments`);
     - `--in_format`: The file extension of the transcription (default is `lab`);
     - `--out_formats`: The annotation format of the inferred files, multiple formats can be specified, separated by commas (default is `TextGrid,htk`).
+    - `--save_confidence`: Output confidence scores.
     - `--dictionary`: The dictionary file (default is `dictionary/opencpop-extension.txt`);
 
     ```bash
