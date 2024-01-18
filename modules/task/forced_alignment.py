@@ -212,7 +212,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # backward
         ph_idx_seq = []
         ph_time_int = []
-        ph_confidence = []
+        frame_confidence = []
         # 如果mode==forced，只能从最后一个音素或者SP结束
         if self.inference_mode == "force":
             if dp[-1, -2] > dp[-1, -1] and ph_seq_id[-1] == 0:
@@ -225,34 +225,26 @@ class LitForcedAlignmentTask(pl.LightningModule):
         else:
             raise ValueError("inference_mode must be 'force' or 'match'")
 
-        curr_ph_end_logprob = dp[-1, s]
-        curr_ph_end__t = T - 1
         for t in np.arange(T - 1, -1, -1):
-            if backtrack_s[t, s] > 0:
+            assert backtrack_s[t, s] >= 0 or t == 0
+            frame_confidence.append(dp[t, s])
+            if backtrack_s[t, s] != 0:
                 ph_idx_seq.append(s)
                 ph_time_int.append(t)
                 s -= backtrack_s[t, s]
-                curr_confidence = curr_ph_end_logprob - (dp[t, s])
-                ph_confidence.append(
-                    curr_confidence / ((T / S) + 2 * (curr_ph_end__t - t + 1) + 1e-6)
-                )
-            elif backtrack_s[t, s] < 0:
-                ph_idx_seq.append(s)
-                ph_time_int.append(t)
-                curr_confidence = curr_ph_end_logprob
-                ph_confidence.append(
-                    curr_confidence / ((T / S) + 2 * (curr_ph_end__t - t + 1) + 1e-6)
-                )
-
         ph_idx_seq.reverse()
         ph_time_int.reverse()
-        ph_confidence.reverse()
-        ph_confidence = np.exp(ph_confidence)
+        frame_confidence.reverse()
+        frame_confidence = np.exp(
+            np.diff(
+                np.pad(frame_confidence, (1, 0), "constant", constant_values=0.0), 1
+            )
+        )
 
         return (
             np.array(ph_idx_seq),
             np.array(ph_time_int),
-            np.array(ph_confidence),
+            np.array(frame_confidence),
         )
 
     def _infer_once(
@@ -317,7 +309,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         (
             ph_idx_seq,
             ph_time_int_pred,
-            ph_confidence,
+            frame_confidence,
         ) = self._decode(
             ph_seq_id,
             ph_prob_log,
@@ -388,7 +380,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 "melspec": melspec.cpu().numpy(),
                 "ph_seq": ph_seq_pred,
                 "ph_intervals": ph_intervals_pred_int,
-                "frame_confidence": None,
+                "frame_confidence": frame_confidence,
                 "ph_frame_prob": ph_frame_pred[:, ph_seq_id],
                 "ph_frame_id_gt": ph_idx_frame,
                 "edge_prob": edge_prob,
@@ -453,6 +445,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         mask = (mask < input_feature_lengths.unsqueeze(1)).to(ph_frame_logits.dtype)
 
         # ph_frame_loss
+        # print((mask.unsqueeze(-1) * ph_mask.unsqueeze(1)).shape, ph_frame_pred.shape)
         ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
             ph_frame_logits,
             ph_frame_gt,
