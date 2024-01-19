@@ -100,7 +100,6 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
         word_seq,
         word_intervals,
     ):
-        print(wav_length, confidence)
         # input:
         #     wav_path: pathlib.Path
         #     ph_seq: list of phonemes, SP is the silence phoneme.
