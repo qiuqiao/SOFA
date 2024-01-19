@@ -35,7 +35,6 @@ class BaseAPDetector:
                 word_seq,
                 word_intervals,
             )
-            assert len(prediction) == 7, f"{wav_path}这一条出错了，返回的是：{prediction}"
             res.append(prediction)
 
         return res

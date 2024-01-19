@@ -100,6 +100,7 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
         word_seq,
         word_intervals,
     ):
+        print(wav_length, confidence)
         # input:
         #     wav_path: pathlib.Path
         #     ph_seq: list of phonemes, SP is the silence phoneme.
@@ -137,7 +138,15 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
             ap_intervals.cpu().numpy(), word_intervals
         )
         if ap_intervals.shape[0] <= 0:
-            return wav_path, wav_length, ph_seq, ph_intervals, word_seq, word_intervals
+            return (
+                wav_path,
+                wav_length,
+                confidence,
+                ph_seq,
+                ph_intervals,
+                word_seq,
+                word_intervals,
+            )
         ap_intervals = ap_intervals[(ap_intervals[:, 1] - ap_intervals[:, 0]) > 0.1, :]
 
         # merge
