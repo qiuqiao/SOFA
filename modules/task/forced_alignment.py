@@ -172,6 +172,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 curr_ph_max_prob_log[i] = prob_log[0, i]
 
         # forward
+        prob3_pad_len = 2 if S >= 2 else 1
         for t in range(1, T):
             # [t-1,s] -> [t,s]
             prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
@@ -191,7 +192,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 + curr_ph_max_prob_log[:-2] * (T / S)
             )
             prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过SP
-            prob3 = np.pad(prob3, (2, 0), "constant", constant_values=-np.inf)
+            prob3 = np.pad(
+                prob3, (prob3_pad_len, 0), "constant", constant_values=-np.inf
+            )
 
             backtrack_s[t, :] = np.argmax(np.stack([prob1, prob2, prob3]), axis=0)
             curr_ph_max_prob_log[backtrack_s[t, :] == 0] = np.max(
@@ -215,7 +218,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         frame_confidence = []
         # 如果mode==forced，只能从最后一个音素或者SP结束
         if self.inference_mode == "force":
-            if dp[-1, -2] > dp[-1, -1] and ph_seq_id[-1] == 0:
+            if S >= 2 and dp[-1, -2] > dp[-1, -1] and ph_seq_id[-1] == 0:
                 s = S - 2
             else:
                 s = S - 1
