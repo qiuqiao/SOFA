@@ -344,12 +344,13 @@ class ForcedAlignmentBinarizer:
                 lambda path_: (
                     "full_label"
                     if "full_label" in path_
-                    else "weak_label"
-                    if "weak_label" in path_
-                    else "no_label"
+                    else "weak_label" if "weak_label" in path_ else "no_label"
                 ),
             )
-            meta_data_df = pd.concat([meta_data_df, df])
+            if len(meta_data_df) >= 1:
+                meta_data_df = pd.concat([meta_data_df, df])
+            else:
+                meta_data_df = df
 
         no_label_df = pd.DataFrame(
             {"wav_path": [i for i in (path / "no_label").rglob("*.wav")]}
