@@ -1,4 +1,5 @@
 import pathlib
+import warnings
 
 import click
 import h5py
@@ -320,6 +321,8 @@ class ForcedAlignmentBinarizer:
             for i in path.rglob("transcriptions.csv")
             if i.name == "transcriptions.csv"
         ]
+        if len(trans_path_list) <= 0:
+            warnings.warn(f"No transcriptions.csv found in {data_folder}.")
 
         print("Loading metadata...")
         meta_data_df = pd.DataFrame()
