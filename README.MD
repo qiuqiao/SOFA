@@ -34,7 +34,7 @@ It has the following advantages:
 
 ## Inference
 
-1. Download the model file. You can find the trained models in the [releases of this repository](https://github.com/qiuqiao/SOFA/releases) or in the [pretrained model sharing category of the discussion section](https://github.com/qiuqiao/SOFA/discussions/categories/pretrained-model-sharing), with the file extension `.ckpt`.
+1. Download the model file. You can find the trained models in the [pretrained model sharing category of the discussion section](https://github.com/qiuqiao/SOFA/discussions/categories/pretrained-model-sharing), with the file extension `.ckpt`.
 2. Place the dictionary file in the `/dictionary` folder. The default dictionary is `opencpop-extension.txt`
 3. Prepare the data for forced alignment and place it in a folder (by default in the `/segments` folder), with the following format
     ```text
