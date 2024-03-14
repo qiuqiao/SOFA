@@ -65,6 +65,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
     pl.seed_everything(config["random_seed"], workers=True)
 
     # define dataset
+    num_workers = config['dataloader_workers']
     train_dataset = MixedDataset(
         config["data_augmentation_size"], data_folder / "binary", prefix="train"
     )
@@ -80,7 +81,10 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         dataset=train_dataset,
         batch_sampler=train_sampler,
         collate_fn=collate_fn,
-        num_workers=config["dataloader_workers"],
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+        pin_memory=True,
+        prefetch_factor=(2 if num_workers > 0 else None),
     )
 
     valid_dataset = MixedDataset(0, data_folder / "binary", prefix="valid")
@@ -89,7 +93,8 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         batch_size=1,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=config["dataloader_workers"],
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
     )
 
     # model
