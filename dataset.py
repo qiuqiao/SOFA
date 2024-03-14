@@ -15,7 +15,7 @@ class MixedDataset(torch.utils.data.Dataset):
         prefix="train",
     ):
         # do not open hdf5 here
-        self.h5py_items = None
+        self.h5py_file = None
         self.label_types = None
         self.wav_lengths = None
         if augmentation_size > 0:
@@ -27,33 +27,48 @@ class MixedDataset(torch.utils.data.Dataset):
         self.prefix = prefix
 
     def get_label_types(self):
-        if self.label_types is None:
+        uninitialized = self.label_types is None
+        if uninitialized:
             self._open_h5py_file()
-        return self.label_types
+        ret = self.label_types
+        if uninitialized:
+            self._close_h5py_file()
+        return ret
 
     def get_wav_lengths(self):
-        if self.wav_lengths is None:
+        uninitialized = self.wav_lengths is None
+        if uninitialized:
             self._open_h5py_file()
-        return self.wav_lengths
+        ret = self.wav_lengths
+        if uninitialized:
+            self._close_h5py_file()
+        return ret
 
     def _open_h5py_file(self):
-        h5py_file = h5py.File(
+        self.h5py_file = h5py.File(
             str(pathlib.Path(self.binary_data_folder) / (self.prefix + ".h5py")), "r"
         )
-        self.h5py_items = h5py_file["items"]
-        self.label_types = np.array(h5py_file["meta_data"]["label_types"])
-        self.wav_lengths = np.array(h5py_file["meta_data"]["wav_lengths"])
+        self.label_types = np.array(self.h5py_file["meta_data"]["label_types"])
+        self.wav_lengths = np.array(self.h5py_file["meta_data"]["wav_lengths"])
+
+    def _close_h5py_file(self):
+        self.h5py_file.close()
+        self.h5py_file = None
 
     def __len__(self):
-        if self.h5py_items is None:
+        uninitialized = self.h5py_file is None
+        if uninitialized:
             self._open_h5py_file()
-        return len(self.h5py_items)
+        ret = len(self.h5py_file["items"])
+        if uninitialized:
+            self._close_h5py_file()
+        return ret
 
     def __getitem__(self, index):
-        if self.h5py_items is None:
+        if self.h5py_file is None:
             self._open_h5py_file()
 
-        item = self.h5py_items[str(index)]
+        item = self.h5py_file["items"][str(index)]
 
         # input_feature
         if self.augmentation_indexes is None:
