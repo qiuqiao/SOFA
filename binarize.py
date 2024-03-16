@@ -395,7 +395,12 @@ def binarize(config_path: str):
         "melspec_config": config["melspec_config"],
         "data_augmentation_size": config["data_augmentation"]["size"],
     }
-    with open(pathlib.Path("data/binary/") / "global_config.yaml", "w") as file:
+    with open(
+        pathlib.Path(config["data_folder"])
+        / pathlib.Path("binary/")
+        / "global_config.yaml",
+        "w",
+    ) as file:
         yaml.dump(global_config, file)
 
     ForcedAlignmentBinarizer(**config).process()
