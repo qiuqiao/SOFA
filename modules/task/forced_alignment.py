@@ -240,7 +240,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         frame_confidence.reverse()
         frame_confidence = np.exp(
             np.diff(
-                np.pad(frame_confidence, (1, 0), "constant", constant_values=0.0), 1
+                # np.pad(frame_confidence, (1, 0), "constant", constant_values=0.0), 1
+                frame_confidence,
+                1,
+                prepend=0,
             )
         )
 

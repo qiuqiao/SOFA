@@ -119,14 +119,10 @@ class LoudnessSpectralcentroidAPDetector(BaseAPDetector):
             spectral_centroid > self.spectral_centroid_threshold
         )
         ap_frame_diff = torch.diff(
-            torch.cat(
-                [
-                    torch.tensor([0], device=self.device),
-                    ap_frame,
-                    torch.tensor([0], device=self.device),
-                ]
-            ),
+            ap_frame,
             dim=0,
+            prepend=torch.tensor([0], device=self.device),
+            append=torch.tensor([0], device=self.device),
         )
         ap_start_idx = torch.where(ap_frame_diff == 1)[0]
         ap_end_idx = torch.where(ap_frame_diff == -1)[0]
