@@ -1,2 +1,2 @@
-from .BinaryEMDLoss import BinaryEMDLoss
-from .GHMLoss import GHMLoss
+from .binary_emd_loss import BinaryEMDLoss
+from .ghm_Loss import GHMLoss
