@@ -3,7 +3,6 @@ from einops import rearrange, repeat
 from torch import nn
 
 import modules.scheduler as scheduler_module
-from modules.loss.binary_emd_loss import BinaryEMDLoss
 from modules.loss.ghm_Loss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 
 
@@ -15,9 +14,6 @@ class ForcedAlignmentLoss(nn.Module):
         self.data_augmentation_enabled = data_augmentation_enabled
         self.losses_names = [
             "ph_frame_GHM_loss",
-            "ph_edge_GHM_loss",
-            "ph_edge_EMD_loss",
-            "ph_edge_diff_loss",
             "ctc_GHM_loss",
             "consistency_loss",
             "pseudo_label_loss",
@@ -46,19 +42,6 @@ class ForcedAlignmentLoss(nn.Module):
             loss_config["function"]["alpha"],
             loss_config["function"]["label_smoothing"],
         )
-        self.ph_edge_GHM_loss_fn = MultiLabelGHMLoss(
-            1,
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            label_smoothing=0.0,
-        )
-        self.EMD_loss_fn = BinaryEMDLoss()
-        self.ph_edge_diff_GHM_loss_fn = MultiLabelGHMLoss(
-            1,
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            label_smoothing=0.0,
-        )
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=1 - 1e-3)
 
@@ -74,10 +57,8 @@ class ForcedAlignmentLoss(nn.Module):
     def _get_loss(
         self,
         ph_frame_logits,  # (B, T, vocab_size)
-        ph_edge_logits,  # (B, T)
         ctc_logits,  # (B, T, vocab_size)
         ph_frame_gt,  # (B, T)
-        ph_edge_gt,  # (B, T)
         ph_seq_gt,  # (B S)
         ph_seq_lengths_gt,  # (B)
         ph_mask,  # (B vocab_size)
@@ -91,23 +72,15 @@ class ForcedAlignmentLoss(nn.Module):
         ZERO = torch.tensor(0).to(self.device)
 
         if (full_label_idx).any():
-            (
-                ph_frame_GHM_loss,
-                ph_edge_GHM_loss,
-                ph_edge_EMD_loss,
-                ph_edge_diff_loss,
-            ) = self._get_full_label_loss(
+            ph_frame_GHM_loss = self._get_full_label_loss(
                 ph_frame_logits[full_label_idx, :, :],
-                ph_edge_logits[full_label_idx, :],
                 ph_frame_gt[full_label_idx, :],
-                ph_edge_gt[full_label_idx, :],
                 input_feature_lengths[full_label_idx],
                 ph_mask[full_label_idx, :],
                 valid,
             )
         else:
-            ph_frame_GHM_loss = ph_edge_GHM_loss = ZERO
-            ph_edge_EMD_loss = ph_edge_diff_loss = ZERO
+            ph_frame_GHM_loss = ZERO
 
         # TODO:这种pack方式无法处理只有batch中的一部分需要计算Loss的情况，改掉
         if (weak_label_idx).any():
@@ -125,7 +98,7 @@ class ForcedAlignmentLoss(nn.Module):
 
         if not valid and self.data_augmentation_enabled:
             consistency_loss = self._get_consistency_loss(
-                ph_frame_logits, ph_edge_logits, input_feature_lengths
+                ph_frame_logits, input_feature_lengths
             )
             pseudo_label_loss = ZERO
             # pseudo_label_loss = self._get_pseudo_label_loss(
@@ -139,9 +112,6 @@ class ForcedAlignmentLoss(nn.Module):
 
         losses = [
             ph_frame_GHM_loss,
-            ph_edge_GHM_loss,
-            ph_edge_EMD_loss,
-            ph_edge_diff_loss,
             ctc_GHM_loss,
             consistency_loss,
             pseudo_label_loss,
@@ -168,9 +138,7 @@ class ForcedAlignmentLoss(nn.Module):
     def _get_full_label_loss(
         self,
         ph_frame_logits,
-        ph_edge_logits,
         ph_frame_gt,
-        ph_edge_gt,
         input_feature_lengths,
         ph_mask,
         valid,
@@ -192,24 +160,7 @@ class ForcedAlignmentLoss(nn.Module):
             valid,
         )
 
-        # ph_edge loss
-        # BCE_GHM loss
-        ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
-            ph_edge_logits.unsqueeze(-1), ph_edge_gt.unsqueeze(-1), mask, valid
-        )
-
-        # EMD loss
-        ph_edge_pred = torch.nn.functional.sigmoid(ph_edge_logits.float())
-        ph_edge_EMD_loss = self.EMD_loss_fn(ph_edge_pred * mask, ph_edge_gt * mask)
-
-        # diff loss
-        ph_edge_diff_loss = self.ph_edge_diff_GHM_loss_fn(
-            (torch.diff(ph_edge_logits, 1, dim=-1) + 1).unsqueeze(-1) / 2,
-            (torch.diff(ph_edge_gt, 1, dim=-1) + 1).unsqueeze(-1) / 2,
-            mask[:, 1:],
-            valid,
-        )
-        return ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss
+        return ph_frame_GHM_loss
 
     def _get_weak_label_loss(
         self,
@@ -234,12 +185,8 @@ class ForcedAlignmentLoss(nn.Module):
 
         return ctc_GHM_loss
 
-    def _get_consistency_loss(
-        self, ph_frame_logits, ph_edge_logits, input_feature_lengths
-    ):
-        output_tensors = torch.cat(
-            [ph_frame_logits, ph_edge_logits.unsqueeze(-1)], dim=-1
-        )
+    def _get_consistency_loss(self, ph_frame_logits, input_feature_lengths):
+        output_tensors = ph_frame_logits
         output_tensors = torch.nn.functional.sigmoid(output_tensors.float())
         B = output_tensors.shape[0]
         T = output_tensors.shape[1]
@@ -263,6 +210,7 @@ class ForcedAlignmentLoss(nn.Module):
         return consistency_loss
 
     def _get_pseudo_label_loss(self, ph_frame_logits, input_feature_lengths, valid):
+        return torch.tensor(0).to(self.device)
         B = ph_frame_logits.shape[0]
         T = ph_frame_logits.shape[1]
 

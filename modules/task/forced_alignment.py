@@ -111,57 +111,51 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.loss.to(self.device)
 
     def training_step(self, batch, batch_idx):
-        try:
-            (
-                input_feature,  # (B, n_mels, T)
-                input_feature_lengths,  # (B)
-                ph_seq,  # (B S)
-                ph_seq_lengths,  # (B)
-                ph_edge,  # (B, T)
-                ph_frame,  # (B, T)
-                ph_mask,  # (B vocab_size)
-                label_type,  # (B)
-            ) = batch
+        # try:
+        (
+            input_feature,  # (B, n_mels, T)
+            input_feature_lengths,  # (B)
+            ph_seq,  # (B S)
+            ph_seq_lengths,  # (B)
+            ph_frame,  # (B, T)
+            ph_mask,  # (B vocab_size)
+            label_type,  # (B)
+        ) = batch
+        (
+            ph_frame_logits,  # (B, T, vocab_size)
+            ctc_logits,  # (B, T, vocab_size)
+        ) = self.forward(input_feature.transpose(1, 2))
 
-            (
-                ph_frame_logits,  # (B, T, vocab_size)
-                ph_edge_logits,  # (B, T)
-                ctc_logits,  # (B, T, vocab_size)
-            ) = self.forward(input_feature.transpose(1, 2))
+        total_loss, losses_dict, schedulers_dict = self.loss._get_loss(
+            ph_frame_logits,
+            ctc_logits,
+            ph_frame,
+            ph_seq,
+            ph_seq_lengths,
+            ph_mask,
+            input_feature_lengths,
+            label_type,
+            valid=False,
+        )
 
-            total_loss, losses_dict, schedulers_dict = self.loss._get_loss(
-                ph_frame_logits,
-                ph_edge_logits,
-                ctc_logits,
-                ph_frame,
-                ph_edge,
-                ph_seq,
-                ph_seq_lengths,
-                ph_mask,
-                input_feature_lengths,
-                label_type,
-                valid=False,
-            )
+        self.loss._losses_schedulers_step()
 
-            self.loss._losses_schedulers_step()
+        log_dict = {"train_" + k: v for k, v in losses_dict.items()}
+        log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
+        log_dict.update(schedulers_dict)
+        self.log_dict(log_dict)
 
-            log_dict = {"train_" + k: v for k, v in losses_dict.items()}
-            log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
-            log_dict.update(schedulers_dict)
-            self.log_dict(log_dict)
-
-            return total_loss
-        except Exception as e:
-            print(f"Error: {e}. skip this batch.")
-            return torch.tensor(torch.nan).to(self.device)
+        return total_loss
+        # except Exception as e:
+        #     print(f"Error: {e}. skip this batch.")
+        #     return torch.tensor(torch.nan, requires_grad=True).to(self.device)
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         h = self.backbone(*args, **kwargs)
         logits = self.head(h)
         ph_frame_logits = logits[:, :, 2:]
-        ph_edge_logits = logits[:, :, 0]
         ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
-        return ph_frame_logits, ph_edge_logits, ctc_logits
+        return ph_frame_logits, ctc_logits
 
     # ==validation===========================
     def on_validation_start(self):
@@ -173,7 +167,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
-            ph_edge,  # (B, T)
             ph_frame,  # (B, T)
             ph_mask,  # (B vocab_size)
             label_type,  # (B)
@@ -202,16 +195,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         (
             ph_frame_logits,  # (B, T, vocab_size)
-            ph_edge_logits,  # (B, T)
             ctc_logits,  # (B, T, vocab_size)
         ) = self.forward(input_feature.transpose(1, 2))
 
         total_loss, losses_dict, schedulers_dict = self.loss._get_loss(
             ph_frame_logits,
-            ph_edge_logits,
             ctc_logits,
             ph_frame,
-            ph_edge,
             ph_seq,
             ph_seq_lengths,
             ph_mask,
@@ -307,7 +297,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         with torch.no_grad():
             (
                 ph_frame_logits,  # (B, T, vocab_size)
-                ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
             ) = self.forward(melspec.transpose(1, 2))
 
@@ -331,10 +320,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             .numpy()
             .astype("float32")
         )
-        ph_edge_pred = (
-            (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8
-        ).clamp(0.0, 1.0)
-        ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
         ctc_logits = (
             ctc_logits.float().squeeze(0).cpu().numpy().astype("float32")
         )  # (ctc_logits.squeeze(0) - ph_mask)
@@ -342,8 +327,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         T, vocab_size = ph_frame_pred.shape
 
         # decode
-        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
-        edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
         (
             ph_idx_seq,
             ph_time_int_pred,
@@ -351,7 +334,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         ) = self._decode(
             ph_seq_id,
             ph_prob_log,
-            edge_prob,
         )
         total_confidence = np.exp(np.mean(np.log(frame_confidence + 1e-6)) / 3)
 
@@ -359,11 +341,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         frame_length = self.melspec_config["hop_length"] / (
             self.melspec_config["sample_rate"] * self.melspec_config["scale_factor"]
         )
-        ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
         ph_time_pred = frame_length * (
             np.concatenate(
                 [
-                    ph_time_int_pred.astype("float32") + ph_time_fractional,
+                    ph_time_int_pred.astype("float32"),
                     [T],
                 ]
             )
@@ -422,7 +403,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 "frame_confidence": frame_confidence,
                 "ph_frame_prob": ph_frame_pred[:, ph_seq_id],
                 "ph_frame_id_gt": ph_idx_frame,
-                "edge_prob": edge_prob,
             }
             fig = plot_for_valid(**args)
 
@@ -436,17 +416,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
             fig,
         )
 
-    def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
+    def _decode(self, ph_seq_id, ph_prob_log):
         # ph_seq_id: (S)
         # ph_prob_log: (T, vocab_size)
-        # edge_prob: (T,2)
         T = ph_prob_log.shape[0]
         S = len(ph_seq_id)
         # not_SP_num = (ph_seq_id > 0).sum()
         prob_log = ph_prob_log[:, ph_seq_id]
-
-        edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
-        not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
 
         # init
         curr_ph_max_prob_log = np.zeros(S) - np.inf
@@ -469,21 +445,15 @@ class LitForcedAlignmentTask(pl.LightningModule):
         prob3_pad_len = 2 if S >= 2 else 1
         for t in range(1, T):
             # [t-1,s] -> [t,s]
-            prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
+            prob1 = dp[t - 1, :] + prob_log[t, :]
             # [t-1,s-1] -> [t,s]
             prob2 = (
-                dp[t - 1, :-1]
-                + prob_log[t, :-1]
-                + edge_prob_log[t]
-                + curr_ph_max_prob_log[:-1] * (T / S)
+                dp[t - 1, :-1] + prob_log[t, :-1] + curr_ph_max_prob_log[:-1] * (T / S)
             )
             prob2 = np.pad(prob2, (1, 0), "constant", constant_values=-np.inf)
             # [t-1,s-2] -> [t,s]
             prob3 = (
-                dp[t - 1, :-2]
-                + prob_log[t, :-2]
-                + edge_prob_log[t]
-                + curr_ph_max_prob_log[:-2] * (T / S)
+                dp[t - 1, :-2] + prob_log[t, :-2] + curr_ph_max_prob_log[:-2] * (T / S)
             )
             prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过SP
             prob3 = np.pad(
