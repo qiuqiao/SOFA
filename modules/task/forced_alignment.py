@@ -29,7 +29,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-
         self.vocab = yaml.safe_load(vocab_text)
         self.get_melspec = None
         self.backbone = UNetBackbone(
@@ -53,18 +52,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.pseudo_label_auto_theshold = 0.5
 
         # loss function
-        self.losses_names = [
-            "ph_frame_GHM_loss",
-            "ph_edge_GHM_loss",
-            "ph_edge_EMD_loss",
-            "ph_edge_diff_loss",
-            "ctc_GHM_loss",
-            "consistency_loss",
-            "pseudo_label_loss",
-            "total_loss",
-        ]
         self.loss = ForcedAlignmentLoss(
-            loss_config, optimizer_config, self.vocab, data_augmentation_enabled
+            loss_config,
+            optimizer_config["total_steps"],
+            self.vocab["<vocab_size>"],
+            data_augmentation_enabled,
         )
 
         # validation_step_outputs
@@ -137,7 +129,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ctc_logits,  # (B, T, vocab_size)
             ) = self.forward(input_feature.transpose(1, 2))
 
-            losses = self.loss._get_loss(
+            total_loss, losses_dict, schedulers_dict = self.loss._get_loss(
                 ph_frame_logits,
                 ph_edge_logits,
                 ctc_logits,
@@ -151,27 +143,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 valid=False,
             )
 
-            schedule_weight = self.loss._losses_schedulers_call()
             self.loss._losses_schedulers_step()
-            total_loss = (
-                torch.stack(losses) * self.loss.losses_weights * schedule_weight
-            ).sum()
-            losses.append(total_loss)
 
-            log_dict = {
-                f"train_loss/{k}": v
-                for k, v in zip(self.losses_names, losses)
-                if v != 0
-            }
+            log_dict = {"train_" + k: v for k, v in losses_dict.items()}
             log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
-            log_dict.update(
-                {
-                    f"scheduler/{k}": v
-                    for k, v in zip(self.losses_names, schedule_weight)
-                    if v != 1
-                }
-            )
+            log_dict.update(schedulers_dict)
             self.log_dict(log_dict)
+
             return total_loss
         except Exception as e:
             print(f"Error: {e}. skip this batch.")
@@ -228,7 +206,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ctc_logits,  # (B, T, vocab_size)
         ) = self.forward(input_feature.transpose(1, 2))
 
-        losses = self.loss._get_loss(
+        total_loss, losses_dict, schedulers_dict = self.loss._get_loss(
             ph_frame_logits,
             ph_edge_logits,
             ctc_logits,
@@ -242,19 +220,24 @@ class LitForcedAlignmentTask(pl.LightningModule):
             valid=True,
         )
 
-        weights = self.loss._losses_schedulers_call() * self.loss.losses_weights
-        total_loss = (torch.stack(losses) * weights).sum()
-        losses.append(total_loss)
-        losses = torch.stack(losses)
-
-        self.validation_step_outputs["losses"].append(losses)
+        self.validation_step_outputs["losses"].append(losses_dict)
 
     def on_validation_epoch_end(self):
-        losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
-        losses = (losses / ((losses > 0).sum(dim=0, keepdim=True) + 1e-6)).sum(dim=0)
-        self.log_dict(
-            {f"valid/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
-        )
+        losses_dict_sum = {}
+        losses_dict_times = {}
+        for losses_dict in self.validation_step_outputs["losses"]:
+            for k, v in losses_dict.items():
+                if k in losses_dict_sum:
+                    losses_dict_sum[k] += v
+                    losses_dict_times[k] += 1
+                else:
+                    losses_dict_sum[k] = v
+                    losses_dict_times[k] = 1
+        losses_dict_mean = {
+            k: v / losses_dict_times[k] for k, v in losses_dict_sum.items()
+        }
+
+        self.log_dict({f"valid_{k}": v for k, v in losses_dict_mean.items()})
 
     # ==predict==============================
     def set_inference_mode(self, mode):

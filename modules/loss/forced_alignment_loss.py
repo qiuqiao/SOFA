@@ -9,11 +9,10 @@ from modules.loss.ghm_Loss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 
 class ForcedAlignmentLoss(nn.Module):
 
-    def __init__(self, loss_config, optimizer_config, vocab, data_augmentation_enabled):
+    def __init__(self, loss_config, total_steps, vocab_size, data_augmentation_enabled):
         super(ForcedAlignmentLoss, self).__init__()
         self.device = None
         self.data_augmentation_enabled = data_augmentation_enabled
-        self.vocab = vocab
         self.losses_names = [
             "ph_frame_GHM_loss",
             "ph_edge_GHM_loss",
@@ -30,21 +29,19 @@ class ForcedAlignmentLoss(nn.Module):
         for enabled in loss_config["losses"]["enable_RampUpScheduler"]:
             if enabled:
                 self.losses_schedulers.append(
-                    scheduler_module.GaussianRampUpScheduler(
-                        max_steps=optimizer_config["total_steps"]
-                    )
+                    scheduler_module.GaussianRampUpScheduler(max_steps=total_steps)
                 )
             else:
                 self.losses_schedulers.append(scheduler_module.NoneScheduler())
 
         self.ph_frame_GHM_loss_fn = GHMLoss(
-            self.vocab["<vocab_size>"],
+            vocab_size,
             loss_config["function"]["num_bins"],
             loss_config["function"]["alpha"],
             loss_config["function"]["label_smoothing"],
         )
         self.pseudo_label_GHM_loss_fn = MultiLabelGHMLoss(
-            self.vocab["<vocab_size>"],
+            vocab_size,
             loss_config["function"]["num_bins"],
             loss_config["function"]["alpha"],
             loss_config["function"]["label_smoothing"],
@@ -64,9 +61,6 @@ class ForcedAlignmentLoss(nn.Module):
         )
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=1 - 1e-3)
-
-    def forward(self, pred, target):
-        raise NotImplementedError
 
     def _losses_schedulers_step(self):
         for scheduler in self.losses_schedulers:
@@ -153,7 +147,23 @@ class ForcedAlignmentLoss(nn.Module):
             pseudo_label_loss,
         ]
 
-        return losses
+        scheduler_weights = self._losses_schedulers_call()
+        total_loss = (
+            torch.stack(losses) * self.losses_weights * scheduler_weights
+        ).sum()
+        losses.append(total_loss)
+
+        losses_dict = {
+            f"loss/{k}": v for k, v in zip(self.losses_names, losses) if v != 0
+        }
+
+        schedulers_dict = {
+            f"scheduler/{k}": v
+            for k, v in zip(self.losses_names, scheduler_weights)
+            if v != 1
+        }
+
+        return total_loss, losses_dict, schedulers_dict
 
     def _get_full_label_loss(
         self,
@@ -166,10 +176,6 @@ class ForcedAlignmentLoss(nn.Module):
         valid,
     ):
         T = ph_frame_logits.shape[1]
-
-        # ph_frame_prob_gt = nn.functional.one_hot(
-        #     ph_frame_gt.long(), num_classes=self.vocab["<vocab_size>"]
-        # ).float()
 
         # calculate mask matrix
         # (B, T)
