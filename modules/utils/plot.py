@@ -10,24 +10,27 @@ def plot_for_valid(
     ph_frame_prob,
     ph_frame_id_gt,
 ):
-    ph_seq = [i.split("/")[-1] for i in ph_seq]
-    x = np.arange(input_feature.shape[-1])
-
     fig, (ax1, ax2) = plt.subplots(2)
-    ax1.imshow(input_feature[0], origin="lower", aspect="auto")
 
+    # plot1
+    # melspec
+    melspec = input_feature[:, :-3, :]
+    ax1.imshow(melspec[0], origin="lower", aspect="auto")
+
+    # ph_seq
+    ph_seq = [i.split("/")[-1] for i in ph_seq]
     for i, interval in enumerate(ph_intervals):
         if i == 0 or (i > 0 and ph_intervals[i - 1, 1] != interval[0]):
             if interval[0] > 0:
                 ax1.axvline(interval[0], color="r", linewidth=1)
-        if interval[1] < input_feature.shape[-1]:
+        if interval[1] < melspec.shape[-1]:
             ax1.axvline(interval[1], color="r", linewidth=1)
         if ph_seq[i] != "SP":
             if i % 2:
                 ax1.text(
                     (interval[0] + interval[1]) / 2
-                    - len(ph_seq[i]) * input_feature.shape[-1] / 275,
-                    input_feature.shape[-2] + 1,
+                    - len(ph_seq[i]) * melspec.shape[-1] / 275,
+                    melspec.shape[-2] + 1,
                     ph_seq[i],
                     fontsize=11,
                     color="black",
@@ -35,24 +38,54 @@ def plot_for_valid(
             else:
                 ax1.text(
                     (interval[0] + interval[1]) / 2
-                    - len(ph_seq[i]) * input_feature.shape[-1] / 275,
-                    input_feature.shape[-2] - 6,
+                    - len(ph_seq[i]) * melspec.shape[-1] / 275,
+                    melspec.shape[-2] - 6,
                     ph_seq[i],
                     fontsize=11,
                     color="white",
                 )
 
+    # f0,uv,energy
+    diff_midi, uv, energy = (
+        input_feature[0, -3, :],
+        input_feature[0, -2, :],
+        input_feature[0, -1, :],
+    )
+    midi_change_rate = np.abs(diff_midi)
+
+    x = np.arange(melspec.shape[-1])
+
     ax1.plot(
         x,
-        frame_confidence * input_feature.shape[-2],
+        (uv) * melspec.shape[-2],
         color="black",
+        linewidth=0.1,
+        alpha=0.6,
+    )
+    ax1.fill_between(x, (uv) * melspec.shape[-2], color="black", alpha=0.3)
+
+    ax1.plot(
+        x,
+        (midi_change_rate / 6) * melspec.shape[-2],
+        color="blue",
         linewidth=1,
         alpha=0.6,
     )
-    ax1.fill_between(
-        x, frame_confidence * input_feature.shape[-2], color="black", alpha=0.3
-    )
+    # ax1.fill_between(
+    #     x, (midi_change_rate / 6) * melspec.shape[-2], color="blue", alpha=0.3
+    # )
 
+    ax1.plot(
+        x,
+        (energy) * melspec.shape[-2],
+        color="purple",
+        linewidth=1,
+        alpha=0.6,
+    )
+    # ax1.fill_between(x, (energy) * melspec.shape[-2], color="yellow", alpha=0.3)
+
+    # plot2
+    # pred_prob
     ax2.imshow(
         ph_frame_prob.T,
         origin="lower",
@@ -62,8 +95,20 @@ def plot_for_valid(
         # vmax=1,
     )
 
+    # pred_label
     ax2.plot(x, ph_frame_id_gt, color="red", linewidth=1.5)
-    # ax2.scatter(x, ph_frame_id_gt, s=5, marker='s', color="red")
+
+    # confidence
+    ax2.plot(
+        x,
+        frame_confidence * ph_frame_prob.shape[-1],
+        color="black",
+        linewidth=1,
+        alpha=0.6,
+    )
+    ax2.fill_between(
+        x, frame_confidence * ph_frame_prob.shape[-1], color="black", alpha=0.3
+    )
 
     fig.set_size_inches(11, 6)
     plt.subplots_adjust(hspace=0)
