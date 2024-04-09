@@ -122,13 +122,15 @@ class FeatureExtractor:
             output_interp_target_length=T,
             retur_uv=True,  # TODO: change to return_uv after updating torchfcpe
         )
-        note = torch.log2(f0 / 440) * 12 + 69
-        diff_note = torch.diff(
-            note, 1, prepend=torch.zeros(1, 1, 1).to(self.device), dim=1
+        pitch_midi = torch.log2(f0 / 440) * 12 + 69
+        diff_pitch_midi = torch.diff(
+            pitch_midi, 1, prepend=torch.zeros(1, 1, 1).to(self.device), dim=1
         )
-        diff_note = diff_note * (diff_note.abs() < 6)
+        diff_pitch_midi = diff_pitch_midi * (diff_pitch_midi.abs() < 6)
 
-        diff_notes = torch.cat([diff_note for _ in key_shifts], dim=0).transpose(1, 2)
+        diff_pitch_midis = torch.cat(
+            [diff_pitch_midi for _ in key_shifts], dim=0
+        ).transpose(1, 2)
         uvs = torch.cat([uv for _ in key_shifts], dim=0).transpose(1, 2)
 
         rms = self.get_rms(waveform)
@@ -138,12 +140,8 @@ class FeatureExtractor:
             rms = rms[:T]
         rms = rms.unsqueeze(0).unsqueeze(0).expand(len(key_shifts), -1, -1)
 
-        features = torch.cat([melspecs, diff_notes, uvs, rms], dim=1)
+        features = torch.cat([melspecs, diff_pitch_midis, uvs, rms], dim=1)
         return features
-
-        # print(melspecs.shape, diff_notes.shape, uvs.shape)
-        # plt.plot(diff_notes[0].squeeze().cpu())
-        # plt.show()
 
 
 if __name__ == "__main__":
