@@ -12,7 +12,7 @@ from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 from modules.loss.forced_alignment_loss import ForcedAlignmentLoss
-from modules.utils.feature_extraction import MelSpecExtractor
+from modules.utils.feature_extraction import FeatureExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
 
@@ -30,7 +30,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.vocab = yaml.safe_load(vocab_text)
-        self.get_melspec = None
+        self.get_feature = None
         self.backbone = UNetBackbone(
             melspec_config["n_mels"] + 3,
             model_config["hidden_dims"],
@@ -234,8 +234,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.inference_mode = mode
 
     def on_predict_start(self):
-        if self.get_melspec is None:
-            self.get_melspec = MelSpecExtractor(**self.melspec_config)
+        if self.get_feature is None:
+            self.get_feature = FeatureExtractor(**self.melspec_config)
 
     def predict_step(self, batch, batch_idx):
         try:
@@ -244,10 +244,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 wav_path, self.device, self.melspec_config["sample_rate"]
             )
             wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
-            melspec = self.get_melspec(waveform).detach().unsqueeze(0)
-            melspec = (melspec - melspec.mean()) / melspec.std()
-            melspec = repeat(
-                melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
+            input_feature = self.get_feature(waveform).detach().unsqueeze(0)
+            input_feature = (input_feature - input_feature.mean()) / input_feature.std()
+            input_feature = repeat(
+                input_feature,
+                "B C T -> B C (T N)",
+                N=self.melspec_config["scale_factor"],
             )
 
             (
@@ -259,7 +261,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 _,
                 _,
             ) = self._infer_once(
-                melspec, ph_seq, word_seq, ph_idx_to_word_idx, False, False
+                input_feature, ph_seq, word_seq, ph_idx_to_word_idx, False, False
             )
 
             return (
@@ -277,7 +279,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def _infer_once(
         self,
-        melspec,
+        input_feature,
         ph_seq,
         word_seq=None,
         ph_idx_to_word_idx=None,
@@ -298,7 +300,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             (
                 ph_frame_logits,  # (B, T, vocab_size)
                 ctc_logits,  # (B, T, vocab_size)
-            ) = self.forward(melspec.transpose(1, 2))
+            ) = self.forward(input_feature.transpose(1, 2))
 
         ph_mask = (
             ph_mask.to(ph_frame_logits.device).unsqueeze(0).unsqueeze(0).logical_not()
@@ -397,7 +399,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 last_ph_idx = ph_idx
             ph_idx_frame = np.cumsum(ph_idx_frame)
             args = {
-                "melspec": melspec.cpu().numpy(),
+                "input_feature": input_feature.cpu().numpy(),
                 "ph_seq": ph_seq_pred,
                 "ph_intervals": ph_intervals_pred_int,
                 "frame_confidence": frame_confidence,

@@ -3,7 +3,7 @@ import numpy as np
 
 
 def plot_for_valid(
-    melspec,
+    input_feature,
     ph_seq,
     ph_intervals,
     frame_confidence,
@@ -11,23 +11,23 @@ def plot_for_valid(
     ph_frame_id_gt,
 ):
     ph_seq = [i.split("/")[-1] for i in ph_seq]
-    x = np.arange(melspec.shape[-1])
+    x = np.arange(input_feature.shape[-1])
 
     fig, (ax1, ax2) = plt.subplots(2)
-    ax1.imshow(melspec[0], origin="lower", aspect="auto")
+    ax1.imshow(input_feature[0], origin="lower", aspect="auto")
 
     for i, interval in enumerate(ph_intervals):
         if i == 0 or (i > 0 and ph_intervals[i - 1, 1] != interval[0]):
             if interval[0] > 0:
                 ax1.axvline(interval[0], color="r", linewidth=1)
-        if interval[1] < melspec.shape[-1]:
+        if interval[1] < input_feature.shape[-1]:
             ax1.axvline(interval[1], color="r", linewidth=1)
         if ph_seq[i] != "SP":
             if i % 2:
                 ax1.text(
                     (interval[0] + interval[1]) / 2
-                    - len(ph_seq[i]) * melspec.shape[-1] / 275,
-                    melspec.shape[-2] + 1,
+                    - len(ph_seq[i]) * input_feature.shape[-1] / 275,
+                    input_feature.shape[-2] + 1,
                     ph_seq[i],
                     fontsize=11,
                     color="black",
@@ -35,17 +35,23 @@ def plot_for_valid(
             else:
                 ax1.text(
                     (interval[0] + interval[1]) / 2
-                    - len(ph_seq[i]) * melspec.shape[-1] / 275,
-                    melspec.shape[-2] - 6,
+                    - len(ph_seq[i]) * input_feature.shape[-1] / 275,
+                    input_feature.shape[-2] - 6,
                     ph_seq[i],
                     fontsize=11,
                     color="white",
                 )
 
     ax1.plot(
-        x, frame_confidence * melspec.shape[-2], color="black", linewidth=1, alpha=0.6
+        x,
+        frame_confidence * input_feature.shape[-2],
+        color="black",
+        linewidth=1,
+        alpha=0.6,
     )
-    ax1.fill_between(x, frame_confidence * melspec.shape[-2], color="black", alpha=0.3)
+    ax1.fill_between(
+        x, frame_confidence * input_feature.shape[-2], color="black", alpha=0.3
+    )
 
     ax2.imshow(
         ph_frame_prob.T,
