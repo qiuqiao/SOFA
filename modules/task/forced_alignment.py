@@ -244,7 +244,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 wav_path, self.device, self.melspec_config["sample_rate"]
             )
             wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
-            input_feature = self.get_feature(waveform).detach().unsqueeze(0)
+            input_feature = self.get_feature(waveform).detach()
             input_feature = (input_feature - input_feature.mean()) / input_feature.std()
             input_feature = repeat(
                 input_feature,
