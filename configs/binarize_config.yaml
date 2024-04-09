@@ -1,5 +1,5 @@
 melspec_config:
-  n_mels: 128
+  n_mels: 125
   sample_rate: 44100
   win_length: 1024
   hop_length: 512

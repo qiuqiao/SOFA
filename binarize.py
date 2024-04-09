@@ -9,7 +9,7 @@ import torch
 import yaml
 from tqdm import tqdm
 
-from modules.utils.get_melspec import MelSpecExtractor
+from modules.utils.feature_extraction import FeatureExtractor
 from modules.utils.load_wav import load_wav
 
 
@@ -40,7 +40,7 @@ class ForcedAlignmentBinarizer:
         self.sample_rate = self.melspec_config["sample_rate"]
         self.frame_length = self.melspec_config["hop_length"] / self.sample_rate
 
-        self.get_melspec = MelSpecExtractor(**melspec_config, device=self.device)
+        self.get_feature = FeatureExtractor(**melspec_config, device=self.device)
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
@@ -131,10 +131,11 @@ class ForcedAlignmentBinarizer:
         total_time = 0.0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
             try:
-                # input_feature: [data_augmentation.size+1,input_dim,T]
+                # input_feature: [data_augmentation.size+1,n_mels+3,T]
                 waveform = load_wav(item.wav_path, self.device, self.sample_rate)
-                input_feature = self.get_melspec(waveform)
-
+                if waveform.abs().max() > 0.8:
+                    waveform = 0.8 * waveform / waveform.abs().max()
+                input_feature = self.get_feature(waveform)
                 wav_length = len(waveform) / self.sample_rate
                 T = input_feature.shape[-1] * self.scale_factor
                 if wav_length > self.max_length:
@@ -149,24 +150,16 @@ class ForcedAlignmentBinarizer:
                     total_time += wav_length
 
                 if enable_data_augmentation:
-                    input_features = [input_feature]
                     key_shifts = np.random.choice(
                         self.data_augmentation["key_shift_choices"],
                         self.data_augmentation["size"],
                         replace=False,
                     )
-                    for key_shift in key_shifts:
-                        input_features.append(
-                            self.get_melspec(waveform, key_shift=key_shift)
-                        )
-
-                    input_feature = torch.stack(input_features, dim=0)
-                else:
-                    input_feature = input_feature.unsqueeze(0)
-
-                input_feature = (
-                    input_feature - input_feature.mean(dim=[1, 2], keepdim=True)
-                ) / input_feature.std(dim=[1, 2], keepdim=True)
+                    input_feature = torch.cat(
+                        [input_feature, self.get_feature(waveform, key_shifts)], dim=0
+                    )
+                # else:
+                #     input_feature = input_feature.unsqueeze(0)
 
                 h5py_item_data["input_feature"] = (
                     input_feature.cpu().numpy().astype("float32")

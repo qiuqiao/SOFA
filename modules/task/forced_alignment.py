@@ -12,7 +12,7 @@ from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 from modules.loss.forced_alignment_loss import ForcedAlignmentLoss
-from modules.utils.get_melspec import MelSpecExtractor
+from modules.utils.feature_extraction import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
 
@@ -32,7 +32,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.vocab = yaml.safe_load(vocab_text)
         self.get_melspec = None
         self.backbone = UNetBackbone(
-            melspec_config["n_mels"],
+            melspec_config["n_mels"] + 3,
             model_config["hidden_dims"],
             model_config["hidden_dims"],
             ResidualBasicBlock,
@@ -113,7 +113,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         # try:
         (
-            input_feature,  # (B, n_mels, T)
+            input_feature,  # (B, input_dims, T)
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
@@ -163,7 +163,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         (
-            input_feature,  # (B, n_mels, T)
+            input_feature,  # (B, input_dims, T)
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)

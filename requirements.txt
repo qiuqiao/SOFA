@@ -17,3 +17,4 @@ chardet
 # torch
 # torchaudio
 pandas~=2.0.3
+torchfcpe~=0.0.4
