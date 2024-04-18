@@ -12,6 +12,7 @@ import modules.g2p
 from train import LitForcedAlignmentTask
 
 MIN_SP_LENGTH = 0.1
+SP_MERGE_LENGTH = 0.3
 
 
 def add_SP(word_seq, word_intervals, wav_length):
@@ -47,15 +48,28 @@ def fill_small_gaps(word_seq, word_intervals, wav_length):
 
     for idx in range(len(word_seq) - 1):
         if word_intervals[idx, 1] < word_intervals[idx + 1, 0]:
-            if word_intervals[idx + 1, 0] - word_intervals[idx, 1] < MIN_SP_LENGTH:
+            if word_intervals[idx + 1, 0] - word_intervals[idx, 1] < SP_MERGE_LENGTH:
                 if word_seq[idx] == "AP":
-                    word_intervals[idx, 1] = word_intervals[idx + 1, 0]
+                    if word_seq[idx + 1] == "AP":
+                        # 情况1：gap的左右都是AP
+                        mean = (word_intervals[idx, 1] + word_intervals[idx + 1, 0]) / 2
+                        word_intervals[idx, 1] = mean
+                        word_intervals[idx + 1, 0] = mean
+                    else:
+                        # 情况2：只有左边是AP
+                        word_intervals[idx, 1] = word_intervals[idx + 1, 0]
                 elif word_seq[idx + 1] == "AP":
+                    # 情况3：只有右边是AP
                     word_intervals[idx + 1, 0] = word_intervals[idx, 1]
                 else:
-                    mean = (word_intervals[idx, 1] + word_intervals[idx + 1, 0]) / 2
-                    word_intervals[idx, 1] = mean
-                    word_intervals[idx + 1, 0] = mean
+                    # 情况4：gap的左右都不是AP
+                    if (
+                        word_intervals[idx + 1, 0] - word_intervals[idx, 1]
+                        < MIN_SP_LENGTH
+                    ):
+                        mean = (word_intervals[idx, 1] + word_intervals[idx + 1, 0]) / 2
+                        word_intervals[idx, 1] = mean
+                        word_intervals[idx + 1, 0] = mean
 
     if word_intervals[-1, 1] < wav_length:
         if wav_length - word_intervals[-1, 1] < MIN_SP_LENGTH:
