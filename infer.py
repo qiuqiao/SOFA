@@ -40,7 +40,11 @@ def add_SP(word_seq, word_intervals, wav_length):
     return word_seq_res, word_intervals_res
 
 
-def fill_small_gaps(word_seq, word_intervals):
+def fill_small_gaps(word_seq, word_intervals, wav_length):
+    if word_intervals[0, 0] > 0:
+        if word_intervals[0, 0] < MIN_SP_LENGTH:
+            word_intervals[0, 0] = 0
+
     for idx in range(len(word_seq) - 1):
         if word_intervals[idx, 1] < word_intervals[idx + 1, 0]:
             if word_intervals[idx + 1, 0] - word_intervals[idx, 1] < MIN_SP_LENGTH:
@@ -52,6 +56,10 @@ def fill_small_gaps(word_seq, word_intervals):
                     mean = (word_intervals[idx, 1] + word_intervals[idx + 1, 0]) / 2
                     word_intervals[idx, 1] = mean
                     word_intervals[idx + 1, 0] = mean
+
+    if word_intervals[-1, 1] < wav_length:
+        if wav_length - word_intervals[-1, 1] < MIN_SP_LENGTH:
+            word_intervals[-1, 1] = wav_length
 
     return word_seq, word_intervals
 
@@ -71,8 +79,10 @@ def post_processing(predictions):
     ) in predictions:
         try:
             # fill small gaps
-            word_seq, word_intervals = fill_small_gaps(word_seq, word_intervals)
-            ph_seq, ph_intervals = fill_small_gaps(ph_seq, ph_intervals)
+            word_seq, word_intervals = fill_small_gaps(
+                word_seq, word_intervals, wav_length
+            )
+            ph_seq, ph_intervals = fill_small_gaps(ph_seq, ph_intervals, wav_length)
             # add SP
             word_seq, word_intervals = add_SP(word_seq, word_intervals, wav_length)
             ph_seq, ph_intervals = add_SP(ph_seq, ph_intervals, wav_length)
