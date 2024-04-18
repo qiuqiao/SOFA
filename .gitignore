@@ -17,6 +17,7 @@ lightning_logs/*
 *.csv
 *.h5
 *.h5py
-tmp.*
+**/tmp**
+**/test**
 
 !.gitkeep
