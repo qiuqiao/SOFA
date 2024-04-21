@@ -276,20 +276,21 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
             ) = self.forward(melspec.transpose(1, 2))
-        num_frames = int(
-            (
+        if wav_length is not None:
+            num_frames = int(
                 (
-                    wav_length
-                    * self.melspec_config["scale_factor"]
-                    * self.melspec_config["sample_rate"]
-                    + 0.5
+                    (
+                        wav_length
+                        * self.melspec_config["scale_factor"]
+                        * self.melspec_config["sample_rate"]
+                        + 0.5
+                    )
                 )
+                / self.melspec_config["hop_length"]
             )
-            / self.melspec_config["hop_length"]
-        )
-        ph_frame_logits = ph_frame_logits[:, :num_frames, :]
-        ph_edge_logits = ph_edge_logits[:, :num_frames]
-        ctc_logits = ctc_logits[:, :num_frames, :]
+            ph_frame_logits = ph_frame_logits[:, :num_frames, :]
+            ph_edge_logits = ph_edge_logits[:, :num_frames]
+            ctc_logits = ctc_logits[:, :num_frames, :]
 
         ph_mask = (
             ph_mask.to(ph_frame_logits.device).unsqueeze(0).unsqueeze(0).logical_not()
@@ -773,6 +774,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_seq_g2p.append("SP")
         _, _, _, _, _, ctc, fig = self._infer_once(
             input_feature,
+            None,
             ph_seq_g2p,
             None,
             None,
