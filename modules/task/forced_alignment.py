@@ -2,6 +2,7 @@ from typing import Any
 
 import lightning as pl
 import numpy as np
+import numba
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler_module
@@ -17,6 +18,67 @@ from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
+
+
+@numba.jit
+def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
+                 prob3_pad_len):
+    for t in range(1, T):
+        # [t-1,s] -> [t,s]
+        prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
+
+        prob2 = np.empty(S, dtype=np.float32)
+        prob2[0] = -np.inf
+        for i in range(1, S):
+            prob2[i] = (
+                    dp[t - 1, i - 1]
+                    + prob_log[t, i - 1]
+                    + edge_prob_log[t]
+                    + curr_ph_max_prob_log[i - 1] * (T / S)
+            )
+
+        # [t-1,s-2] -> [t,s]
+        prob3 = np.empty(S, dtype=np.float32)
+        for i in range(prob3_pad_len):
+            prob3[i] = -np.inf
+        for i in range(prob3_pad_len, S):
+            if i - prob3_pad_len + 1 < S - 1 and ph_seq_id[i - prob3_pad_len + 1] != 0:
+                prob3[i] = -np.inf
+            else:
+                prob3[i] = (
+                        dp[t - 1, i - prob3_pad_len]
+                        + prob_log[t, i - prob3_pad_len]
+                        + edge_prob_log[t]
+                        + curr_ph_max_prob_log[i - prob3_pad_len] * (T / S)
+                )
+
+        stacked_probs = np.empty((3, S), dtype=np.float32)
+        for i in range(S):
+            stacked_probs[0, i] = prob1[i]
+            stacked_probs[1, i] = prob2[i]
+            stacked_probs[2, i] = prob3[i]
+
+        for i in range(S):
+            max_idx = 0
+            max_val = stacked_probs[0, i]
+            for j in range(1, 3):
+                if stacked_probs[j, i] > max_val:
+                    max_val = stacked_probs[j, i]
+                    max_idx = j
+            dp[t, i] = max_val
+            backtrack_s[t, i] = max_idx
+
+        for i in range(S):
+            if backtrack_s[t, i] == 0:
+                curr_ph_max_prob_log[i] = max(curr_ph_max_prob_log[i], prob_log[t, i])
+            elif backtrack_s[t, i] > 0:
+                curr_ph_max_prob_log[i] = prob_log[t, i]
+
+        for i in range(S):
+            if ph_seq_id[i] == 0:
+                curr_ph_max_prob_log[i] = 0
+
+    return dp, backtrack_s, curr_ph_max_prob_log
 
 
 class LitForcedAlignmentTask(pl.LightningModule):
@@ -155,9 +217,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
         not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
 
         # init
-        curr_ph_max_prob_log = np.zeros(S) - np.inf
-        dp = np.zeros([T, S]).astype("float32") - np.inf  # (T, S)
-        backtrack_s = np.zeros_like(dp).astype("int32") - 1
+        curr_ph_max_prob_log = np.full(S, -np.inf)
+        dp = np.full((T, S), -np.inf, dtype="float32")  # (T, S)
+        backtrack_s = np.full_like(dp, -1, dtype="int32")
         # 如果mode==forced，只能从SP开始或者从第一个音素开始
         if self.inference_mode == "force":
             dp[0, 0] = prob_log[0, 0]
@@ -173,44 +235,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         # forward
         prob3_pad_len = 2 if S >= 2 else 1
-        for t in range(1, T):
-            # [t-1,s] -> [t,s]
-            prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
-            # [t-1,s-1] -> [t,s]
-            prob2 = (
-                dp[t - 1, :-1]
-                + prob_log[t, :-1]
-                + edge_prob_log[t]
-                + curr_ph_max_prob_log[:-1] * (T / S)
-            )
-            prob2 = np.pad(prob2, (1, 0), "constant", constant_values=-np.inf)
-            # [t-1,s-2] -> [t,s]
-            prob3 = (
-                dp[t - 1, :-2]
-                + prob_log[t, :-2]
-                + edge_prob_log[t]
-                + curr_ph_max_prob_log[:-2] * (T / S)
-            )
-            prob3[ph_seq_id[1:-1] != 0] = -np.inf  # 不能跳过音素，可以跳过SP
-            prob3 = np.pad(
-                prob3, (prob3_pad_len, 0), "constant", constant_values=-np.inf
-            )
-
-            backtrack_s[t, :] = np.argmax(np.stack([prob1, prob2, prob3]), axis=0)
-            curr_ph_max_prob_log[backtrack_s[t, :] == 0] = np.max(
-                np.stack(
-                    [
-                        curr_ph_max_prob_log[backtrack_s[t, :] == 0],
-                        prob_log[t, backtrack_s[t, :] == 0],
-                    ]
-                ),
-                axis=0,
-            )
-            curr_ph_max_prob_log[backtrack_s[t, :] > 0] = prob_log[
-                t, backtrack_s[t, :] > 0
-            ]
-            curr_ph_max_prob_log = curr_ph_max_prob_log * (ph_seq_id > 0)
-            dp[t, :] = np.max(np.stack([prob1, prob2, prob3]), axis=0)
+        dp, backtrack_s, curr_ph_max_prob_log = forward_pass(
+            T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
+            prob3_pad_len
+        )
 
         # backward
         ph_idx_seq = []
