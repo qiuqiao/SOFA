@@ -13,6 +13,7 @@ tensorboardX
 tqdm~=4.66.1
 textgrid
 chardet
+numba
 
 # torch
 # torchaudio
