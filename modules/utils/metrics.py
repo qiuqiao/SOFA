@@ -30,7 +30,7 @@ class VlabelerEditDistance(Metric):
         # self.total = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
-        # 获得从pred编辑到target所需要的最少次数及其比例
+        # 获得从pred编辑到target所需要的最少次数
         # 注意这是一个略微简化的模型，不一定和vlabeler完全一致。
         # 编辑操作包括：
         #   插入边界
@@ -44,7 +44,6 @@ class VlabelerEditDistance(Metric):
         assert pred[0].time == target[0].time
         assert target[-1].time == pred[-1].time
         assert pred[-1].mark == "" and target[-1].mark == ""
-        # self.total  = 2 * len(target) - 3
 
         @lru_cache(maxsize=None)
         def dfs(i, j):
@@ -68,7 +67,7 @@ class VlabelerEditDistance(Metric):
             # 因为被删除了，所以无需修改音素
             delete = dfs(i - 1, j) + 1
             # case3:移动（也可以不移动）边界
-            # 如果边界距离大于boundary_move_tolerance ms，就要移动，否则不需要
+            # 如果边界距离大于move_tolerance ms，就要移动，否则不需要
             # 如果音素不一致就要修改，否则不需要
             move = dfs(i - 1, j - 1)
             if abs(pred[i - 1].time - target[j - 1].time) > self.move_tolerance:
@@ -78,7 +77,7 @@ class VlabelerEditDistance(Metric):
 
             return min(insert, delete, move)
 
-        self.errors = dfs(len(pred), len(target))
+        self.errors += dfs(len(pred), len(target))
 
     def compute(self):
         return self.errors
@@ -95,24 +94,29 @@ class VlabelerEditRatio(Metric):
 
     def __init__(self, move_tolerance=20):
         self.edit_distance = VlabelerEditDistance(move_tolerance)
-        self.errors = 0
         self.total = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
         self.edit_distance.update(pred, target)
-        self.errors = self.edit_distance.compute()
-        self.total = 2 * len(target) - 3
+        # PointTier中的第一个和最后一个边界位置不需要编辑，最后一个音素必定为空
+        self.total += 2 * len(target) - 3
 
     def compute(self):
-        return self.errors / self.total
+        return self.edit_distance.compute() / self.total
 
     def reset(self):
         self.edit_distance.reset()
-        self.errors = 0
         self.total = 0
 
-    # def get_intersection_over_union(
-    #     pred: tg.PointTier, target: tg.PointTier, phoneme
-    # ):
-    #     # 获得pred和target中，phoneme这一音素的交并比
-    #     intersection =
+
+# class IntersectionOverUnion(Metric):
+#     """
+#     指定音素集的交并比
+#     Intersection over union.
+#     """
+
+# def get_intersection_over_union(
+#     pred: tg.PointTier, target: tg.PointTier, phoneme
+# ):
+#     # 获得pred和target中，phoneme这一音素的交并比
+#     intersection =
