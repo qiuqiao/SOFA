@@ -2,7 +2,7 @@ from typing import List, Tuple
 
 import textgrid as tg
 
-from modules.utils.metrics import get_vlabeler_edit_ratio
+from modules.utils.metrics import VlabelerEditDistance, VlabelerEditRatio
 
 
 def point_tier_from_list(list: List[Tuple[float, str]], name="") -> tg.PointTier:
@@ -10,6 +10,15 @@ def point_tier_from_list(list: List[Tuple[float, str]], name="") -> tg.PointTier
     for time, mark in list:
         tier.add(time, mark)
     return tier
+
+
+def get_vlabeler_edit_ratio(pred_tier, target_tier):
+    dist = VlabelerEditDistance(20)
+    dist.update(pred_tier, target_tier)
+
+    ratio = VlabelerEditRatio(20)
+    ratio.update(pred_tier, target_tier)
+    return ratio.compute(), dist.compute()
 
 
 class Test_get_vlabeler_edit_ratio:
