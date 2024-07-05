@@ -109,14 +109,54 @@ class VlabelerEditRatio(Metric):
         self.total = 0
 
 
-# class IntersectionOverUnion(Metric):
-#     """
-#     指定音素集的交并比
-#     Intersection over union.
-#     """
+class IntersectionOverUnion(Metric):
+    """
+    所有音素的交并比
+    Intersection over union of all phonemes.
+    """
 
-# def get_intersection_over_union(
-#     pred: tg.PointTier, target: tg.PointTier, phoneme
-# ):
-#     # 获得pred和target中，phoneme这一音素的交并比
-#     intersection =
+    def __init__(self):
+        self.intersection = {}
+        self.sum = {}
+
+    def update(self, pred: tg.PointTier, target: tg.PointTier):
+        len_pred = len(pred) - 1
+        len_target = len(target) - 1
+        for i in range(len_pred):
+            if pred[i].mark not in self.sum:
+                self.sum[pred[i].mark] = pred[i + 1].time - pred[i].time
+                self.intersection[pred[i].mark] = 0
+            else:
+                self.sum[pred[i].mark] += pred[i + 1].time - pred[i].time
+        for j in range(len_target):
+            if target[j].mark not in self.sum:
+                self.sum[target[j].mark] = target[j + 1].time - target[j].time
+                self.intersection[target[j].mark] = 0
+            else:
+                self.sum[target[j].mark] += target[j + 1].time - target[j].time
+
+        i = 0
+        j = 0
+        while i < len_pred and j < len_target:
+            if pred[i].mark == target[j].mark:
+                intersection = min(pred[i + 1].time, target[j + 1].time) - max(
+                    pred[i].time, target[j].time
+                )
+                self.intersection[pred[i].mark] += (
+                    intersection if intersection > 0 else 0
+                )
+
+            if pred[i + 1].time < target[j + 1].time:
+                i += 1
+            elif pred[i + 1].time > target[j + 1].time:
+                j += 1
+            else:
+                i += 1
+                j += 1
+
+    def compute(self):
+        return {k: v / (self.sum[k] - v) for k, v in self.intersection.items()}
+
+    def reset(self):
+        self.intersection = {}
+        self.sum = {}
