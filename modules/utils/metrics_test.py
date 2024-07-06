@@ -19,10 +19,10 @@ def point_tier_from_list(list: List[Tuple[float, str]], name="") -> tg.PointTier
 
 
 def get_vlabeler_edit_ratio(pred_tier, target_tier):
-    dist = VlabelerEditsCount(20)
+    dist = VlabelerEditsCount(move_tolerance=20)
     dist.update(pred_tier, target_tier)
 
-    ratio = VlabelerEditRatio(20)
+    ratio = VlabelerEditRatio(move_tolerance=20)
     ratio.update(pred_tier, target_tier)
     return ratio.compute(), dist.compute()
 

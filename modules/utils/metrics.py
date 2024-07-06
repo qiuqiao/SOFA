@@ -24,7 +24,7 @@ class VlabelerEditsCount(Metric):
     The edit distance between pred and target in vlabeler.
     """
 
-    def __init__(self, move_tolerance=20):
+    def __init__(self, move_tolerance=0.02):
         self.move_tolerance = move_tolerance
         self.errors = 0
         # self.total = 0
@@ -35,7 +35,7 @@ class VlabelerEditsCount(Metric):
         # 编辑操作包括：
         #   插入边界
         #   删除边界及其前一个音素（和vlabeler的操作对应）
-        #   移动边界（如果边界距离大于move_tolerance ms，就要移动）
+        #   移动边界（如果边界距离大于move_tolerance s，就要移动）
         #   音素替换
 
         # vlabeler中，对TextGrid有要求，如果要满足要求的话，
@@ -67,7 +67,7 @@ class VlabelerEditsCount(Metric):
             # 因为被删除了，所以无需修改音素
             delete = dfs(i - 1, j) + 1
             # case3:移动（也可以不移动）边界
-            # 如果边界距离大于move_tolerance ms，就要移动，否则不需要
+            # 如果边界距离大于move_tolerance s，就要移动，否则不需要
             # 如果音素不一致就要修改，否则不需要
             move = dfs(i - 1, j - 1)
             if abs(pred[i - 1].time - target[j - 1].time) > self.move_tolerance:
@@ -92,7 +92,7 @@ class VlabelerEditRatio(Metric):
     Edit distance divided by total length of target.
     """
 
-    def __init__(self, move_tolerance=20):
+    def __init__(self, move_tolerance=0.02):
         self.edit_distance = VlabelerEditsCount(move_tolerance)
         self.total = 0
 
