@@ -102,6 +102,8 @@ class VlabelerEditRatio(Metric):
         self.total += 2 * len(target) - 3
 
     def compute(self):
+        if self.total == 0:
+            return None
         return round(self.edit_distance.compute() / self.total, 6)
 
     def reset(self):
@@ -226,4 +228,6 @@ class BoundaryEditRatio(Metric):
         self.duration += target[-1].time - target[0].time
 
     def compute(self):
+        if self.duration == 0.0:
+            return None
         return round(self.distance_metric.compute() / self.duration, 6)
