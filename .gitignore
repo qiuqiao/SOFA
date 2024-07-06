@@ -9,12 +9,14 @@ segments/*
 .vscode/*
 lightning_logs/*
 
+*:Zone.Identifier
 *.ipynb
 *.zip
 *.data
 *.idx
 *.wav
 *.csv
+*.TextGrid
 *.h5
 *.h5py
 **/tmp**
