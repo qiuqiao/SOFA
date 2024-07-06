@@ -26,7 +26,7 @@ class VlabelerEditsCount(Metric):
 
     def __init__(self, move_tolerance=0.02):
         self.move_tolerance = move_tolerance
-        self.errors = 0
+        self.counts = 0
         # self.total = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
@@ -77,13 +77,13 @@ class VlabelerEditsCount(Metric):
 
             return min(insert, delete, move)
 
-        self.errors += dfs(len(pred), len(target))
+        self.counts += dfs(len(pred), len(target))
 
     def compute(self):
-        return self.errors
+        return self.counts
 
     def reset(self):
-        self.errors = 0
+        self.counts = 0
 
 
 class VlabelerEditRatio(Metric):
@@ -102,7 +102,7 @@ class VlabelerEditRatio(Metric):
         self.total += 2 * len(target) - 3
 
     def compute(self):
-        return self.edit_distance.compute() / self.total
+        return round(self.edit_distance.compute() / self.total)
 
     def reset(self):
         self.edit_distance.reset()
@@ -156,19 +156,26 @@ class IntersectionOverUnion(Metric):
 
     def compute(self, phonemes=None):
         if phonemes is None:
-            return {k: v / (self.sum[k] - v) for k, v in self.intersection.items()}
+            return {
+                k: round(v / (self.sum[k] - v), 6) for k, v in self.intersection.items()
+            }
 
         if isinstance(phonemes, str):
             if phonemes in self.intersection:
-                return self.intersection[phonemes] / (
-                    self.sum[phonemes] - self.intersection[phonemes]
+                return round(
+                    self.intersection[phonemes]
+                    / (self.sum[phonemes] - self.intersection[phonemes]),
+                    6,
                 )
             else:
                 return None
         else:
             return {
                 ph: (
-                    self.intersection[ph] / (self.sum[ph] - self.intersection[ph])
+                    round(
+                        self.intersection[ph] / (self.sum[ph] - self.intersection[ph]),
+                        6,
+                    )
                     if ph in self.intersection
                     else None
                 )
@@ -199,7 +206,7 @@ class BoundaryEditDistance(Metric):
             self.distance += abs(pred_point.time - target_point.time)
 
     def compute(self):
-        return self.distance
+        return round(self.distance, 6)
 
     def reset(self):
         self.distance = 0.0
@@ -219,4 +226,4 @@ class BoundaryEditRatio(Metric):
         self.duration += target[-1].time - target[0].time
 
     def compute(self):
-        return self.distance_metric.compute() / self.duration
+        return round(self.distance_metric.compute() / self.duration, 6)
