@@ -27,7 +27,6 @@ class VlabelerEditsCount(Metric):
     def __init__(self, move_tolerance=0.02):
         self.move_tolerance = move_tolerance
         self.counts = 0
-        # self.total = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
         # 获得从pred编辑到target所需要的最少次数
@@ -39,10 +38,10 @@ class VlabelerEditsCount(Metric):
         #   音素替换
 
         # vlabeler中，对TextGrid有要求，如果要满足要求的话，
-        # PointTier中的第一个和最后一个边界位置不需要编辑，最后一个音素必定为空
+        # PointTier中的第一个边界位置不需要编辑，最后一个音素必定为空
         assert len(pred) >= 2 and len(target) >= 2
         assert pred[0].time == target[0].time
-        assert target[-1].time == pred[-1].time
+        # assert target[-1].time == pred[-1].time
         assert pred[-1].mark == "" and target[-1].mark == ""
 
         @lru_cache(maxsize=None)
@@ -98,8 +97,8 @@ class VlabelerEditRatio(Metric):
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
         self.edit_distance.update(pred, target)
-        # PointTier中的第一个和最后一个边界位置不需要编辑，最后一个音素必定为空
-        self.total += 2 * len(target) - 3
+        # PointTier中的第一个边界位置不需要编辑，最后一个音素必定为空
+        self.total += 2 * len(target) - 2
 
     def compute(self):
         if self.total == 0:
