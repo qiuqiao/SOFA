@@ -3,9 +3,11 @@ from typing import List, Tuple
 import textgrid as tg
 
 from modules.utils.metrics import (
+    BoundaryEditDistance,
+    BoundaryEditRatio,
     IntersectionOverUnion,
-    VlabelerEditDistance,
     VlabelerEditRatio,
+    VlabelerEditsCount,
 )
 
 
@@ -17,7 +19,7 @@ def point_tier_from_list(list: List[Tuple[float, str]], name="") -> tg.PointTier
 
 
 def get_vlabeler_edit_ratio(pred_tier, target_tier):
-    dist = VlabelerEditDistance(20)
+    dist = VlabelerEditsCount(20)
     dist.update(pred_tier, target_tier)
 
     ratio = VlabelerEditRatio(20)
@@ -136,3 +138,95 @@ class TestIntersectionOverUnion:
         pred_answer = iou.compute()
 
         assert pred_answer == answer, f"{pred_answer}!= {answer}"
+
+
+class TestBoundaryEditDistance:
+    def test_same(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        answer = 0.0
+
+        metric = BoundaryEditDistance()
+        metric.update(pred_tier, target_tier)
+        pred_answer = metric.compute()
+
+        assert pred_answer == answer, f"{pred_answer}!= {answer}"
+
+    def test_2(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(0, "a"), (150, "b"), (200, "")])
+        answer = 50.0
+
+        metric = BoundaryEditDistance()
+        metric.update(pred_tier, target_tier)
+        pred_answer = metric.compute()
+
+        assert pred_answer == answer, f"{pred_answer}!= {answer}"
+
+    def test_3(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(50, "a"), (100, "b"), (150, "")])
+        answer = 100.0
+
+        metric = BoundaryEditDistance()
+        metric.update(pred_tier, target_tier)
+        pred_answer = metric.compute()
+
+        assert pred_answer == answer, f"{pred_answer}!= {answer}"
+
+    def test_assert(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "c")])
+
+        metric = BoundaryEditDistance()
+        try:
+            metric.update(pred_tier, target_tier)
+        except AssertionError:
+            return
+        assert False, "AssertionError not raised"
+
+
+class TestBoundaryEditRatio:
+    def test_same(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        answer = 0.0
+
+        metric = BoundaryEditRatio()
+        metric.update(pred_tier, target_tier)
+        pred_answer = metric.compute()
+
+        assert pred_answer == answer, f"{pred_answer}!= {answer}"
+
+    def test_2(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(0, "a"), (150, "b"), (200, "")])
+        answer = 50.0 / 200.0
+
+        metric = BoundaryEditRatio()
+        metric.update(pred_tier, target_tier)
+        pred_answer = metric.compute()
+
+        assert pred_answer == answer, f"{pred_answer}!= {answer}"
+
+    def test_3(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(50, "a"), (100, "b"), (150, "")])
+        answer = 100.0 / (150.0 - 50.0)
+
+        metric = BoundaryEditRatio()
+        metric.update(pred_tier, target_tier)
+        pred_answer = metric.compute()
+
+        assert pred_answer == answer, f"{pred_answer}!= {answer}"
+
+    def test_assert(self):
+        pred_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "")])
+        target_tier = point_tier_from_list([(0, "a"), (100, "b"), (200, "c")])
+
+        metric = BoundaryEditRatio()
+        try:
+            metric.update(pred_tier, target_tier)
+        except AssertionError:
+            return
+        assert False, "AssertionError not raised"

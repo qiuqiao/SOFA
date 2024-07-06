@@ -18,7 +18,7 @@ class Metric:
         raise NotImplementedError()
 
 
-class VlabelerEditDistance(Metric):
+class VlabelerEditsCount(Metric):
     """
     在vlabeler中，将pred编辑为target所需要的最少次数
     The edit distance between pred and target in vlabeler.
@@ -93,7 +93,7 @@ class VlabelerEditRatio(Metric):
     """
 
     def __init__(self, move_tolerance=20):
-        self.edit_distance = VlabelerEditDistance(move_tolerance)
+        self.edit_distance = VlabelerEditsCount(move_tolerance)
         self.total = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
@@ -154,9 +154,69 @@ class IntersectionOverUnion(Metric):
                 i += 1
                 j += 1
 
-    def compute(self):
-        return {k: v / (self.sum[k] - v) for k, v in self.intersection.items()}
+    def compute(self, phonemes=None):
+        if phonemes is None:
+            return {k: v / (self.sum[k] - v) for k, v in self.intersection.items()}
+
+        if isinstance(phonemes, str):
+            if phonemes in self.intersection:
+                return self.intersection[phonemes] / (
+                    self.sum[phonemes] - self.intersection[phonemes]
+                )
+            else:
+                return None
+        else:
+            return {
+                ph: (
+                    self.intersection[ph] / (self.sum[ph] - self.intersection[ph])
+                    if ph in self.intersection
+                    else None
+                )
+                for ph in phonemes
+            }
 
     def reset(self):
         self.intersection = {}
         self.sum = {}
+
+
+class BoundaryEditDistance(Metric):
+    """
+    The total moving distance from the predicted boundaries to the target boundaries.
+    """
+
+    def __init__(self):
+        self.distance = 0.0
+
+    def update(self, pred: tg.PointTier, target: tg.PointTier):
+        # 确保音素完全一致
+        assert len(pred) == len(target)
+        for i in range(len(pred)):
+            assert pred[i].mark == target[i].mark
+
+        # 计算边界距离
+        for pred_point, target_point in zip(pred, target):
+            self.distance += abs(pred_point.time - target_point.time)
+
+    def compute(self):
+        return self.distance
+
+    def reset(self):
+        self.distance = 0.0
+
+
+class BoundaryEditRatio(Metric):
+    """
+    The boundary edit distance divided by the total duration of target intervals.
+    """
+
+    def __init__(self):
+        self.distance_metric = BoundaryEditDistance()
+        self.duration = 0.0
+
+    def update(self, pred: tg.PointTier, target: tg.PointTier):
+        self.distance_metric.update(pred, target)
+        self.duration += target[-1].time - target[0].time
+
+    def compute(self):
+        return self.distance_metric.compute() / self.duration
