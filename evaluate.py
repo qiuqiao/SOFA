@@ -1,7 +1,7 @@
 import json
 import pathlib
 import warnings
-from typing import List, Set, Tuple, Dict
+from typing import Dict, List, Set, Tuple
 
 import click
 import textgrid
@@ -33,7 +33,7 @@ def intervals_to_boundaries(intervals: List[Interval]) -> List[Boundary]:
     """
     if len(intervals) == 0:
         return []
-    boundaries = [Boundary(mark=None, position=0.)]
+    boundaries = [Boundary(mark=None, position=0.0)]
     for interval in intervals:
         if boundaries[-1].mark is None and boundaries[-1].position == interval.start:
             boundaries[-1].mark = interval.mark
@@ -43,7 +43,9 @@ def intervals_to_boundaries(intervals: List[Interval]) -> List[Boundary]:
     return boundaries
 
 
-def match_boundaries(boundaries1: List[Boundary], boundaries2: List[Boundary]) -> Set[Tuple[Boundary, Boundary]]:
+def match_boundaries(
+    boundaries1: List[Boundary], boundaries2: List[Boundary]
+) -> Set[Tuple[Boundary, Boundary]]:
     """
     Match the beginnings and endings of non-space intervals between the given boundaries.
     """
@@ -53,7 +55,7 @@ def match_boundaries(boundaries1: List[Boundary], boundaries2: List[Boundary]) -
     i = j = 0
     num_iters = min(
         len([b for b in boundaries1 if b.mark is not None]),
-        len([b for b in boundaries2 if b.mark is not None])
+        len([b for b in boundaries2 if b.mark is not None]),
     )
     for _ in range(num_iters):
         # find beginning boundaries
@@ -91,12 +93,12 @@ class BoundaryEditDistance(Metric):
     """
 
     def __init__(self):
-        self.distance = 0.
+        self.distance = 0.0
 
     def update(self, pred: List[Interval], target: List[Interval]):
-        assert len(pred) == len(target), (
-            f"Number of intervals should be equal in pred and target ({len(pred)} != {len(target)})."
-        )
+        assert len(pred) == len(
+            target
+        ), f"Number of intervals should be equal in pred and target ({len(pred)} != {len(target)})."
         if len(target) == 0:
             return
         # get boundaries of pred and target
@@ -114,7 +116,7 @@ class BoundaryEditDistance(Metric):
         return self.distance
 
     def reset(self):
-        self.distance = 0.
+        self.distance = 0.0
 
 
 class BoundaryEditRatio(Metric):
@@ -124,7 +126,7 @@ class BoundaryEditRatio(Metric):
 
     def __init__(self):
         self.distance_metric = BoundaryEditDistance()
-        self.duration = 0.
+        self.duration = 0.0
 
     def update(self, pred: List[Interval], target: List[Interval]):
         self.distance_metric.update(pred=pred, target=target)
@@ -136,7 +138,7 @@ class BoundaryEditRatio(Metric):
 
     def reset(self):
         self.distance_metric.reset()
-        self.duration = 0.
+        self.duration = 0.0
 
 
 class BoundaryErrorRate(Metric):
@@ -158,7 +160,9 @@ class BoundaryErrorRate(Metric):
 
         # find boundary mappings
         mappings = match_boundaries(p_boundaries, t_boundaries)
-        errors = sum(abs(b1.position - b2.position) > self.tolerance for b1, b2 in mappings)
+        errors = sum(
+            abs(b1.position - b2.position) > self.tolerance for b1, b2 in mappings
+        )
         self.errors += errors
         self.total += len(t_boundaries)
 
@@ -175,13 +179,13 @@ def parse_intervals_from_textgrid(file: pathlib.Path) -> List[Interval]:
     Parse the intervals from a Textgrid file and return interval tuples (mark, start, end).
     """
     tg = textgrid.TextGrid()
-    tg.read(file, encoding='utf8')
+    tg.read(file, encoding="utf8")
     tier: textgrid.IntervalTier = None
     for t in tg.tiers:
-        if isinstance(t, textgrid.IntervalTier) and t.name == 'phones':
+        if isinstance(t, textgrid.IntervalTier) and t.name == "phones":
             tier = t
             break
-    assert tier is not None, f"There are no phones tier in file \"{file}\"."
+    assert tier is not None, f'There are no phones tier in file "{file}".'
     return [Interval(mark=i.mark, start=i.minTime, end=i.maxTime) for i in tier]
 
 
@@ -190,42 +194,29 @@ def parse_intervals_from_textgrid(file: pathlib.Path) -> List[Interval]:
 )
 @click.argument(
     "pred",
-    type=click.Path(
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        readable=True
-    ),
-    metavar="PRED_DIR"
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, readable=True),
+    metavar="PRED_DIR",
 )
 @click.argument(
     "target",
-    type=click.Path(
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        readable=True
-    ),
-    metavar="TARGET_DIR"
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, readable=True),
+    metavar="TARGET_DIR",
 )
 @click.option(
     "--recursive",
     "-r",
     is_flag=True,
-    help="Compare files in subdirectories recursively"
+    help="Compare files in subdirectories recursively",
 )
 @click.option(
-    "--strict",
-    "-s",
-    is_flag=True,
-    help="Raise errors on mismatching phone sequences"
+    "--strict", "-s", is_flag=True, help="Raise errors on mismatching phone sequences"
 )
 @click.option(
     "--ignore",
     type=str,
     default="AP,SP,<AP>,<SP>,,pau,cl",
     help="Ignored phone marks, split by commas",
-    show_default=True
+    show_default=True,
 )
 def main(pred: str, target: str, recursive: bool, strict: bool, ignore: str):
     pred_dir = pathlib.Path(pred)
@@ -246,9 +237,9 @@ def main(pred: str, target: str, recursive: bool, strict: bool, ignore: str):
         target_file = target_dir / pred_file.relative_to(pred_dir)
         if not target_file.exists():
             warnings.warn(
-                f"The prediction file \"{pred_file}\" has no matching target file, "
-                f"which should be \"{target_file}\".",
-                category=UserWarning
+                f'The prediction file "{pred_file}" has no matching target file, '
+                f'which should be "{target_file}".',
+                category=UserWarning,
             )
             warnings.filterwarnings("default")
             continue
@@ -275,10 +266,7 @@ def main(pred: str, target: str, recursive: bool, strict: bool, ignore: str):
             "Matching files should have same names and same relative paths, "
             "containing the same phone sequences except for spaces."
         )
-    result = {
-        key: metric.compute()
-        for key, metric in metrics.items()
-    }
+    result = {key: metric.compute() for key, metric in metrics.items()}
     print(json.dumps(result, indent=4, ensure_ascii=False))
 
 
