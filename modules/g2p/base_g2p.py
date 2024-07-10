@@ -60,6 +60,10 @@ class BaseG2P:
             except Exception as e:
                 e.args = (f" Error when processing {wav_path}: {e} ",)
                 raise e
+        if len(dataset) <= 0:
+            raise ValueError("No valid data found.")
+        print(f"Loaded {len(dataset)} samples.")
+
         dataset = pd.DataFrame(
             dataset, columns=["wav_path", "ph_seq", "word_seq", "ph_idx_to_word_idx"]
         )
