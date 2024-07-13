@@ -2,10 +2,26 @@
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+torchsofa = ["conf/*.yaml"]
+
 [project]
 name = "torchsofa"
 version = "2.0.0"
-dependencies = ["requests", 'importlib-metadata; python_version<"3.10"']
+dependencies = [
+    "hydra-core",
+    # "torch",
+    # "numpy",
+    # "pandas",
+    # "scipy",
+    # "tqdm",
+    # "matplotlib",
+    # "pytorch-lightning",
+]
 
 [project.scripts]
 sofa-infer = "torchsofa.cli:infer"
