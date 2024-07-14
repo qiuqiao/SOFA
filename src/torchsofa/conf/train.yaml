@@ -1,0 +1,3 @@
+preprocess: true
+data_dir: data/
+sample_rate: 16000

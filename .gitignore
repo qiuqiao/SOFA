@@ -1,4 +1,8 @@
 tmp*
+*.sh
+outputs/
+data/
+!src/torchsofa/data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
