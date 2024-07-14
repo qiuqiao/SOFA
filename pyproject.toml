@@ -14,13 +14,14 @@ name = "torchsofa"
 version = "2.0.0"
 dependencies = [
     "hydra-core",
-    # "torch",
-    # "numpy",
-    # "pandas",
+    "torch",
+    "torchaudio",
+    "pytorch-lightning",
+    "tqdm",
+    "numpy",
+    "pandas",
     # "scipy",
-    # "tqdm",
     # "matplotlib",
-    # "pytorch-lightning",
 ]
 
 [project.scripts]
