@@ -1,3 +1,4 @@
 preprocess: true
 data_dir: data/
 sample_rate: 16000
+max_length: 50.0 # unit: seconds
