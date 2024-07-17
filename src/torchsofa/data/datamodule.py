@@ -7,7 +7,7 @@ import pandas as pd
 import torchaudio
 from tqdm import tqdm
 
-from .label import read_transcriptions_label
+from .label import read_transcriptions_label, start_time_to_interval, str_to_floats
 
 
 class MixedDataModule(L.LightningDataModule):
@@ -106,6 +106,17 @@ class MixedDataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             metadata = pd.read_csv(self.data_path / "metadata.csv", dtype=str)
+            # get ph_intervals
+            metadata.loc[metadata["ph_time"].notnull(), "ph_intervals"] = metadata.loc[
+                metadata["ph_time"].notnull(), :
+            ].apply(
+                lambda row: str_to_floats(start_time_to_interval)(
+                    row["ph_time"], row["wav_length"]
+                ),
+                axis=1,
+            )
+            metadata.drop("ph_time", axis=1, inplace=True)
+            # print(metadata["ph_intervals"])
 
             # print(metadata)
 

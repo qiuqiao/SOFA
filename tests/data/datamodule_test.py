@@ -6,6 +6,11 @@ class TestDatamodule:
         datamodule = MixedDataModule(preprocess=True, data_dir="data/")
         datamodule.prepare_data()
 
+    def test_setup_fit(self):
+        datamodule = MixedDataModule(preprocess=False, data_dir="data/")
+        datamodule.prepare_data()
+        datamodule.setup("fit")
+
 
 if __name__ == "__main__":
-    TestDatamodule().test_prepare_data()
+    TestDatamodule().test_setup_fit()

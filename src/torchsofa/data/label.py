@@ -4,10 +4,11 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-# def start_time_to_interval(start_time: np.ndarray, wav_length: float):
-#     arr = np.append(start_time, wav_length)
-#     intervals = np.stack([arr[:-1], arr[1:]]).T
-#     return intervals
+
+def start_time_to_interval(start_time: np.ndarray, wav_length: float):
+    arr = np.append(start_time, wav_length)
+    intervals = np.stack([arr[:-1], arr[1:]]).T
+    return intervals
 
 
 def str_to_floats(func):
