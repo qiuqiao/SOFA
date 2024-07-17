@@ -132,6 +132,7 @@ class MixedDataModule(L.LightningDataModule):
         metadata["train"] = True
 
         # save metadata
+        metadata = metadata.sort_values(by="wav_length", ascending=False)
         metadata.to_csv(self.data_path / "metadata.csv", index=False)
 
     def setup(self, stage: str):
