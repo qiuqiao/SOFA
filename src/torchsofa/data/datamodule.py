@@ -178,9 +178,3 @@ class MixedDataModule(L.LightningDataModule):
 
     # def predict_dataloader(self):
     #     return DataLoader(, batch_size=32)
-
-
-if __name__ == "__main__":
-    datamodule = MixedDataModule(preprocess=True, data_dir="data/")
-    datamodule.prepare_data()
-    datamodule.setup("fit")
