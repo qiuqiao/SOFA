@@ -24,11 +24,13 @@ class MixedDataModule(L.LightningDataModule):
         preprocess: bool = True,
         data_dir: str = "data/",
         sample_rate: int = 16000,
+        max_length: float = 50.0,
     ):
         super().__init__()
         self.preprocess = preprocess
         self.data_path = Path(data_dir)
         self.sample_rate = sample_rate
+        self.max_length = max_length
         if not self.data_path.exists():
             raise FileNotFoundError(f"{self.data_path} not found")
         if not self.data_path.is_dir():
@@ -111,6 +113,9 @@ class MixedDataModule(L.LightningDataModule):
             # info比load快很多，在大部分wav已经处理完毕的情况下节省大量时间
             wav_info = torchaudio.info(row["wav_path"])
             wav_length = wav_info.num_frames / self.sample_rate
+            if wav_length > self.max_length:
+                warnings.warn(f"{row['wav_path']} is too long. Skip.")
+                continue
             metadata.loc[i, "wav_length"] = wav_length
             if wav_info.sample_rate == self.sample_rate and wav_info.num_channels == 1:
                 continue
@@ -150,9 +155,9 @@ class MixedDataModule(L.LightningDataModule):
             f"Distribution of Wav Lengths, total: {total_length/3600:.2f} hours"
         )
         plt.savefig(self.data_path / "wav_length_distribution.png")
+        print(f"Total length of wavs: {total_length/3600:.2f} hours.")
         print(
-            f"Total length of wavs: {total_length/3600:.2f} hours",
-            f"Saved wav length distribution to {self.data_path / 'wav_length_distribution.png'}.",
+            f"Saved wav length distribution to {self.data_path / 'wav_length_distribution.png'}."
         )
 
     def setup(self, stage: str):
