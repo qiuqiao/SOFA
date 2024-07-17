@@ -134,9 +134,6 @@ class MixedDataModule(L.LightningDataModule):
 
         metadata.dropna(subset=["wav_length"], inplace=True)
 
-        # TODO: train val split
-        metadata["train"] = True
-
         # save metadata
         metadata = metadata.sort_values(by="wav_length", ascending=False)
         metadata.to_csv(self.data_path / "metadata.csv", index=False)
