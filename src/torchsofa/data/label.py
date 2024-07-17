@@ -4,17 +4,29 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+# def start_time_to_interval(start_time: np.ndarray, wav_length: float):
+#     arr = np.append(start_time, wav_length)
+#     intervals = np.stack([arr[:-1], arr[1:]]).T
+#     return intervals
 
-def str_to_floats_decorator(func):
-    def wrapper(str):
+
+def str_to_floats(func):
+    def wrapper(str, *args, **kwargs):
         arr = np.array([float(i) for i in str.split()])
-        res = func(arr)
+        return func(arr, *args, **kwargs)
+
+    return wrapper
+
+
+def str_from_floats(func):
+    def wrapper(str, *args, **kwargs):
+        res = func(str, *args, **kwargs)
         return " ".join([f"{i:.5g}" for i in res])
 
     return wrapper
 
 
-def dur_to_start_time(dur):
+def dur_to_start_time(dur: np.ndarray):
     start_time = dur.cumsum()[:-1]
     start_time = np.insert(start_time, 0, 0)
     return start_time
@@ -61,7 +73,7 @@ def read_transcriptions_label(data_path):
         if "ph_dur" in df.columns:
             df.loc[df["label_type"] == 0, "ph_time"] = df.loc[
                 df["label_type"] == 0, "ph_dur"
-            ].apply(str_to_floats_decorator(dur_to_start_time))
+            ].apply(str_from_floats(str_to_floats(dur_to_start_time)))
 
         label = pd.concat([label, df.loc[:, columns]], ignore_index=True)
 
