@@ -3,18 +3,11 @@ from pathlib import Path
 
 import lightning as L
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import torchaudio
 from tqdm import tqdm
 
-
-def dur_to_start_time(dur_str):
-    dur = np.array([float(i) for i in dur_str.split()])
-    start_time = dur.cumsum()[:-1]
-    start_time = np.insert(start_time, 0, 0)
-    start_time_str = " ".join([f"{i:.5g}" for i in start_time])
-    return start_time_str
+from .label import read_transcriptions_label
 
 
 class MixedDataModule(L.LightningDataModule):
@@ -36,53 +29,6 @@ class MixedDataModule(L.LightningDataModule):
         if not self.data_path.is_dir():
             raise NotADirectoryError(f"{self.data_path} is not a directory")
 
-    def _read_transcriptions_label(self):
-        print("Reading transcriptions.csv...")
-        columns = ["label_type", "wav_path", "ph_seq", "ph_time"]
-        # label_type: 0: full_label; 1: weak_label; 2: audio_only
-        # wav_path: wav file path
-        # ph_seq: phone sequence
-        # ph_time: start time of each phone
-        label = pd.DataFrame(columns=columns)
-
-        trans_paths = list(self.data_path.rglob("transcriptions.csv"))
-        for path in tqdm(trans_paths):
-            df = pd.read_csv(path, dtype=str)
-            if "name" not in df.columns:
-                warnings.warn(f"{path} is not a valid transcription file")
-                continue
-            df.dropna(subset=["name"], inplace=True)
-
-            # label_type
-            if "ph_seq" not in df.columns:
-                df["ph_seq"] = None
-                df["label_type"] = 2
-            elif "ph_dur" not in df.columns:
-                df["label_type"] = 1
-                df.loc[df["ph_seq"].isnull(), "label_type"] = 2
-            else:
-                df["label_type"] = 0
-                df.loc[df["ph_dur"].isnull(), "label_type"] = 1
-                df.loc[df["ph_seq"].isnull(), "label_type"] = 2
-
-            # wav_path
-            df["wav_path"] = df["name"].apply(
-                lambda name: str(path.parent / "wavs" / name) + ".wav"
-            )
-
-            # ph_seq (does not need to convert)
-
-            # ph_time
-            df["ph_time"] = None
-            if "ph_dur" in df.columns:
-                df.loc[df["label_type"] == 0, "ph_time"] = df.loc[
-                    df["label_type"] == 0, "ph_dur"
-                ].apply(dur_to_start_time)
-
-            label = pd.concat([label, df.loc[:, columns]], ignore_index=True)
-
-        return label
-
     def prepare_data(self):
         if not self.preprocess:
             if (self.data_path / "metadata.csv").exists():
@@ -97,7 +43,7 @@ class MixedDataModule(L.LightningDataModule):
 
         # read labels
         # from transcriptions.csv
-        label = self._read_transcriptions_label()
+        label = read_transcriptions_label(self.data_path)
         # TODO: from .TextGrid
         # TODO: from htk lab
         # TODO: combine all labels
