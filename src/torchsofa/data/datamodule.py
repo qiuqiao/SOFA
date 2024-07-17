@@ -7,26 +7,6 @@ import pandas as pd
 import torchaudio
 from tqdm import tqdm
 
-# from torch.utils.data import DataLoader, Dataset
-
-# class MixedDataset(Dataset):
-#     def __init__(self, metadata: pd.DataFrame, vocab: dict, sample_rate: int):
-#         self.metadata = metadata
-#         self.vocab = vocab
-#         self.sample_rate = sample_rate
-
-#     def __len__(self):
-#         return len(self.metadata)
-
-#     def __getitem__(self, index):
-#         wav_path, ph_seq, ph_time, label_type = self.metadata.iloc[index]
-
-#         wav, sr = torchaudio.load(wav_path)
-#         ph_seq = [self.vocab[i] for i in ph_seq.split()] if label_type != 2 else None
-#         ph_time = [float(i) for i in ph_time.split()] if label_type == 0 else None
-
-#         return wav, ph_seq, ph_time, label_type
-
 
 def dur_to_start_time(dur_str):
     dur = np.array([float(i) for i in dur_str.split()])
@@ -102,13 +82,11 @@ class MixedDataModule(L.LightningDataModule):
 
     def prepare_data(self):
         if not self.preprocess:
-            if (self.data_path / "metadata.csv").exists() and (
-                self.data_path / "vocab.csv"
-            ).exists():
+            if (self.data_path / "metadata.csv").exists():
                 print("Skip preprocessing.")
                 return
             else:
-                warnings.warn("metadata.csv or vocab.csv not found.")
+                warnings.warn("metadata.csv not found.")
 
         print("Preprocessing...")
 
@@ -156,36 +134,11 @@ class MixedDataModule(L.LightningDataModule):
         # save metadata
         metadata.to_csv(self.data_path / "metadata.csv", index=False)
 
-        # vocab.csv
-        ph_set = set()
-        for ph_seq in metadata["ph_seq"]:
-            ph_seq = ph_seq.split()
-            ph_set.update(ph_seq)
-        # TODO: process ignored_phones and special_phones
-        if "SP" in ph_set:
-            ph_set.remove("SP")
-        vocab_list = ["SP", *list(sorted(ph_set))]
-        vocab_index = list(range(len(vocab_list)))
-        vocab = pd.DataFrame(
-            {
-                "index": vocab_index,
-                "phone": vocab_list,
-            }
-        )
-        vocab.to_csv(self.data_path / "vocab.csv", index=False)
-
     def setup(self, stage: str):
         if stage == "fit":
             metadata = pd.read_csv(self.data_path / "metadata.csv", dtype=str)
-            vocab_csv = pd.read_csv(self.data_path / "vocab.csv", dtype=str)
-            vocab = {i: j for i, j in zip(vocab_csv["phone"], vocab_csv["index"])}
-            vocab.update({j: i for i, j in zip(vocab_csv["phone"], vocab_csv["index"])})
 
             # print(metadata)
-            # print(vocab)
-            # self.train_set = MixedDataset(
-            #     metadata[metadata["train"]], vocab, self.sample_rate
-            # )
 
         # if stage == "test":
 
