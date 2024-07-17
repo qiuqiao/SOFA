@@ -20,8 +20,8 @@ dependencies = [
     "tqdm",
     "numpy",
     "pandas",
+    "matplotlib",
     # "scipy",
-    # "matplotlib",
 ]
 
 [project.scripts]

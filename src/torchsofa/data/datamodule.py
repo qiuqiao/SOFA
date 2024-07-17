@@ -2,6 +2,7 @@ import warnings
 from pathlib import Path
 
 import lightning as L
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torchaudio
@@ -134,6 +135,25 @@ class MixedDataModule(L.LightningDataModule):
         # save metadata
         metadata = metadata.sort_values(by="wav_length", ascending=False)
         metadata.to_csv(self.data_path / "metadata.csv", index=False)
+
+        # save statistic data
+        total_length = metadata["wav_length"].sum()
+
+        fig = plt.figure(figsize=(10, 5))
+        ax = fig.add_subplot(111)
+        ax.hist(
+            metadata["wav_length"], bins=50, alpha=0.7, color="blue", edgecolor="black"
+        )
+        ax.set_xlabel("Length (seconds)")
+        ax.set_ylabel("Frequency")
+        ax.set_title(
+            f"Distribution of Wav Lengths, total: {total_length/3600:.2f} hours"
+        )
+        plt.savefig(self.data_path / "wav_length_distribution.png")
+        print(
+            f"Total length of wavs: {total_length/3600:.2f} hours",
+            f"Saved wav length distribution to {self.data_path / 'wav_length_distribution.png'}.",
+        )
 
     def setup(self, stage: str):
         if stage == "fit":
