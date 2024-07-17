@@ -12,7 +12,7 @@ def dur_to_start_time(dur_str):
     dur = np.array([float(i) for i in dur_str.split()])
     start_time = dur.cumsum()[:-1]
     start_time = np.insert(start_time, 0, 0)
-    start_time_str = " ".join([str(i) for i in start_time])
+    start_time_str = " ".join([f"{i:.5g}" for i in start_time])
     return start_time_str
 
 
