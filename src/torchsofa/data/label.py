@@ -5,12 +5,19 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def dur_to_start_time(dur_str):
-    dur = np.array([float(i) for i in dur_str.split()])
+def str_to_floats_decorator(func):
+    def wrapper(str):
+        arr = np.array([float(i) for i in str.split()])
+        res = func(arr)
+        return " ".join([f"{i:.5g}" for i in res])
+
+    return wrapper
+
+
+def dur_to_start_time(dur):
     start_time = dur.cumsum()[:-1]
     start_time = np.insert(start_time, 0, 0)
-    start_time_str = " ".join([f"{i:.5g}" for i in start_time])
-    return start_time_str
+    return start_time
 
 
 def read_transcriptions_label(data_path):
@@ -54,7 +61,7 @@ def read_transcriptions_label(data_path):
         if "ph_dur" in df.columns:
             df.loc[df["label_type"] == 0, "ph_time"] = df.loc[
                 df["label_type"] == 0, "ph_dur"
-            ].apply(dur_to_start_time)
+            ].apply(str_to_floats_decorator(dur_to_start_time))
 
         label = pd.concat([label, df.loc[:, columns]], ignore_index=True)
 
