@@ -1,4 +1,19 @@
+# preprocess
 preprocess: true
 data_dir: data/
 sample_rate: 16000
 max_length: 50.0 # unit: seconds
+
+# setup
+replace_phones: # "<SP>", "<EOS>", "cl", and "sil" will be replaced by "SP"
+  - <SP>: SP
+  - <EOS>: SP
+  - cl: SP
+  - sil: SP
+  - <AP>: AP
+special_phones:
+  - SP
+  - AP
+ignored_phones:
+  - pau
+  - ''

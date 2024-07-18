@@ -18,12 +18,25 @@ class MixedDataModule(L.LightningDataModule):
         data_dir: str = "data/",
         sample_rate: int = 16000,
         max_length: float = 50.0,
+        replace_phones: dict = {
+            "<SP>": "SP",
+            "<EOS>": "SP",
+            "sil": "SP",
+            "cl": "SP",
+            "<AP>": "AP",
+        },
+        special_phones: list = ["SP", "AP"],
+        ignored_phones: list = ["pau", ""],
     ):
         super().__init__()
         self.preprocess = preprocess
         self.data_path = Path(data_dir)
         self.sample_rate = sample_rate
         self.max_length = max_length
+        self.replace_phones = replace_phones
+        self.special_phones = special_phones
+        self.ignored_phones = ignored_phones
+
         if not self.data_path.exists():
             raise FileNotFoundError(f"{self.data_path} not found")
         if not self.data_path.is_dir():
@@ -105,7 +118,9 @@ class MixedDataModule(L.LightningDataModule):
 
     def setup(self, stage: str):
         if stage == "fit":
+            # load metadata.csv
             metadata = pd.read_csv(self.data_path / "metadata.csv", dtype=str)
+
             # get ph_intervals
             metadata.loc[metadata["ph_time"].notnull(), "ph_intervals"] = metadata.loc[
                 metadata["ph_time"].notnull(), :
@@ -116,9 +131,36 @@ class MixedDataModule(L.LightningDataModule):
                 axis=1,
             )
             metadata.drop("ph_time", axis=1, inplace=True)
-            # print(metadata["ph_intervals"])
 
-            # print(metadata)
+            # generate vocab.csv
+            # get all phones
+            phones = set()
+            for ph_seq in metadata.loc[metadata["ph_seq"].notnull(), "ph_seq"]:
+                phones.update(ph_seq.split())
+            phones = [
+                (self.replace_phones[i] if i in self.replace_phones else i)
+                for i in phones
+                if i not in self.ignored_phones
+            ]
+            phones = set(phones)
+            phones = sorted(list(phones))
+            # get vocab
+            vocab = pd.DataFrame({"phones": phones})
+            vocab["special"] = vocab["phones"].apply(lambda x: x in self.special_phones)
+            vocab.loc[vocab["special"], "id"] = range(vocab["special"].sum())
+            vocab.loc[~vocab["special"], "id"] = range((~vocab["special"]).sum())
+            vocab["id"] = vocab["id"].astype(int)
+
+            print("normal_phones: {}".format(list(vocab.loc[~vocab["special"], "id"])))
+            print("special_phones: {}".format(list(vocab.loc[vocab["special"], "id"])))
+            vocab.to_csv(self.data_path / "vocab.csv", encoding="utf-8", index=False)
+
+            # vocab = pd.read_csv(
+            #     self.data_path / "vocab.csv",
+            #     encoding="utf-8",
+            #     dtype={"phones": str, "special": bool, "id": int},
+            # )
+            # print(vocab)
 
         # if stage == "test":
 
