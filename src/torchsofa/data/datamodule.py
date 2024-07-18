@@ -126,7 +126,7 @@ class MixedDataModule(L.LightningDataModule):
                 metadata["ph_time"].notnull(), :
             ].apply(
                 lambda row: str_to_floats(start_time_to_interval)(
-                    row["ph_time"], row["wav_length"]
+                    row["ph_time"], float(row["wav_length"])
                 ),
                 axis=1,
             )
