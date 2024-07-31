@@ -1,8 +1,8 @@
+import json
 import warnings
 from typing import Dict, List, Union
 
 import numpy as np
-import yaml
 
 
 class Vocab:
@@ -17,7 +17,7 @@ class Vocab:
 
     def __init__(
         self,
-        phones: Union[List[str], set] = None,
+        all_phones: Union[List[str], set] = None,
         special_phones: Union[List[str], set] = None,
         ignored_phones: Union[List[str], set] = None,
         phone_aliases: Dict[str, List[str]] = None,
@@ -47,10 +47,10 @@ class Vocab:
                 alias for _, aliases in self.phone_aliases.items() for alias in aliases
             ]
 
-        if phones is not None:
-            phones = set(phones)
+        if all_phones is not None:
+            all_phones = set(all_phones)
             normal_phones = (
-                phones
+                all_phones
                 - set(self.special_phone_to_id.keys())
                 - set(self.ignored_phones)
                 - set(aliases)
@@ -92,10 +92,12 @@ class Vocab:
             "ignored_phones": self.ignored_phones,
             "phone_aliases": self.phone_aliases,
         }
-        yaml.safe_dump(data, open(file_path, "w", encoding="utf-8"), sort_keys=False)
+        # yaml.safe_dump(data, open(file_path, "w", encoding="utf-8"), sort_keys=False)
+        json.dump(data, open(file_path, "w", encoding="utf-8"), sort_keys=False)
 
     def deserialize(self, file_path: str) -> None:
-        data = yaml.safe_load(open(file_path, "r", encoding="utf-8"))
+        # data = yaml.safe_load(open(file_path, "r", encoding="utf-8"))
+        data = json.load(open(file_path, "r", encoding="utf-8"))
         self.normal_phone_to_id = data["normal_phone_to_id"]
         self.special_phone_to_id = data["special_phone_to_id"]
         self.ignored_phones = data["ignored_phones"]
