@@ -183,8 +183,7 @@ class DataManager:
         return phones
 
     def apply_vocab(self, vocab: Vocab):
-        # 得到 normal_ids normal_interval special_ids special_interval
-
+        # 得到 normal_id_seq normal_interval_seq special_id_seq special_interval_seq
         # 转换，phone转换为id，time转成interval
         start_time = time.time()
 
