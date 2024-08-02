@@ -1,32 +1,42 @@
 import warnings
+from pathlib import Path
+from typing import List, Union
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
 
-def dur_to_start_time(dur_str):
-    dur = np.array([float(i) for i in dur_str.split()])
-    start_time = dur.cumsum()[:-1]
-    start_time = np.insert(start_time, 0, 0)
-    start_time_str = " ".join([f"{i:.5g}" for i in start_time])
-    return start_time_str
+def _dur_to_time(ph_dur: str):
+    dur_seq = [float(i) for i in ph_dur.split()]
+    time_seq = np.cumsum([0, *dur_seq])
+    return time_seq
 
 
-def read_transcriptions_label(data_path):
+def _read_from_transcriptions(data_path):
+    """
+    读取文件夹下的transcriptions.csv，并返回合法的label
+    合法的必要条件：
+    1. label_type<=1，ph_seq必须存在；label_type==0，time_seq必须存在
+    2. 如果label_type==0，ph_seq等于time_seq的数量减一
+
+    columns:
+        wav_path: str, wav文件路径
+        label_type: int, 0: full_label; 1: weak_label; 2: audio_only
+        ph_seq: np.ndarray(L,), 音素序列
+        time_seq: np.ndarray(L+1,), 时间序列
+    """
+
     print("Reading transcriptions.csv...")
-    columns = ["label_type", "wav_path", "ph_seq", "ph_time"]
-    # label_type: 0: full_label; 1: weak_label; 2: audio_only
-    # wav_path: wav file path
-    # ph_seq: phone sequence
-    # ph_time: start time of each phone
+    data_path = Path(data_path)
+    columns = ["wav_path", "label_type", "ph_seq", "time_seq"]
     label = pd.DataFrame(columns=columns)
 
     trans_paths = list(data_path.rglob("transcriptions.csv"))
-    for path in tqdm(trans_paths):
-        df = pd.read_csv(path, dtype=str)
+    for trans_path in tqdm(trans_paths):
+        df = pd.read_csv(trans_path, dtype=str)
         if "name" not in df.columns:
-            warnings.warn(f"{path} is not a valid transcription file")
+            warnings.warn(f"{trans_path} is not a valid transcription file")
             continue
         df.dropna(subset=["name"], inplace=True)
 
@@ -44,18 +54,42 @@ def read_transcriptions_label(data_path):
 
         # wav_path
         df["wav_path"] = df["name"].apply(
-            lambda name: str(path.parent / "wavs" / name) + ".wav"
+            lambda name: str(trans_path.parent / "wavs" / name) + ".wav"
         )
 
-        # ph_seq (does not need to convert)
+        # ph_seq
+        if "ph_seq" in df.columns:
+            df.loc[df["label_type"] <= 1, "ph_seq"] = df.loc[
+                df["label_type"] <= 1, "ph_seq"
+            ].apply(lambda ph_seq: np.array(ph_seq.split()))
+        else:
+            df["ph_seq"] = None
 
-        # ph_time
-        df["ph_time"] = None
+        # time_seq
         if "ph_dur" in df.columns:
-            df.loc[df["label_type"] == 0, "ph_time"] = df.loc[
+            df.loc[df["label_type"] == 0, "time_seq"] = df.loc[
                 df["label_type"] == 0, "ph_dur"
-            ].apply(dur_to_start_time)
+            ].apply(_dur_to_time)
+
+            # len(ph_seq) == (len(time_seq) + 1)
+            df["valid"] = True
+            df.loc[df["label_type"] == 0, "valid"] = df.loc[
+                df["label_type"] == 0, "ph_seq"
+            ].apply(len) == (df.loc[df["label_type"] == 0, "time_seq"].apply(len) - 1)
+
+            df.loc[~df["valid"], "label_type"] = 1
+            df.loc[~df["valid"], "time_seq"] = None
+        else:
+            df["time_seq"] = None
 
         label = pd.concat([label, df.loc[:, columns]], ignore_index=True)
 
     return label
+
+
+def read_labels(data_path: Union[Path, str], labels_from: List[str]):
+    # TODO: from .TextGrid
+    # TODO: from htk lab
+    # TODO: from .wav (audio only)
+    # TODO: combine all labels
+    return _read_from_transcriptions(data_path)

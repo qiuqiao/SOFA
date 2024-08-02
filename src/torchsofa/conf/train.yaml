@@ -1,4 +1,31 @@
+# global
+random_seed: 114514
+
+# preprocess
 preprocess: true
 data_dir: data/
 sample_rate: 16000
 max_length: 50.0 # unit: seconds
+
+# vocab
+special_phones:
+  - SP
+  - AP
+ignored_phones:
+  - pau
+  - ''
+phone_aliases:
+  SP:  # "<SP>", "<EOS>", "cl", and "sil" will be replaced by "SP"
+    - <SP>
+    - <EOS>
+    - sil
+    - cl
+  AP: 
+    - <AP>
+    
+# train val split
+valid:
+  size: 15
+  preferred:
+    - valid
+    - test
