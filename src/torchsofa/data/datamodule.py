@@ -2,40 +2,35 @@ import warnings
 from pathlib import Path
 
 import lightning as L
-import matplotlib.pyplot as plt
-import pandas as pd
-import torchaudio
-from tqdm import tqdm
 
-from .label import read_transcriptions_label, start_time_to_interval, str_to_floats
+from .manager import DataManager
+from .vocab import Vocab
 
 
 class MixedDataModule(L.LightningDataModule):
     def __init__(
         self,
         *,
+        random_seed: int = 114514,
         preprocess: bool = True,
         data_dir: str = "data/",
         sample_rate: int = 16000,
         max_length: float = 50.0,
-        replace_phones: dict = {
-            "<SP>": "SP",
-            "<EOS>": "SP",
-            "sil": "SP",
-            "cl": "SP",
-            "<AP>": "AP",
-        },
         special_phones: list = ["SP", "AP"],
         ignored_phones: list = ["pau", ""],
+        phone_aliases: dict = {"SP": ["<SP>", "<EOS>", "sil", "cl"], "AP": ["<AP>"]},
+        valid: dict = {"size": 15, "preferred": ["valid", "test"]},
     ):
         super().__init__()
+        self.random_seed = random_seed
         self.preprocess = preprocess
         self.data_path = Path(data_dir)
         self.sample_rate = sample_rate
         self.max_length = max_length
-        self.replace_phones = replace_phones
         self.special_phones = special_phones
         self.ignored_phones = ignored_phones
+        self.phone_aliases = phone_aliases
+        self.valid = valid
 
         if not self.data_path.exists():
             raise FileNotFoundError(f"{self.data_path} not found")
@@ -52,115 +47,38 @@ class MixedDataModule(L.LightningDataModule):
 
         print("Preprocessing...")
 
-        # metadata.csv
-
-        # read labels
-        # from transcriptions.csv
-        label = read_transcriptions_label(self.data_path)
-        # TODO: from .TextGrid
-        # TODO: from htk lab
-        # TODO: combine all labels
-
-        # process wavs and generate metadata.csv
-        metadata = label
-        resamples = {}
-        for i, row in tqdm(metadata.iterrows(), total=len(metadata)):
-            if not Path(row["wav_path"]).exists():
-                metadata.loc[i, "wav_length"] = None
-                continue
-
-            # info比load快很多，在大部分wav已经处理完毕的情况下节省大量时间
-            wav_info = torchaudio.info(row["wav_path"])
-            wav_length = wav_info.num_frames / self.sample_rate
-            if wav_length > self.max_length:
-                warnings.warn(f"{row['wav_path']} is too long. Skip.")
-                continue
-            metadata.loc[i, "wav_length"] = wav_length
-            if wav_info.sample_rate == self.sample_rate and wav_info.num_channels == 1:
-                continue
-
-            wav, sr = torchaudio.load(row["wav_path"])
-            # mono
-            if wav.shape[0] > 1:
-                wav = wav.mean(dim=0, keepdim=True)
-            # resample
-            if sr != self.sample_rate:
-                if sr not in resamples:
-                    resamples[sr] = torchaudio.transforms.Resample(sr, self.sample_rate)
-                wav = resamples[sr](wav)
-
-            torchaudio.save(row["wav_path"], wav, self.sample_rate)
-
-        metadata.dropna(subset=["wav_length"], inplace=True)
-
-        # save metadata
-        metadata = metadata.sort_values(by="wav_length", ascending=False)
-        metadata.to_csv(self.data_path / "metadata.csv", index=False)
-
-        # save statistic data
-        total_length = metadata["wav_length"].sum()
-
-        fig = plt.figure(figsize=(10, 5))
-        ax = fig.add_subplot(111)
-        ax.hist(
-            metadata["wav_length"], bins=50, alpha=0.7, color="blue", edgecolor="black"
+        data = DataManager().prepare(
+            self.data_path,
+            sample_rate=self.sample_rate,
+            max_length=self.max_length,
+            labels_from=["transcriptions", "textgrid", "htk"],
         )
-        ax.set_xlabel("Length (seconds)")
-        ax.set_ylabel("Frequency")
-        ax.set_title(
-            f"Distribution of Wav Lengths, total: {total_length/3600:.2f} hours"
-        )
-        plt.savefig(self.data_path / "wav_length_distribution.png")
-        print(f"Total length of wavs: {total_length/3600:.2f} hours.")
-        print(
-            f"Saved wav length distribution to {self.data_path / 'wav_length_distribution.png'}."
-        )
+        data.save_statistics(self.data_path / "statistics.png")
+
+        data.serialize(self.data_path / "metadata.csv")
 
     def setup(self, stage: str):
         if stage == "fit":
             # load metadata.csv
-            metadata = pd.read_csv(self.data_path / "metadata.csv", dtype=str)
-
-            # get ph_intervals
-            metadata.loc[metadata["ph_time"].notnull(), "ph_intervals"] = metadata.loc[
-                metadata["ph_time"].notnull(), :
-            ].apply(
-                lambda row: str_to_floats(start_time_to_interval)(
-                    row["ph_time"], float(row["wav_length"])
-                ),
-                axis=1,
-            )
-            metadata.drop("ph_time", axis=1, inplace=True)
-
+            data = DataManager().deserialize(self.data_path / "metadata.csv")
             # generate vocab.csv
-            # get all phones
-            phones = set()
-            for ph_seq in metadata.loc[metadata["ph_seq"].notnull(), "ph_seq"]:
-                phones.update(ph_seq.split())
-            phones = [
-                (self.replace_phones[i] if i in self.replace_phones else i)
-                for i in phones
-                if i not in self.ignored_phones
-            ]
-            phones = set(phones)
-            phones = sorted(list(phones))
-            # get vocab
-            vocab = pd.DataFrame({"phones": phones})
-            vocab["special"] = vocab["phones"].apply(lambda x: x in self.special_phones)
-            vocab.loc[vocab["special"], "id"] = range(vocab["special"].sum())
-            vocab.loc[~vocab["special"], "id"] = range((~vocab["special"]).sum())
-            vocab["id"] = vocab["id"].astype(int)
+            vocab = Vocab(
+                all_phones=data.get_phone_set(),
+                special_phones=self.special_phones,
+                ignored_phones=self.ignored_phones,
+                phone_aliases=self.phone_aliases,
+            )
+            print(vocab.summary())
+            vocab.serialize(self.data_path / "vocab.csv")
 
-            print("normal_phones: {}".format(list(vocab.loc[~vocab["special"], "id"])))
-            print("special_phones: {}".format(list(vocab.loc[vocab["special"], "id"])))
-            vocab.to_csv(self.data_path / "vocab.csv", encoding="utf-8", index=False)
+            data.apply_vocab(vocab)
 
-            # vocab = pd.read_csv(
-            #     self.data_path / "vocab.csv",
-            #     encoding="utf-8",
-            #     dtype={"phones": str, "special": bool, "id": int},
-            # )
-            # print(vocab)
+            data.apply_train_val_split(random_seed=self.random_seed, **self.valid)
+
+            print(data.df.loc[data.df["is_valid"], :])
+
+            # self.train_set = data.get_train_set()
+            # self.val_set = data.get_val_set()
 
         # if stage == "test":
 
