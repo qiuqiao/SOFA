@@ -2,7 +2,9 @@ import random
 
 import numpy as np
 import pandas as pd
+import torch
 import torchaudio
+from torch import nn
 from torch.utils.data import Dataset, Sampler
 
 
@@ -22,11 +24,12 @@ class MixedDataset(Dataset):
         row = self.df.iloc[index]
 
         wav, _ = torchaudio.load(row["wav_path"])
-        normal_id_seq = row["normal_id_seq"]
-        normal_inverval_seq = row["normal_inverval_seq"]
-        special_id_seq = row["special_id_seq"]
-        special_inverval_seq = row["special_inverval_seq"]
-        wav_length = row["wav_length"]
+        wav = wav.squeeze(0)
+        normal_id_seq = torch.from_numpy(row["normal_id_seq"])
+        normal_inverval_seq = torch.from_numpy(row["normal_inverval_seq"])
+        special_id_seq = torch.from_numpy(row["special_id_seq"])
+        special_inverval_seq = torch.from_numpy(row["special_inverval_seq"])
+        # wav_length = row["wav_length"]
         label_type = row["label_type"]
 
         return (
@@ -35,7 +38,7 @@ class MixedDataset(Dataset):
             normal_inverval_seq,
             special_id_seq,
             special_inverval_seq,
-            wav_length,
+            # wav_length,
             label_type,
         )
 
@@ -110,8 +113,60 @@ class SortedLengthRandomizedBatchSampler(Sampler):
         return iter(batches)
 
 
-# def collate_fn(batch):
-#     """
-#     一个batch里有：wav, normal_id_seq, normal_inverval_seq, special_id_seq, special_inverval_seq, wav_length, label_type
-#     返回： wav, normal_id_seq, normal_inverval_seq, normal_id_lengths, special_id_seq, special_inverval_seq, special_id_lengths, wav_length, label_type
-#     """
+def collate_fn(batch):
+    """
+    输入：
+        wav (T)
+        normal_id_seq (L)
+        normal_inverval_seq (L, 2)
+        special_id_seq (L1)
+        special_inverval_seq (L1, 2)
+        label_type (int)
+    返回:
+        audios (B, max_T)
+        audio_lengths (B)
+        normal_id_seqs (B, max_L)
+        normal_inverval_seqs (B, max_L, 2)
+        normal_id_lengths (B)
+        special_id_seqs (B, max_L1)
+        special_inverval_seqs (B, max_L1, 2)
+        special_id_lengths (B)
+        label_types (B)
+    """
+    (
+        audios,
+        normal_id_seqs,
+        normal_inverval_seqs,
+        special_id_seqs,
+        special_inverval_seqs,
+        label_types,
+    ) = list(zip(*batch))
+
+    audio_lengths = torch.tensor([len(a) for a in audios])
+    normal_id_lengths = torch.tensor([len(n) for n in normal_id_seqs])
+    special_id_lengths = torch.tensor([len(s) for s in special_id_seqs])
+
+    # padding
+    audios = nn.utils.rnn.pad_sequence(audios, batch_first=True)
+    normal_id_seqs = nn.utils.rnn.pad_sequence(normal_id_seqs, batch_first=True)
+    normal_inverval_seqs = nn.utils.rnn.pad_sequence(
+        normal_inverval_seqs, batch_first=True
+    )
+    special_id_seqs = nn.utils.rnn.pad_sequence(special_id_seqs, batch_first=True)
+    special_inverval_seqs = nn.utils.rnn.pad_sequence(
+        special_inverval_seqs, batch_first=True
+    )
+
+    label_types = torch.tensor(label_types)
+
+    return (
+        audios,
+        audio_lengths,
+        normal_id_seqs,
+        normal_inverval_seqs,
+        normal_id_lengths,
+        special_id_seqs,
+        special_inverval_seqs,
+        special_id_lengths,
+        label_types,
+    )
