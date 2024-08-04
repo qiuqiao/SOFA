@@ -63,10 +63,10 @@ class SortedLengthRandomizedBatchSampler(Sampler):
         # 扔掉音频长度大于batch_length的样本
         self.wav_lengths = self.wav_lengths[self.wav_lengths <= self.batch_length]
 
+        self.is_first_epoch = None
         self.len = len(self.get_batches())
         # len不固定，根据随机数的不同会有细微的变化
         # 如果多了就随机扔掉一点，少了就过采样一点
-        self.is_first_epoch = True
 
     def get_batches(self):
         randomized_wav_lengths = self.wav_lengths.map(
@@ -80,7 +80,7 @@ class SortedLengthRandomizedBatchSampler(Sampler):
         curr_start_idx = 0
         while curr_start_idx < len(wav_lengths):
             curr_batch_max_length = wav_lengths[curr_start_idx]
-            curr_batch_size = self.batch_length // curr_batch_max_length
+            curr_batch_size = int(self.batch_length // curr_batch_max_length)
             # curr_batch_size必定大于等于1，因为之前扔掉了太长的sample
 
             batches.append(
@@ -89,9 +89,11 @@ class SortedLengthRandomizedBatchSampler(Sampler):
 
             curr_start_idx = curr_start_idx + curr_batch_size
 
-        if self.is_first_epoch:
+        if self.is_first_epoch is True:
             self.is_first_epoch = False
             return batches[::-1]
+        elif self.is_first_epoch is None:
+            self.is_first_epoch = True
 
         random.shuffle(batches)
         return batches

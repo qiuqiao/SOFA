@@ -292,9 +292,7 @@ class DataManager:
             dataset,
             batch_sampler=sampler,
             collate_fn=collate_fn,
-            persistent_workers=num_workers > 0,
             pin_memory=True,
-            prefetch_factor=(2 if num_workers > 0 else None),
         )
 
     def get_train_loader(self, batch_length, randomize_factor, num_workers):
@@ -302,5 +300,5 @@ class DataManager:
             batch_length, randomize_factor, num_workers, stage="train"
         )
 
-    def get_val_loader(self, batch_length, randomize_factor, num_workers):
+    def get_valid_loader(self, batch_length, randomize_factor, num_workers):
         return self._get_dataloader(batch_length, 0, num_workers, stage="valid")
