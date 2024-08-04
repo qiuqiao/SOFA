@@ -20,6 +20,11 @@ class MixedDataModule(L.LightningDataModule):
         ignored_phones: list = ["pau", ""],
         phone_aliases: dict = {"SP": ["<SP>", "<EOS>", "sil", "cl"], "AP": ["<AP>"]},
         valid: dict = {"size": 15, "preferred": ["valid", "test"]},
+        loader: dict = {
+            "batch_length": 100,
+            "randomize_factor": 0.2,
+            "num_workers": 16,
+        },
     ):
         super().__init__()
         self.random_seed = random_seed
@@ -31,6 +36,7 @@ class MixedDataModule(L.LightningDataModule):
         self.ignored_phones = ignored_phones
         self.phone_aliases = phone_aliases
         self.valid = valid
+        self.loader = loader
 
         if not self.data_path.exists():
             raise FileNotFoundError(f"{self.data_path} not found")
@@ -75,20 +81,18 @@ class MixedDataModule(L.LightningDataModule):
 
             data.apply_train_val_split(random_seed=self.random_seed, **self.valid)
 
-            print(data.df.loc[data.df["is_valid"], :])
-
-            # self.train_set = data.get_train_set()
-            # self.val_set = data.get_val_set()
+            self.train_loader = data.get_train_loader(**self.loader)
+            self.valid_loader = data.get_valid_loader(**self.loader)
 
         # if stage == "test":
 
         # if stage == "predict":
 
-    # def train_dataloader(self):
-    #     return DataLoader(self.train_set, batch_size=32)
+    def train_dataloader(self):
+        return self.train_loader
 
-    # def val_dataloader(self):
-    #     return DataLoader(, batch_size=32)
+    def val_dataloader(self):
+        return self.valid_loader
 
     # def test_dataloader(self):
     #     return DataLoader(, batch_size=32)
