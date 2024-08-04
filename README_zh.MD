@@ -8,11 +8,11 @@
 
 SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐器，同时也兼容非歌声的对齐。
 
-包含以下优点：
+在歌声数据上，相比于MFA(Montreal Forced Aligner)，SOFA具有以下优点：
 
 * 容易安装
-* 
-**注意：目前SOFA仍旧是beta版本，可能会有很多bug且不保证效果。如果发现任何问题或者改进建议，欢迎提issue。**
+* 效果更好
+* 推理速度更快
 
 # 使用方法
 

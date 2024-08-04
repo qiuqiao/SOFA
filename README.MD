@@ -8,11 +8,11 @@ English | [简体中文](README_zh.MD)
 
 SOFA (Singing-Oriented Forced Aligner) is a forced alignment tool designed specifically for singing voice.
 
-It has the following advantages:
+On singing data, SOFA has the following advantages over MFA (Montreal Forced Aligner):
 
-* Easy to install
-
-**Note: SOFA is still in beta and may contain many bugs, and effectiveness is not guaranteed. If any issues are encountered or improvements are suggested, please feel free to raise an issue.**
+* Easier installation
+* Better performance
+* Faster inference speed
 
 # How to Use
 
