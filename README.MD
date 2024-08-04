@@ -71,7 +71,7 @@ It has the following advantages:
     - `--dictionary`: The dictionary file (default is `dictionary/opencpop-extension.txt`);
 
     ```bash
-    python infer.py --ckpt checkpoint_path --folder segments_path --dictionary dictionary_path -out_formats output_format1,output_format2...
+    python infer.py --ckpt checkpoint_path --folder segments_path --dictionary dictionary_path --out_formats output_format1,output_format2...
     ```
 5. Retrieve the Final Annotation
 
