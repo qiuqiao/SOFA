@@ -7,8 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torchaudio
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from .dataloader import MixedDataset, SortedLengthRandomizedBatchSampler, collate_fn
 from .label import read_labels
 from .vocab import Vocab
 
@@ -183,8 +185,7 @@ class DataManager:
         return phones
 
     def apply_vocab(self, vocab: Vocab):
-        # 得到 normal_ids normal_interval special_ids special_interval
-
+        # 得到 normal_id_seq normal_interval_seq special_id_seq special_interval_seq
         # 转换，phone转换为id，time转成interval
         start_time = time.time()
 
@@ -269,13 +270,35 @@ class DataManager:
         self.df = self.df.sample(frac=1, random_state=random_seed)
         self.df.sort_values(by="valid_priority", inplace=True, ascending=True)
         # 划分数据集
-        self.df["is_valid"] = False
-        self.df.iloc[:size, -1] = True
+        self.df["is_train"] = True
+        self.df.iloc[:size, -1] = False
 
         self.df.drop(columns=["valid_priority"], inplace=True)
 
-    def get_train_set(self):
-        raise NotImplementedError
+    def _get_dataloader(
+        self, batch_length, randomize_factor, num_workers, stage="train"
+    ):
+        if stage == "train":
+            df = self.df.loc[self.df["is_train"], :]
+        else:
+            df = self.df.loc[~self.df["is_train"], :]
+        dataset = MixedDataset(df)
+        sampler = SortedLengthRandomizedBatchSampler(
+            wav_lengths=dataset.get_wav_lengths(),
+            batch_length=batch_length,
+            randomize_factor=randomize_factor,
+        )
+        return DataLoader(
+            dataset,
+            batch_sampler=sampler,
+            collate_fn=collate_fn,
+            pin_memory=True,
+        )
 
-    def get_val_set(self):
-        raise NotImplementedError
+    def get_train_loader(self, batch_length, randomize_factor, num_workers):
+        return self._get_dataloader(
+            batch_length, randomize_factor, num_workers, stage="train"
+        )
+
+    def get_valid_loader(self, batch_length, randomize_factor, num_workers):
+        return self._get_dataloader(batch_length, 0, num_workers, stage="valid")
