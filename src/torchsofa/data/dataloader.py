@@ -20,24 +20,24 @@ class MixedDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, index):
-        # wav, normal_id_seq, normal_inverval_seq, special_id_seq, special_inverval_seq, wav_length, label_type
+        # wav, normal_id_seq, normal_interval_seq, special_id_seq, special_interval_seq, wav_length, label_type
         row = self.df.iloc[index]
 
-        wav, _ = torchaudio.load(row["wav_path"])
+        wav, _ = torchaudio.load(str(row["wav_path"]))
         wav = wav.squeeze(0)
-        normal_id_seq = torch.from_numpy(row["normal_id_seq"])
-        normal_inverval_seq = torch.from_numpy(row["normal_inverval_seq"])
-        special_id_seq = torch.from_numpy(row["special_id_seq"])
-        special_inverval_seq = torch.from_numpy(row["special_inverval_seq"])
+        normal_id_seq = row["normal_id_seq"]
+        normal_interval_seq = row["normal_interval_seq"]
+        special_id_seq = row["special_id_seq"]
+        special_interval_seq = row["special_interval_seq"]
         # wav_length = row["wav_length"]
         label_type = row["label_type"]
 
         return (
             wav,
             normal_id_seq,
-            normal_inverval_seq,
+            normal_interval_seq,
             special_id_seq,
-            special_inverval_seq,
+            special_interval_seq,
             # wav_length,
             label_type,
         )
@@ -120,29 +120,38 @@ def collate_fn(batch):
     输入：
         wav (T)
         normal_id_seq (L)
-        normal_inverval_seq (L, 2)
+        normal_interval_seq (L, 2)
         special_id_seq (L1)
-        special_inverval_seq (L1, 2)
+        special_interval_seq (L1, 2)
         label_type (int)
     返回:
         audios (B, max_T)
         audio_lengths (B)
-        normal_id_seqs (B, max_L)
-        normal_inverval_seqs (B, max_L, 2)
-        normal_id_lengths (B)
-        special_id_seqs (B, max_L1)
-        special_inverval_seqs (B, max_L1, 2)
-        special_id_lengths (B)
+        normal_id_seqs (num_weaks, max_L)
+        normal_interval_seqs (num_full_labels, max_L, 2)
+        normal_id_lengths (num_weaks)
+        special_id_seqs (num_weaks, max_L1)
+        special_interval_seqs (num_full_labels, max_L1, 2)
+        special_id_lengths (num_weaks)
         label_types (B)
     """
     (
         audios,
         normal_id_seqs,
-        normal_inverval_seqs,
+        normal_interval_seqs,
         special_id_seqs,
-        special_inverval_seqs,
+        special_interval_seqs,
         label_types,
     ) = list(zip(*batch))
+
+    normal_id_seqs = [torch.tensor(n) for n in normal_id_seqs if n is not None]
+    normal_interval_seqs = [
+        torch.tensor(n) for n in normal_interval_seqs if n is not None
+    ]
+    special_id_seqs = [torch.tensor(s) for s in special_id_seqs if s is not None]
+    special_interval_seqs = [
+        torch.tensor(s) for s in special_interval_seqs if s is not None
+    ]
 
     audio_lengths = torch.tensor([len(a) for a in audios])
     normal_id_lengths = torch.tensor([len(n) for n in normal_id_seqs])
@@ -150,13 +159,25 @@ def collate_fn(batch):
 
     # padding
     audios = nn.utils.rnn.pad_sequence(audios, batch_first=True)
-    normal_id_seqs = nn.utils.rnn.pad_sequence(normal_id_seqs, batch_first=True)
-    normal_inverval_seqs = nn.utils.rnn.pad_sequence(
-        normal_inverval_seqs, batch_first=True
+    normal_id_seqs = (
+        nn.utils.rnn.pad_sequence(normal_id_seqs, batch_first=True)
+        if len(normal_id_seqs) > 0
+        else torch.empty(0, 0)
     )
-    special_id_seqs = nn.utils.rnn.pad_sequence(special_id_seqs, batch_first=True)
-    special_inverval_seqs = nn.utils.rnn.pad_sequence(
-        special_inverval_seqs, batch_first=True
+    normal_interval_seqs = (
+        nn.utils.rnn.pad_sequence(normal_interval_seqs, batch_first=True)
+        if len(normal_interval_seqs) > 0
+        else torch.empty(0, 0, 2)
+    )
+    special_id_seqs = (
+        nn.utils.rnn.pad_sequence(special_id_seqs, batch_first=True)
+        if len(special_id_seqs) > 0
+        else torch.empty(0, 0)
+    )
+    special_interval_seqs = (
+        nn.utils.rnn.pad_sequence(special_interval_seqs, batch_first=True)
+        if len(special_interval_seqs) > 0
+        else torch.empty(0, 0, 2)
     )
 
     label_types = torch.tensor(label_types)
@@ -165,10 +186,10 @@ def collate_fn(batch):
         audios,
         audio_lengths,
         normal_id_seqs,
-        normal_inverval_seqs,
+        normal_interval_seqs,
         normal_id_lengths,
         special_id_seqs,
-        special_inverval_seqs,
+        special_interval_seqs,
         special_id_lengths,
         label_types,
     )
