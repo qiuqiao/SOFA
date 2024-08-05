@@ -6,7 +6,7 @@ from torchsofa.data import MixedDataModule
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="train")
-def train(cfg: DictConfig) -> None:
+def train_cli(cfg: DictConfig) -> None:
     print("Training...")
     print("config:")
     print(OmegaConf.to_yaml(cfg))
@@ -17,4 +17,4 @@ def train(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    train()
+    train_cli()

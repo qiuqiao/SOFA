@@ -25,6 +25,6 @@ dependencies = [
 ]
 
 [project.scripts]
-sofa-infer = "torchsofa.cli:infer"
-sofa-train = "torchsofa.cli:train"
-sofa-eval = "torchsofa.cli:eval"
+sofa-infer = "torchsofa.api:infer_cli"
+sofa-train = "torchsofa.api:train_cli"
+sofa-eval = "torchsofa.api:eval_cli"
