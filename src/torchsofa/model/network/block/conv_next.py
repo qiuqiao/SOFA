@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from ..activation import get_activation
@@ -12,6 +13,7 @@ class ConvNextBlock(nn.Module):
         kernel_size=7,
         dilation=1,
         bias=True,
+        layer_scale=True,
         norm_layer="RMSNorm",
         activation="SwiGLU",
     ):
@@ -41,6 +43,9 @@ class ConvNextBlock(nn.Module):
             bias=bias,
             padding="same",
         )
+        self.gamma = (
+            nn.Parameter(torch.full((1, num_dims, 1), 1e-5)) if layer_scale else None
+        )
 
     def forward(self, x):
         residual = x
@@ -50,5 +55,6 @@ class ConvNextBlock(nn.Module):
         x = self.pw_conv1(x)
         x = self.activation(x)
         x = self.pw_conv2(x)
+        x = x * self.gamma if self.gamma is not None else x
 
         return x + residual
