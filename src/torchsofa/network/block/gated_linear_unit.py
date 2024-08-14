@@ -18,6 +18,7 @@ class SoftmaxGAU(nn.Module):
         num_heads=1,
         head_dims=32,
         avg_length=20,
+        bias=True,
         norm_layer="RMSNorm",
         activation="SiLU",
     ):
@@ -26,7 +27,7 @@ class SoftmaxGAU(nn.Module):
             in_channels=num_dims,
             out_channels=2 * expansion * num_dims,
             kernel_size=1,
-            bias=True,
+            bias=bias,
             padding="same",
         )
         self.activation_in = get_activation(activation, 2 * expansion * num_dims)
@@ -37,7 +38,7 @@ class SoftmaxGAU(nn.Module):
             in_channels=num_dims,
             out_channels=num_heads * head_dims,
             kernel_size=1,
-            bias=True,
+            bias=bias,
             padding="same",
         )
         self.activation_attn = get_activation(activation, num_heads * head_dims)
@@ -45,7 +46,7 @@ class SoftmaxGAU(nn.Module):
             in_channels=2 * num_heads * head_dims,
             out_channels=2 * num_heads * head_dims,
             kernel_size=1,
-            bias=True,
+            bias=bias,
             padding="same",
             groups=2 * num_heads * head_dims,
         )
@@ -57,7 +58,7 @@ class SoftmaxGAU(nn.Module):
             in_channels=expansion * num_dims,
             out_channels=num_dims,
             kernel_size=1,
-            bias=True,
+            bias=bias,
             padding="same",
         )
 
