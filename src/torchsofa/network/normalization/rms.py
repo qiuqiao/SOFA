@@ -9,5 +9,14 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(1, num_dims, 1))
 
     def forward(self, x):
-        norm = x.norm(2, dim=-2, keepdim=True) * self.weight
+        norm = (torch.mean(x**2, dim=-2, keepdim=True) ** (0.5)) * self.weight
         return x / (norm + self.eps)
+
+
+if __name__ == "__main__":
+    rms_norm = RMSNorm(64)
+    x = torch.randn(4, 64, 1024)
+    y = rms_norm(x)
+    print(y.shape, y.mean(), y.std())
+
+    y.sum().backward()
