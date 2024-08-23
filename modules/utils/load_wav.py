@@ -23,16 +23,17 @@ def load_wav(path, device, sample_rate=None):
     global installed_torchaudio
     if installed_torchaudio:
         waveform, sr = torchaudio.load(str(path))
+        waveform = waveform.to(device)
         if sample_rate != sr and sample_rate is not None:
             global resample_transform_dict
             if sr not in resample_transform_dict:
                 resample_transform_dict[sr] = torchaudio.transforms.Resample(
                     sr, sample_rate
-                )
+                ).to(device)
 
             waveform = resample_transform_dict[sr](waveform)
 
-        waveform = waveform[0].to(device)
+        waveform = waveform[0]#.to(device)
 
     else:
         waveform, _ = librosa.load(path, sr=sample_rate, mono=True)
