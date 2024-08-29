@@ -8,7 +8,7 @@ import torch
 from einops import rearrange
 
 try:
-    ti.init(arch=ti.cuda)
+    ti.init(arch=ti.cuda)  # , debug=True
 except Exception:
     ti.init(arch=ti.cpu)
 ndarray_f32 = ti.types.ndarray(dtype=ti.f32)
@@ -162,7 +162,7 @@ def _ti_decode_matrix(
         # backward
         t = T - 1
         i = L - 1
-        while t > 0:
+        while i > 0:
             start_pos = backtrack[b, t, i]
             result[b, i - 1, 1] = result[b, i, 0] = start_pos
             t = start_pos - 1
