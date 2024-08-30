@@ -7,10 +7,9 @@ import taichi as ti
 import torch
 from einops import rearrange
 
-try:
-    ti.init(arch=ti.cuda)  # , debug=True
-except Exception:
-    ti.init(arch=ti.cpu)
+# ti.init(arch=ti.cpu, debug=True)
+ti.init(arch=ti.cpu)
+# ti.init(arch=ti.cuda)
 ndarray_f32 = ti.types.ndarray(dtype=ti.f32)
 ndarray_i32 = ti.types.ndarray(dtype=ti.i32)
 
@@ -117,6 +116,7 @@ def _ti_decode_matrix(
     matrix_logprobs: ndarray_f32,
     t_lengths: ndarray_i32,
     l_lengths: ndarray_i32,
+    l_skipable: ndarray_i32,
     dp: ndarray_f32,
     backtrack: ndarray_i32,
     need_confidence: bool,
@@ -129,8 +129,10 @@ def _ti_decode_matrix(
         matrix_logprobs (ndarray_f32): (B, max_T, max_L) 注意T和L的顺序是反的，L放在末尾速度更快
         t_lengths (ndarray_i32): (B,)
         l_lengths (ndarray_i32): (B,)
+        l_skipable (ndarray_i32): (B, max_L) 0表示不可跳过，1表示可跳过
         dp (ndarray_f32): (B, max_T, max_L) 全负无穷矩阵，用于储存动态规划的中间状态
-        backtrack (ndarray_i32): (B, max_T, max_L) 全零矩阵，用于储存回溯路径
+        backtrack (ndarray_i32): (B, max_T, max_L, 2)全零矩阵，用于储存回溯路径，[b,t,l,0]表示当前音素的起始位置，
+                                 [b,t,l,1]表示上一个音素的索引
         need_confidence (bool): 是否需要计算帧级置信度
         log_confidence (ndarray_f32): (B, max(l_lengths)) 用于储存音素置信度
         result (ndarray_i32): (B, max(l_lengths),2) 全零矩阵，用于储存结果
@@ -141,51 +143,77 @@ def _ti_decode_matrix(
         L = l_lengths[b]
 
         # forward
+        ## init
         dp[b, 0, 0] = matrix_logprobs[b, 0, 0]
+        i0 = 1
+        while i0 < L and l_skipable[b, i0] == 1:
+            dp[b, 0, i0] = matrix_logprobs[b, 0, i0]
+            i0 += 1
+
         for t in range(1, T):
             last_t = t - 1
 
             dp[b, t, 0] = dp[b, last_t, 0] + matrix_logprobs[b, t, 0]
-            backtrack[b, t, 0] = backtrack[b, last_t, 0]
+            backtrack[b, t, 0, 0] = backtrack[b, last_t, 0, 0]
+            backtrack[b, t, 0, 1] = backtrack[b, last_t, 0, 1]
 
             for i in range(1, L):
-                retention = dp[b, last_t, i]
-                transition = dp[b, last_t, i - 1]
+                dp[b, t, i] = dp[b, last_t, i]
+                backtrack[b, t, i, 0] = backtrack[b, last_t, i, 0]
+                backtrack[b, t, i, 1] = backtrack[b, last_t, i, 1]
 
-                if transition > retention:
-                    dp[b, t, i] = transition + matrix_logprobs[b, t, i]
-                    backtrack[b, t, i] = t
-                else:
-                    dp[b, t, i] = retention + matrix_logprobs[b, t, i]
-                    backtrack[b, t, i] = backtrack[b, last_t, i]
+                i_ = i - 1
+                while i_ >= 0:
+                    if dp[b, t, i] < dp[b, last_t, i_]:
+                        dp[b, t, i] = dp[b, last_t, i_]
+                        backtrack[b, t, i, 0] = t
+                        backtrack[b, t, i, 1] = i_
+
+                    if l_skipable[b, i_] == 0:
+                        break
+                    i_ -= 1
+
+                dp[b, t, i] += matrix_logprobs[b, t, i]
 
         # backward
         t = T - 1
-        i = L - 1
+        i = L - 1  # TODO: i不一定是L-1
+        i0 = L - 2
+        while i0 >= 0:
+            if dp[b, t, i0] >= dp[b, t, i]:
+                i = i0
+            i0 -= 1
+        result[b, i, 1] = T
         while i > 0:
-            start_pos = backtrack[b, t, i]
-            result[b, i - 1, 1] = result[b, i, 0] = start_pos
+            start_pos = backtrack[b, t, i, 0]
+            last_l = backtrack[b, t, i, 1]
+            result[b, last_l, 1] = result[b, i, 0] = start_pos
             t = start_pos - 1
-            i -= 1
-        result[b, L - 1, 1] = T
+            i = last_l
 
         if need_confidence:
             for i_ in range(1, L):
-                start = result[b, i_, 0] - 1
                 end = result[b, i_, 1] - 1
+                if end < 0:
+                    continue
+                start = result[b, i_, 0] - 1
+
                 log_confidence[b, i_] = (dp[b, end, i_] - dp[b, start, i_ - 1]) / (
                     end - start
                 )
             log_confidence[b, 0] = dp[b, result[b, 0, 1] - 1, 0] / (result[b, 0, 1] - 1)
 
 
-def decode_matrix(matrix_logprobs, t_lengths, l_lengths, return_confidence=False):
+def decode_matrix(
+    matrix_logprobs, t_lengths, l_lengths, l_skipable=None, return_confidence=False
+):
     """解码对齐矩阵。
 
     Args:
         matrix_logprobs (torch.Tensor): 形状为 (B, max_L, max_T)，其中 B 是批次大小，max_T 是最大的时间步长，max_L 是最大的序列长度。
-        t_lengths (torch.Tensor): 形状为 (B,)，包含每个序列的实际长度。
-        l_lengths (torch.Tensor): 形状为 (B,)，包含每个序列的实际长度。
+        t_lengths (torch.Tensor): 形状为 (B,)，每个样本的实际时间步
+        l_lengths (torch.Tensor): 形状为 (B,)，每个样本的实际序列长度。
+        l_skipable (torch.Tensor, optional): 形状为 (B, max_L)，每个样本的序列是否可跳过，为None表示均不可跳过。默认为 None。
         return_confidence (bool, optional): 是否返回音素级置信度。默认为 False。
 
     Returns:
@@ -196,8 +224,14 @@ def decode_matrix(matrix_logprobs, t_lengths, l_lengths, return_confidence=False
     B, L, T = matrix_logprobs.shape
 
     matrix_logprobs = rearrange(matrix_logprobs, "b c t -> b t c").contiguous()
+    t_lengths = t_lengths.type(torch.int32)
+    l_lengths = l_lengths.type(torch.int32)
+    if l_skipable is None:
+        l_skipable = torch.zeros((B, L), dtype=torch.int32, device=device)
     dp = torch.full_like(matrix_logprobs, -1e6, dtype=torch.float32, device=device)
-    backtrack = torch.zeros_like(matrix_logprobs, dtype=torch.int32, device=device)
+    backtrack = torch.zeros(
+        (*matrix_logprobs.shape, 2), dtype=torch.int32, device=device
+    )
     log_confidence = torch.zeros(
         (B, torch.max(l_lengths)),
         dtype=torch.float32,
@@ -213,6 +247,7 @@ def decode_matrix(matrix_logprobs, t_lengths, l_lengths, return_confidence=False
         matrix_logprobs,
         t_lengths,
         l_lengths,
+        l_skipable,
         dp,
         backtrack,
         return_confidence,
@@ -259,8 +294,8 @@ if __name__ == "__main__":
         plt.show()
 
     def test_decode_matrix():
-        L = 20
-        matrix_shape = (30, L, 10000)
+        L = 10
+        matrix_shape = (30, 2 * L, 10000)
         rand_pos = (
             np.random.rand((L + 1) * matrix_shape[0]).reshape(matrix_shape[0], L + 1)
             * (matrix_shape[-1] - 1)
@@ -268,12 +303,15 @@ if __name__ == "__main__":
         )
         rand_pos.sort(axis=1)
         intervals = np.stack([rand_pos[:, :-1], rand_pos[:, 1:]], axis=2)
-        indices = np.arange(L)
+        indices = np.sort(np.random.choice(np.arange(2 * L), size=L))
+        skipable = np.ones((matrix_shape[0], matrix_shape[1]))
+        # skipable[:, indices] = 0
         indices = np.tile(indices, matrix_shape[0]).reshape(matrix_shape[0], L)
 
-        (indices, intervals) = (
+        (indices, intervals, skipable) = (
             torch.tensor(indices, device="cuda", dtype=torch.int32),
             torch.tensor(intervals, device="cuda", dtype=torch.float32),
+            torch.tensor(skipable, device="cuda", dtype=torch.int32),
         )
 
         matrix = generate_matrix(
@@ -290,9 +328,9 @@ if __name__ == "__main__":
         result, log_confidence = decode_matrix(
             torch.log(matrix + 1e-6),
             torch.full((matrix_shape[0],), matrix_shape[-1], dtype=torch.int32),
-            torch.full((matrix_shape[0],), L, dtype=torch.int32),
-            True,
-            # False,
+            torch.full((matrix_shape[0],), matrix_shape[1], dtype=torch.int32),
+            l_skipable=skipable,
+            return_confidence=True,
         )
         time_taken = time.time() - start_time
         print(f"Time taken: {time_taken:.4f}s")
@@ -305,8 +343,8 @@ if __name__ == "__main__":
         frame_confidence = torch.zeros(matrix.shape[-1], dtype=torch.float32)
         for i, res in enumerate(result[0]):
             frame_confidence[res[0] : res[1]] = log_confidence[0, i]
-        plt.plot((torch.exp(frame_confidence) * 19).cpu())
-
+        # plt.plot((torch.exp(frame_confidence) * 19).cpu())
+        print(result[0])
         print(torch.exp(log_confidence[0]))
         print(torch.exp(torch.mean(log_confidence[0])))
 
