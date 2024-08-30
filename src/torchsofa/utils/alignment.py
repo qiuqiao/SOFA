@@ -8,8 +8,8 @@ import torch
 from einops import rearrange
 
 # ti.init(arch=ti.cpu, debug=True)
-ti.init(arch=ti.cpu)
-# ti.init(arch=ti.cuda)
+# ti.init(arch=ti.cpu, offline_cache=True)
+ti.init(arch=ti.cuda, offline_cache=True)
 ndarray_f32 = ti.types.ndarray(dtype=ti.f32)
 ndarray_i32 = ti.types.ndarray(dtype=ti.i32)
 
@@ -278,6 +278,10 @@ if __name__ == "__main__":
             torch.tensor(intervals, device="cuda", dtype=torch.float32),
         )
 
+        matrix = generate_matrix(
+            indices, intervals, matrix_shape, normalize=False, blank=0
+        )
+        # test 2nd run time
         start_time = time.time()
         matrix = generate_matrix(
             indices, intervals, matrix_shape, normalize=False, blank=0
@@ -291,7 +295,7 @@ if __name__ == "__main__":
             matrix[0].cpu(), vmin=0, vmax=1, cmap="gray", origin="lower", aspect="auto"
         )
 
-        plt.show()
+        # plt.show()
 
     def test_decode_matrix():
         L = 10
@@ -324,6 +328,14 @@ if __name__ == "__main__":
             matrix[0].cpu(), vmin=0, vmax=1, cmap="gray", origin="lower", aspect="auto"
         )
 
+        result, log_confidence = decode_matrix(
+            torch.log(matrix + 1e-6),
+            torch.full((matrix_shape[0],), matrix_shape[-1], dtype=torch.int32),
+            torch.full((matrix_shape[0],), matrix_shape[1], dtype=torch.int32),
+            l_skipable=skipable,
+            return_confidence=True,
+        )
+        # test 2nd run time
         start_time = time.time()
         result, log_confidence = decode_matrix(
             torch.log(matrix + 1e-6),
@@ -344,10 +356,11 @@ if __name__ == "__main__":
         for i, res in enumerate(result[0]):
             frame_confidence[res[0] : res[1]] = log_confidence[0, i]
         # plt.plot((torch.exp(frame_confidence) * 19).cpu())
-        print(result[0])
-        print(torch.exp(log_confidence[0]))
-        print(torch.exp(torch.mean(log_confidence[0])))
+        # print(result[0])
+        # print(torch.exp(log_confidence[0][result[0, :, 1] > 0]))
+        # print(torch.exp(torch.mean(log_confidence[0][result[0, :, 1] > 0])))
 
-        plt.show()
+        # plt.show()
 
     test_decode_matrix()
+    test_generate_alignment_matrix()
