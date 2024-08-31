@@ -21,6 +21,7 @@ dependencies = [
     "numpy",
     "pandas",
     "matplotlib",
+    "taichi",
     # "scipy",
 ]
 
