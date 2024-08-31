@@ -309,7 +309,7 @@ if __name__ == "__main__":
         intervals = np.stack([rand_pos[:, :-1], rand_pos[:, 1:]], axis=2)
         indices = np.sort(np.random.choice(np.arange(2 * L), size=L))
         skipable = np.ones((matrix_shape[0], matrix_shape[1]))
-        # skipable[:, indices] = 0
+        skipable[:, indices] = 0
         indices = np.tile(indices, matrix_shape[0]).reshape(matrix_shape[0], L)
 
         (indices, intervals, skipable) = (
