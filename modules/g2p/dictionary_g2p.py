@@ -6,7 +6,7 @@ from modules.g2p.base_g2p import BaseG2P
 class DictionaryG2P(BaseG2P):
     def __init__(self, **kwargs):
         dict_path = kwargs["dictionary"]
-        with open(dict_path, "r") as f:
+        with open(dict_path, "r", encoding="utf-8") as f:
             dictionary = f.read().strip().split("\n")
         self.dictionary = {
             item.split("\t")[0].strip(): item.split("\t")[1].strip().split(" ")
