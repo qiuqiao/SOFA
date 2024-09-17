@@ -260,10 +260,44 @@ def decode_matrix(
     return result
 
 
+@ti.func
+def _ti_comb(n, k):
+    res = 1.0
+    for i in range(k):
+        res *= (n - i) / (i + 1)
+    return res
+
+
+@ti.kernel
+def _ti_generate_prior(
+    matrix: ndarray_f32,
+    t_lengths: ndarray_i32,
+    l_lengths: ndarray_i32,
+):
+    for b, i, t in matrix:
+        if not t < t_lengths[b]:
+            continue
+        if not i < l_lengths[b]:
+            continue
+
+        t_div_T = (t + 0.5) / t_lengths[b]
+        matrix[b, i, t] = (
+            _ti_comb(l_lengths[b] - 1, i)
+            * (t_div_T**i)
+            * ((1 - t_div_T) ** (l_lengths[b] - 1 - i))
+        )
+
+
+def generate_prior(matrix_shape, t_lengths, l_lengths, device):
+    matrix = torch.full(matrix_shape, -1e6, device=device)
+    _ti_generate_prior(matrix, t_lengths, l_lengths)
+    return matrix
+
+
 if __name__ == "__main__":
 
     def test_generate_alignment_matrix():
-        matrix_shape = (30, 100, 10000)
+        matrix_shape = (30, 100, 1000)
         L = 20
         indices = np.random.randint(
             1, matrix_shape[1], size=L * matrix_shape[0]
@@ -362,5 +396,19 @@ if __name__ == "__main__":
 
         # plt.show()
 
-    test_decode_matrix()
-    test_generate_alignment_matrix()
+    def test_generate_prior():
+        matrix_shape = (30, 50, 3000)
+        t_lengths = torch.full((matrix_shape[0],), matrix_shape[-1], dtype=torch.int32)
+        l_lengths = torch.full((matrix_shape[0],), matrix_shape[1], dtype=torch.int32)
+
+        matrix = generate_prior(matrix_shape, t_lengths, l_lengths, device="cuda")
+        print(matrix[0])
+        import matplotlib.pyplot as plt
+
+        plt.imshow(
+            matrix[0].cpu(), origin="lower", aspect="auto"  # , interpolation="nearest"
+        )
+        plt.colorbar()
+        plt.show()
+
+    test_generate_prior()
