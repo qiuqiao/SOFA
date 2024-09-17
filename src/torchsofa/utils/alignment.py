@@ -177,9 +177,9 @@ def _ti_decode_matrix(
 
         # backward
         t = T - 1
-        i = L - 1  # TODO: i不一定是L-1
+        i = L - 1
         i0 = L - 2
-        while i0 >= 0:
+        while i0 >= 0:  # TODO: 这里是不是要根据skipable的情况来定？
             if dp[b, t, i0] >= dp[b, t, i]:
                 i = i0
             i0 -= 1
@@ -228,7 +228,7 @@ def decode_matrix(
     l_lengths = l_lengths.type(torch.int32)
     if l_skipable is None:
         l_skipable = torch.zeros((B, L), dtype=torch.int32, device=device)
-    dp = torch.full_like(matrix_logprobs, -1e6, dtype=torch.float32, device=device)
+    dp = torch.full_like(matrix_logprobs, -14.0, dtype=torch.float32, device=device)
     backtrack = torch.zeros(
         (*matrix_logprobs.shape, 2), dtype=torch.int32, device=device
     )
@@ -261,10 +261,10 @@ def decode_matrix(
 
 
 @ti.func
-def _ti_comb(n, k):
-    res = 1.0
+def _ti_comb_log(n, k):
+    res = 0.0
     for i in range(k):
-        res *= (n - i) / (i + 1)
+        res += ti.log((n - i) / (i + 1))
     return res
 
 
@@ -281,17 +281,22 @@ def _ti_generate_prior(
             continue
 
         t_div_T = (t + 0.5) / t_lengths[b]
+
         matrix[b, i, t] = (
-            _ti_comb(l_lengths[b] - 1, i)
-            * (t_div_T**i)
-            * ((1 - t_div_T) ** (l_lengths[b] - 1 - i))
+            # 利用组合数的对称性减少计算量
+            _ti_comb_log(
+                l_lengths[b] - 1,
+                (l_lengths[b] - 1 - i if i > l_lengths[b] - 1 - i else i),
+            )
+            + i * ti.log(t_div_T)
+            + (l_lengths[b] - 1 - i) * ti.log(1 - t_div_T)
         )
 
 
 def generate_prior(matrix_shape, t_lengths, l_lengths, device):
-    matrix = torch.full(matrix_shape, -1e6, device=device)
+    matrix = torch.full(matrix_shape, -14.0, device=device)
     _ti_generate_prior(matrix, t_lengths, l_lengths)
-    return matrix
+    return matrix.clamp(-14.0, 0.0)
 
 
 if __name__ == "__main__":
@@ -397,16 +402,37 @@ if __name__ == "__main__":
         # plt.show()
 
     def test_generate_prior():
-        matrix_shape = (30, 50, 3000)
+        matrix_shape = (30, 150, 10000)
         t_lengths = torch.full((matrix_shape[0],), matrix_shape[-1], dtype=torch.int32)
         l_lengths = torch.full((matrix_shape[0],), matrix_shape[1], dtype=torch.int32)
 
+        # 2nd run time
+        generate_prior(matrix_shape, t_lengths, l_lengths, device="cuda")
+
+        start_time = time.time()
         matrix = generate_prior(matrix_shape, t_lengths, l_lengths, device="cuda")
-        print(matrix[0])
+        print(f"Time taken: {time.time() - start_time:.4f}s")
+        print(matrix[0], matrix[0].min())
         import matplotlib.pyplot as plt
 
         plt.imshow(
-            matrix[0].cpu(), origin="lower", aspect="auto"  # , interpolation="nearest"
+            matrix[0].cpu(),
+            origin="lower",
+            aspect="auto",  # , interpolation="nearest"
+            vmin=-14,
+            vmax=0,
+        )
+        plt.colorbar()
+        plt.show()
+
+        # log_softmax对于prior来说是一个恒等变换，prior可以加在logits上或者logprob上
+        matrix = torch.nn.functional.log_softmax(matrix, dim=1)
+        plt.imshow(
+            matrix[0].cpu(),
+            origin="lower",
+            aspect="auto",  # , interpolation="nearest"
+            vmin=-14,
+            vmax=0,
         )
         plt.colorbar()
         plt.show()
