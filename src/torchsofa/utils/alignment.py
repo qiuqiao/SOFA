@@ -291,12 +291,16 @@ def _ti_generate_prior(
             + i * ti.log(t_div_T)
             + (l_lengths[b] - 1 - i) * ti.log(1 - t_div_T)
         )
+        if matrix[b, i, t] < -14.0:
+            matrix[b, i, t] = -14.0
 
 
 def generate_prior(matrix_shape, t_lengths, l_lengths, device):
-    matrix = torch.full(matrix_shape, -14.0, device=device)
+    t_lengths = t_lengths.type(torch.int32)
+    l_lengths = l_lengths.type(torch.int32)
+    matrix = torch.full(matrix_shape, -1e6, device=device)
     _ti_generate_prior(matrix, t_lengths, l_lengths)
-    return matrix.clamp(-14.0, 0.0)
+    return matrix
 
 
 if __name__ == "__main__":
