@@ -101,6 +101,8 @@ def generate_matrix(indices, intervals, matrix_shape, normalize=False, blank=0):
         torch.Tensor: 形状为 (B, C, T) 的对齐矩阵。
     """
     matrix = torch.zeros(matrix_shape, device=indices.device, dtype=torch.float32)
+    indices = indices.type(torch.int32)
+    intervals = intervals.type(torch.float32)
     _ti_generate_matrix(indices, intervals, matrix)
 
     if normalize:
@@ -195,15 +197,17 @@ def decode_matrix(matrix_logprobs, t_lengths, l_lengths, return_confidence=False
     B, L, T = matrix_logprobs.shape
 
     matrix_logprobs = rearrange(matrix_logprobs, "b c t -> b t c").contiguous()
+    t_lengths = t_lengths.type(torch.int32)
+    l_lengths = l_lengths.type(torch.int32)
     dp = torch.full_like(matrix_logprobs, -1e6, dtype=torch.float32, device=device)
     backtrack = torch.zeros_like(matrix_logprobs, dtype=torch.int32, device=device)
     log_confidence = torch.zeros(
-        (B, torch.max(l_lengths)),
+        (B, L),
         dtype=torch.float32,
         device=device,
     )
     result = torch.zeros(
-        (B, torch.max(l_lengths), 2),
+        (B, L, 2),
         dtype=torch.int32,
         device=device,
     )
@@ -269,7 +273,7 @@ def generate_prior(matrix_shape, t_lengths, l_lengths, device):
 
 if __name__ == "__main__":
 
-    def test_generate_alignment_matrix():
+    def test_generate_matrix():
         matrix_shape = (30, 100, 1000)
         L = 20
         indices = np.random.randint(
@@ -295,6 +299,7 @@ if __name__ == "__main__":
         )
         time_teken = time.time() - start_time
         print(f"Time taken: {time_teken:.4f}s")
+        print(intervals[0])
 
         import matplotlib.pyplot as plt
 
@@ -302,7 +307,7 @@ if __name__ == "__main__":
             matrix[0].cpu(), vmin=0, vmax=1, cmap="gray", origin="lower", aspect="auto"
         )
 
-        # plt.show()
+        plt.show()
 
     def test_decode_matrix():
         L = 20
@@ -351,6 +356,7 @@ if __name__ == "__main__":
         )
         time_taken = time.time() - start_time
         print(f"Time taken: {time_taken:.4f}s")
+        print(result[0])
 
         frame_idx = torch.zeros(matrix.shape[-1], dtype=torch.int32)
         for i, res in enumerate(result[0]):
@@ -365,7 +371,7 @@ if __name__ == "__main__":
         print(torch.exp(log_confidence[0]))
         print(torch.exp(torch.mean(log_confidence[0])))
 
-        # plt.show()
+        plt.show()
 
     def test_generate_prior():
         matrix_shape = (30, 150, 10000)
