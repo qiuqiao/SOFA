@@ -201,8 +201,9 @@ def decode_matrix(matrix_logprobs, t_lengths, l_lengths, return_confidence=False
     l_lengths = l_lengths.type(torch.int32)
     dp = torch.full_like(matrix_logprobs, -1e6, dtype=torch.float32, device=device)
     backtrack = torch.zeros_like(matrix_logprobs, dtype=torch.int32, device=device)
-    log_confidence = torch.zeros(
+    log_confidence = torch.full(
         (B, L),
+        fill_value=-1e6,
         dtype=torch.float32,
         device=device,
     )
