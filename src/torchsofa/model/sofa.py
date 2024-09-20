@@ -6,7 +6,7 @@ from einops import rearrange, repeat
 from torch import nn
 
 # from ..network.layer.conv_stft import ConvMelSpectrogram
-from ..utils.alignment import generate_prior
+from ..utils.alignment import decode_matrix, generate_matrix, generate_prior
 
 # class Encoder(nn.Module):
 #     def __init__(
@@ -37,6 +37,7 @@ class AlignerHead(nn.Module):
         num_phones,
         phone_embedding_dims,
         phone_encoder_network,
+        ema_factor=0.99,
     ):
         super().__init__()
         self.scale_factor = scale_factor
@@ -48,6 +49,8 @@ class AlignerHead(nn.Module):
 
         self.prior_factor = nn.Parameter(torch.tensor([1.0]))
         self.register_buffer("log_base", torch.log(torch.tensor(25)))
+        self.register_buffer("pseudo_label_threshold", torch.tensor([-2]))
+        self.ema_factor = ema_factor
 
     def forward(self, audio_embed, audio_lengths, phone_ids, phone_lengths):
         audio_embed = self.head_network(self.aligner_upsample_layer(audio_embed))
@@ -113,8 +116,32 @@ class AlignerHead(nn.Module):
             reduction="sum",
         )
 
-    # def pseudo_label_loss(self,align_matrix, audio_lengths, phone_lengths):
-    # TODO: 伪标签自适应阈值 https://zhuanlan.zhihu.com/p/602455945
+    def pseudo_label_loss(self, align_matrix, audio_lengths, phone_lengths):
+        result = decode_matrix(
+            align_matrix,
+            audio_lengths * self.scale_factor,
+            phone_lengths,
+            return_confidence=False,
+        )
+        indices = repeat(
+            torch.arange(0, align_matrix.shape[1], device=align_matrix.device),
+            "l -> b l",
+            b=align_matrix.shape[0],
+        )
+        pseudo_label = generate_matrix(indices, result, align_matrix.shape)
+
+        frame_confidence = (align_matrix * pseudo_label).sum(1)
+        mask = frame_confidence > self.pseudo_label_threshold
+        loss = -(frame_confidence * mask).sum()
+
+        mask = frame_confidence > -14
+        mean_confidence = (frame_confidence * mask).sum() / (mask.sum() + 1e-6)
+        self.pseudo_label_threshold = (
+            self.ema_factor * self.pseudo_label_threshold
+            + (1 - self.ema_factor) * mean_confidence
+        )  # 自适应阈值
+
+        return loss, pseudo_label
 
     # def classification_loss(self, align_matrix, audio_lengths, phone_lengths,ph_id_seq,ph_id_intervals):
     #     # TODO: 类别不平衡
@@ -143,23 +170,41 @@ if __name__ == "__main__":
         # forward
         align_matrix = aligner(audio_embed, audio_lengths, phone_ids, phone_lengths)
 
+        # import matplotlib.pyplot as plt
+
+        # print(align_matrix.shape)
+        # plt.imshow(
+        #     align_matrix[0].exp().detach().cpu(),
+        #     origin="lower",
+        #     aspect="auto",
+        #     vmin=0,
+        #     vmax=1,
+        # )
+        # plt.colorbar()
+        # plt.show()
+
+        # # forward sum loss
+
+        # loss = aligner.forward_sum_loss(align_matrix, audio_lengths, phone_lengths)
+        # print(loss)
+
+        # pseudo_label_loss
+        loss, pseudo_label = aligner.pseudo_label_loss(
+            align_matrix, audio_lengths, phone_lengths
+        )
+        print(loss)
         import matplotlib.pyplot as plt
 
-        print(align_matrix.shape)
         plt.imshow(
-            align_matrix[0].exp().detach().cpu(),
-            origin="lower",
-            aspect="auto",
+            pseudo_label[0].cpu(),
             vmin=0,
             vmax=1,
+            cmap="gray",
+            origin="lower",
+            aspect="auto",
         )
-        plt.colorbar()
+
         plt.show()
-
-        # forward sum loss
-
-        loss = aligner.forward_sum_loss(align_matrix, audio_lengths, phone_lengths)
-        print(loss)
 
     test_aligner_head()
 
