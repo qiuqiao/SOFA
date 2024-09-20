@@ -9,7 +9,7 @@ from einops import rearrange
 
 # ti.init(arch=ti.cpu, debug=True)
 # ti.init(arch=ti.cpu, offline_cache=True)
-ti.init(arch=ti.cuda, offline_cache=True)
+ti.init(arch=ti.cuda, offline_cache=True, debug=True)
 ndarray_f32 = ti.types.ndarray(dtype=ti.f32)
 ndarray_i32 = ti.types.ndarray(dtype=ti.i32)
 
@@ -196,7 +196,7 @@ def decode_matrix(matrix_logprobs, t_lengths, l_lengths, return_confidence=False
     device = matrix_logprobs.device
     B, L, T = matrix_logprobs.shape
 
-    matrix_logprobs = rearrange(matrix_logprobs, "b c t -> b t c").contiguous()
+    matrix_logprobs = rearrange(matrix_logprobs.detach(), "b c t -> b t c").contiguous()
     t_lengths = t_lengths.type(torch.int32)
     l_lengths = l_lengths.type(torch.int32)
     dp = torch.full_like(matrix_logprobs, -1e6, dtype=torch.float32, device=device)
