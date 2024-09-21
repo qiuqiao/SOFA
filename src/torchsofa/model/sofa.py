@@ -44,7 +44,11 @@ class AlignerHead(nn.Module):
         self.aligner_upsample_layer = nn.Upsample(scale_factor=scale_factor)
         self.head_network = head_network
 
-        self.phone_embedding = nn.Embedding(num_phones, phone_embedding_dims)
+        self.phone_embedding = nn.Embedding(
+            num_phones, phone_embedding_dims, scale_grad_by_freq=True
+        )
+        self.phone_prior = nn.Embedding(num_phones, 1, scale_grad_by_freq=True)
+        self.phone_prior.weight.data.zero_()
         self.phone_encoder_network = phone_encoder_network
 
         self.register_buffer("log_base", torch.log(torch.tensor(25)))
@@ -56,6 +60,7 @@ class AlignerHead(nn.Module):
         phone_embed = self.phone_encoder_network(
             self.phone_embedding(phone_ids).transpose(1, 2)
         )
+        phone_prior = self.phone_prior(phone_ids)
 
         posterior = torch.einsum("bct,bcl->blt", audio_embed, phone_embed) / math.sqrt(
             audio_embed.shape[1]
@@ -69,7 +74,7 @@ class AlignerHead(nn.Module):
         entropy_invariance_factor = (  # from: https://kexue.fm/archives/8823
             (torch.log(phone_lengths) / self.log_base).unsqueeze(-1).unsqueeze(-1)
         )
-        logits = entropy_invariance_factor * posterior + prior
+        logits = entropy_invariance_factor * (posterior + phone_prior) + prior
         logits = torch.cat(  # dummy class
             (
                 torch.full(
@@ -142,9 +147,7 @@ class AlignerHead(nn.Module):
 
         return loss, pseudo_label
 
-    def classification_loss(
-        self, align_matrix, audio_lengths, phone_lengths, ph_id_seq, ph_id_intervals
-    ):
+    def classification_loss(self, align_matrix, ph_id_intervals):
         # TODO: 类别不平衡
         indices = repeat(
             torch.arange(0, align_matrix.shape[1], device=align_matrix.device),
@@ -157,7 +160,12 @@ class AlignerHead(nn.Module):
 
         return loss
 
-    # def training_step
+    # def get_losses(self, audio_embed, audio_lengths, phone_ids, phone_lengths):
+    #     loss_dict = {}
+
+    #     align_matrix = self.forward(
+    #         audio_embed, audio_lengths, phone_ids, phone_lengths
+    #     )
 
 
 if __name__ == "__main__":
