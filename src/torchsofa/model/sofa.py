@@ -47,7 +47,6 @@ class AlignerHead(nn.Module):
         self.phone_embedding = nn.Embedding(num_phones, phone_embedding_dims)
         self.phone_encoder_network = phone_encoder_network
 
-        self.prior_factor = nn.Parameter(torch.tensor([1.0]))
         self.register_buffer("log_base", torch.log(torch.tensor(25)))
         self.register_buffer("pseudo_label_threshold", torch.tensor([-2]))
         self.ema_factor = ema_factor
@@ -70,7 +69,7 @@ class AlignerHead(nn.Module):
         entropy_invariance_factor = (  # from: https://kexue.fm/archives/8823
             (torch.log(phone_lengths) / self.log_base).unsqueeze(-1).unsqueeze(-1)
         )
-        logits = entropy_invariance_factor * posterior + self.prior_factor * prior
+        logits = entropy_invariance_factor * posterior + prior
         logits = torch.cat(  # dummy class
             (
                 torch.full(
@@ -143,8 +142,20 @@ class AlignerHead(nn.Module):
 
         return loss, pseudo_label
 
-    # def classification_loss(self, align_matrix, audio_lengths, phone_lengths,ph_id_seq,ph_id_intervals):
-    #     # TODO: 类别不平衡
+    def classification_loss(
+        self, align_matrix, audio_lengths, phone_lengths, ph_id_seq, ph_id_intervals
+    ):
+        # TODO: 类别不平衡
+        indices = repeat(
+            torch.arange(0, align_matrix.shape[1], device=align_matrix.device),
+            "l -> b l",
+            b=align_matrix.shape[0],
+        )
+        label = generate_matrix(indices, ph_id_intervals, align_matrix.shape)
+
+        loss = -(align_matrix * label).sum()
+
+        return loss
 
     # def training_step
 
