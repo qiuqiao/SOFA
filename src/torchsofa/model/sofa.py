@@ -145,27 +145,62 @@ class AlignerHead(nn.Module):
             + (1 - self.ema_factor) * mean_confidence
         )  # 自适应阈值
 
-        return loss, pseudo_label
+        return loss  # , pseudo_label
 
-    def classification_loss(self, align_matrix, ph_id_intervals):
+    def classification_loss(self, align_matrix, phone_intervals):
         # TODO: 类别不平衡
         indices = repeat(
             torch.arange(0, align_matrix.shape[1], device=align_matrix.device),
             "l -> b l",
             b=align_matrix.shape[0],
         )
-        label = generate_matrix(indices, ph_id_intervals, align_matrix.shape)
+        label = generate_matrix(indices, phone_intervals, align_matrix.shape)
 
         loss = -(align_matrix * label).sum()
 
         return loss
 
-    # def get_losses(self, audio_embed, audio_lengths, phone_ids, phone_lengths):
-    #     loss_dict = {}
+    def get_losses(
+        self,
+        label_types,
+        audio_embed,
+        audio_lengths,
+        phone_ids,
+        phone_lengths,
+        phone_intervals,
+    ):
+        weak_label = label_types == 1
+        full_label = label_types == 0
 
-    #     align_matrix = self.forward(
-    #         audio_embed, audio_lengths, phone_ids, phone_lengths
-    #     )
+        align_matrix = self.forward(
+            audio_embed, audio_lengths, phone_ids, phone_lengths
+        )
+
+        loss_dict = {
+            "aligner/forward_sum_loss": self.forward_sum_loss(
+                align_matrix, audio_lengths, phone_lengths
+            ),
+        }
+        if weak_label.any():
+            loss_dict.update(
+                {
+                    "aligner/pseudo_label_loss": self.pseudo_label_loss(
+                        align_matrix[weak_label],
+                        audio_lengths[weak_label],
+                        phone_lengths[weak_label],
+                    )
+                }
+            )
+        if full_label.any():
+            loss_dict.update(
+                {
+                    "aligner/classification_loss": self.classification_loss(
+                        align_matrix[full_label], phone_intervals[full_label]
+                    )
+                }
+            )
+
+        return loss_dict
 
 
 if __name__ == "__main__":
@@ -173,21 +208,31 @@ if __name__ == "__main__":
     def test_aligner_head():
         device = torch.device("cuda")
 
+        scale_factor = 8
         aligner = AlignerHead(
-            8,
+            scale_factor,
             nn.Conv1d(512, 512, 3, padding="same"),
             100,
             512,
             nn.Conv1d(512, 512, 3, padding="same"),
         ).to(device)
         B, C, T, L = 4, 512, 1000, 100
+        label_types = torch.randint(0, 2, (B,), device=device)
         audio_embed = torch.randn(B, C, T, device=device)
         audio_lengths = torch.randint(int(T // 2), T, (B,), device=device)
         phone_ids = torch.randint(0, L, (B, L), device=device)
         phone_lengths = torch.randint(int(L // 2), L, (B,), device=device)
 
+        print(label_types)
+
         # forward
         align_matrix = aligner(audio_embed, audio_lengths, phone_ids, phone_lengths)
+        phone_intervals = decode_matrix(
+            align_matrix,
+            audio_lengths * scale_factor,
+            phone_lengths,
+            return_confidence=False,
+        )
 
         # import matplotlib.pyplot as plt
 
@@ -207,23 +252,38 @@ if __name__ == "__main__":
         # loss = aligner.forward_sum_loss(align_matrix, audio_lengths, phone_lengths)
         # print(loss)
 
-        # pseudo_label_loss
-        loss, pseudo_label = aligner.pseudo_label_loss(
-            align_matrix, audio_lengths, phone_lengths
+        # # pseudo_label_loss
+        # loss, pseudo_label = aligner.pseudo_label_loss(
+        #     align_matrix, audio_lengths, phone_lengths
+        # )
+        # print(loss)
+        # import matplotlib.pyplot as plt
+
+        # plt.imshow(
+        #     pseudo_label[0].cpu(),
+        #     vmin=0,
+        #     vmax=1,
+        #     cmap="gray",
+        #     origin="lower",
+        #     aspect="auto",
+        # )
+
+        # plt.show()
+
+        # # classification loss
+        # loss = aligner.classification_loss(align_matrix, phone_intervals)
+        # print(loss)
+
+        # loss dict
+        loss = aligner.get_losses(
+            label_types,
+            audio_embed,
+            audio_lengths,
+            phone_ids,
+            phone_lengths,
+            phone_intervals,
         )
         print(loss)
-        import matplotlib.pyplot as plt
-
-        plt.imshow(
-            pseudo_label[0].cpu(),
-            vmin=0,
-            vmax=1,
-            cmap="gray",
-            origin="lower",
-            aspect="auto",
-        )
-
-        plt.show()
 
     test_aligner_head()
 
