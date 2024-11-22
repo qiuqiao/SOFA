@@ -14,7 +14,6 @@ import modules.scheduler as scheduler_module
 from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
-from modules.loss.BinaryEMDLoss import BinaryEMDLoss
 from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
@@ -125,9 +124,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         self.losses_names = [
             "ph_frame_GHM_loss",
-            "ph_edge_GHM_loss",
-            "ph_edge_EMD_loss",
-            "ph_edge_diff_loss",
             "ctc_GHM_loss",
             "consistency_loss",
             "pseudo_label_loss",
@@ -160,19 +156,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             loss_config["function"]["alpha"],
             loss_config["function"]["label_smoothing"],
         )
-        self.ph_edge_GHM_loss_fn = MultiLabelGHMLoss(
-            1,
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            label_smoothing=0.0,
-        )
-        self.EMD_loss_fn = BinaryEMDLoss()
-        self.ph_edge_diff_GHM_loss_fn = MultiLabelGHMLoss(
-            1,
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            label_smoothing=0.0,
-        )
+
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=1 - 1e-3)
 
@@ -527,24 +511,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             valid,
         )
 
-        # ph_edge loss
-        # BCE_GHM loss
-        ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
-            ph_edge_logits.unsqueeze(-1), ph_edge_gt.unsqueeze(-1), mask, valid
-        )
-
-        # EMD loss
-        ph_edge_pred = torch.nn.functional.sigmoid(ph_edge_logits.float())
-        ph_edge_EMD_loss = self.EMD_loss_fn(ph_edge_pred * mask, ph_edge_gt * mask)
-
-        # diff loss
-        ph_edge_diff_loss = self.ph_edge_diff_GHM_loss_fn(
-            (torch.diff(ph_edge_logits, 1, dim=-1) + 1).unsqueeze(-1) / 2,
-            (torch.diff(ph_edge_gt, 1, dim=-1) + 1).unsqueeze(-1) / 2,
-            mask[:, 1:],
-            valid,
-        )
-        return ph_frame_GHM_loss, ph_edge_GHM_loss, ph_edge_EMD_loss, ph_edge_diff_loss
+        return ph_frame_GHM_loss
 
     def _get_weak_label_loss(
         self,
@@ -660,15 +627,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
         not_full_label_idx = label_type < 2
-        ZERO = torch.tensor(0).to(self.device)
+        ZERO = torch.tensor(0.0).to(self.device)
 
         if (full_label_idx).any():
-            (
-                ph_frame_GHM_loss,
-                ph_edge_GHM_loss,
-                ph_edge_EMD_loss,
-                ph_edge_diff_loss,
-            ) = self._get_full_label_loss(
+            ph_frame_GHM_loss = self._get_full_label_loss(
                 ph_frame_logits[full_label_idx, :, :],
                 ph_edge_logits[full_label_idx, :],
                 ph_frame_gt[full_label_idx, :],
@@ -678,8 +640,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 valid,
             )
         else:
-            ph_frame_GHM_loss = ph_edge_GHM_loss = ZERO
-            ph_edge_EMD_loss = ph_edge_diff_loss = ZERO
+            ph_frame_GHM_loss = ZERO
 
         # TODO:这种pack方式无法处理只有batch中的一部分需要计算Loss的情况，改掉
         if (weak_label_idx).any():
@@ -711,9 +672,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         losses = [
             ph_frame_GHM_loss,
-            ph_edge_GHM_loss,
-            ph_edge_EMD_loss,
-            ph_edge_diff_loss,
             ctc_GHM_loss,
             consistency_loss,
             pseudo_label_loss,
@@ -787,8 +745,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.log_dict(log_dict)
             return total_loss
         except Exception as e:
-            print(f"Error: {e}. skip this batch.")
-            return torch.tensor(torch.nan).to(self.device)
+            print(f'Error: "{e}." skip this batch.')
+            # raise e
+            return torch.tensor(torch.nan, requires_grad=True).to(self.device)
 
     def validation_step(self, batch, batch_idx):
         (
