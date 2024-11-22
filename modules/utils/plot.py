@@ -9,7 +9,6 @@ def plot_for_valid(
     frame_confidence,
     ph_frame_prob,
     ph_frame_id_gt,
-    edge_prob,
 ):
     ph_seq = [i.split("/")[-1] for i in ph_seq]
     x = np.arange(melspec.shape[-1])
@@ -59,9 +58,6 @@ def plot_for_valid(
 
     ax2.plot(x, ph_frame_id_gt, color="red", linewidth=1.5)
     # ax2.scatter(x, ph_frame_id_gt, s=5, marker='s', color="red")
-
-    ax2.plot(x, edge_prob * ph_frame_prob.shape[-1], color="black", linewidth=1)
-    ax2.fill_between(x, edge_prob * ph_frame_prob.shape[-1], color="black", alpha=0.3)
 
     fig.set_size_inches(11, 6)
     plt.subplots_adjust(hspace=0)

@@ -2,8 +2,8 @@ from math import sqrt
 from typing import Any
 
 import lightning as pl
-import numpy as np
 import numba
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler_module
@@ -22,20 +22,27 @@ from modules.utils.plot import plot_for_valid
 
 
 @numba.jit
-def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
-                 prob3_pad_len):
+def forward_pass(
+    T,
+    S,
+    prob_log,
+    curr_ph_max_prob_log,
+    dp,
+    backtrack_s,
+    ph_seq_id,
+    prob3_pad_len,
+):
     for t in range(1, T):
         # [t-1,s] -> [t,s]
-        prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
+        prob1 = dp[t - 1, :] + prob_log[t, :]
 
         prob2 = np.empty(S, dtype=np.float32)
         prob2[0] = -np.inf
         for i in range(1, S):
             prob2[i] = (
-                    dp[t - 1, i - 1]
-                    + prob_log[t, i - 1]
-                    + edge_prob_log[t]
-                    + curr_ph_max_prob_log[i - 1] * (T / S)
+                dp[t - 1, i - 1]
+                + prob_log[t, i - 1]
+                + curr_ph_max_prob_log[i - 1] * (T / S)
             )
 
         # [t-1,s-2] -> [t,s]
@@ -47,10 +54,9 @@ def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_p
                 prob3[i] = -np.inf
             else:
                 prob3[i] = (
-                        dp[t - 1, i - prob3_pad_len]
-                        + prob_log[t, i - prob3_pad_len]
-                        + edge_prob_log[t]
-                        + curr_ph_max_prob_log[i - prob3_pad_len] * (T / S)
+                    dp[t - 1, i - prob3_pad_len]
+                    + prob_log[t, i - prob3_pad_len]
+                    + curr_ph_max_prob_log[i - prob3_pad_len] * (T / S)
                 )
 
         stacked_probs = np.empty((3, S), dtype=np.float32)
@@ -205,17 +211,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.device
         )
 
-    def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
+    def _decode(self, ph_seq_id, ph_prob_log):
         # ph_seq_id: (S)
         # ph_prob_log: (T, vocab_size)
-        # edge_prob: (T,2)
         T = ph_prob_log.shape[0]
         S = len(ph_seq_id)
         # not_SP_num = (ph_seq_id > 0).sum()
         prob_log = ph_prob_log[:, ph_seq_id]
-
-        edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
-        not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
 
         # init
         curr_ph_max_prob_log = np.full(S, -np.inf)
@@ -237,8 +239,14 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # forward
         prob3_pad_len = 2 if S >= 2 else 1
         dp, backtrack_s, curr_ph_max_prob_log = forward_pass(
-            T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
-            prob3_pad_len
+            T,
+            S,
+            prob_log,
+            curr_ph_max_prob_log,
+            dp,
+            backtrack_s,
+            ph_seq_id,
+            prob3_pad_len,
         )
 
         # backward
@@ -353,7 +361,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         # decode
         edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
-        edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
         (
             ph_idx_seq,
             ph_time_int_pred,
@@ -361,7 +368,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         ) = self._decode(
             ph_seq_id,
             ph_prob_log,
-            edge_prob,
         )
         total_confidence = np.exp(np.mean(np.log(frame_confidence + 1e-6)) / 3)
 
@@ -432,7 +438,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 "frame_confidence": frame_confidence,
                 "ph_frame_prob": ph_frame_pred[:, ph_seq_id],
                 "ph_frame_id_gt": ph_idx_frame,
-                "edge_prob": edge_prob,
             }
             fig = plot_for_valid(**args)
 
