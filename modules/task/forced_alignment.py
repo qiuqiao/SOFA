@@ -1,3 +1,4 @@
+from math import sqrt
 from typing import Any
 
 import lightning as pl
@@ -719,8 +720,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         h = self.backbone(*args, **kwargs)
         logits = self.head(h)
         ph_frame_logits = logits[:, :, 2:]
+        ph_frame_logits = 7 * ph_frame_logits / sqrt(ph_frame_logits.shape[-1])
         ph_edge_logits = logits[:, :, 0]
         ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
+        ctc_logits = 7 * ctc_logits / sqrt(ctc_logits.shape[-1])
         return ph_frame_logits, ph_edge_logits, ctc_logits
 
     def training_step(self, batch, batch_idx):
