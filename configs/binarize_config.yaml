@@ -16,8 +16,10 @@ valid_set_preferred_folders:
 ignored_phonemes:
   - AP
   - SP
+  - EP
   - <AP>
   - <SP>
+  - <EP>
   - ''
   - pau
   - cl
