@@ -187,6 +187,7 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
                 curr_bin_max_item_length = meta_data.loc[i, "wav_length"]
 
         self.len = None
+        self.bins = self.bins[::-1]
 
     def __len__(self):
         if self.len is None:
@@ -196,8 +197,6 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
         return self.len
 
     def __iter__(self):
-        np.random.shuffle(self.bins)
-
         for bin_data in self.bins:
             batch_size = bin_data["batch_size"]
             num_batches = bin_data["num_batches"]
@@ -230,6 +229,8 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
 
             for i in range(num_batches):
                 yield idx_list[int(i * batch_size) : int((i + 1) * batch_size)]
+
+        np.random.shuffle(self.bins)
 
 
 def collate_fn(batch):
