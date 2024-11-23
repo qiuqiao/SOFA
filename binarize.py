@@ -186,9 +186,6 @@ class ForcedAlignmentBinarizer:
                     # ph_seq: [S]
                     ph_seq = np.array([]).astype("int32")
 
-                    # ph_edge: [scale_factor * T]
-                    ph_edge = np.zeros([T], dtype="float32")
-
                     # ph_frame: [scale_factor * T]
                     ph_frame = np.zeros(T, dtype="int32")
 
@@ -198,9 +195,6 @@ class ForcedAlignmentBinarizer:
                     # ph_seq: [S]
                     ph_seq = np.array(item.ph_seq).astype("int32")
                     ph_seq = ph_seq[ph_seq != 0]
-
-                    # ph_edge: [scale_factor * T]
-                    ph_edge = np.zeros([T], dtype="float32")
 
                     # ph_frame: [scale_factor * T]
                     ph_frame = np.zeros(T, dtype="int32")
@@ -215,7 +209,7 @@ class ForcedAlignmentBinarizer:
                     not_sp_idx = ph_seq != 0
                     ph_seq = ph_seq[not_sp_idx]
 
-                    # ph_edge: [scale_factor * T]
+                    # ph_frame: [scale_factor * T]
                     ph_dur = np.array(item.ph_dur).astype("float32")
                     ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / (
                         self.frame_length / self.scale_factor
@@ -224,24 +218,7 @@ class ForcedAlignmentBinarizer:
 
                     ph_interval = ph_interval[:, not_sp_idx]
                     ph_seq = ph_seq
-                    ph_time = np.unique(ph_interval.flatten())
-                    if ph_time[-1] >= T:
-                        ph_time = ph_time[:-1]
 
-                    ph_edge = np.zeros([T], dtype="float32")
-                    if len(ph_seq) > 0:
-                        if ph_time[-1] + 0.5 > T:
-                            ph_time = ph_time[:-1]
-                        if ph_time[0] - 0.5 < 0:
-                            ph_time = ph_time[1:]
-                        ph_time_int = np.round(ph_time).astype("int32")
-                        ph_time_fractional = ph_time - ph_time_int
-
-                        ph_edge[ph_time_int] = 0.5 + ph_time_fractional
-                        ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
-                        ph_edge = ph_edge * 0.8 + 0.1
-
-                    # ph_frame: [scale_factor * T]
                     ph_frame = np.zeros(T, dtype="int32")
                     if len(ph_seq) > 0:
                         for ph_id, st, ed in zip(
@@ -262,7 +239,6 @@ class ForcedAlignmentBinarizer:
                     raise ValueError("Unknown label type.")
 
                 h5py_item_data["ph_seq"] = ph_seq.astype("int32")
-                h5py_item_data["ph_edge"] = ph_edge.astype("float32")
                 h5py_item_data["ph_frame"] = ph_frame.astype("int32")
                 h5py_item_data["ph_mask"] = ph_mask.astype("int32")
 
@@ -270,18 +246,12 @@ class ForcedAlignmentBinarizer:
                 #     h5py_item_data["input_feature"].shape,
                 #     np.array(h5py_item_data["label_type"]),
                 #     h5py_item_data["ph_seq"].shape,
-                #     h5py_item_data["ph_edge"].shape,
                 #     h5py_item_data["ph_frame"].shape,
                 #     h5py_item_data["ph_mask"].shape,
                 # )
                 # print(
                 #     h5py_item_data["input_feature"].shape[-1] * 4,
-                #     h5py_item_data["ph_edge"].shape[0],
                 #     h5py_item_data["ph_frame"].shape[0],
-                # )
-                # assert (
-                #     h5py_item_data["input_feature"].shape[-1] * 4
-                #     == h5py_item_data["ph_edge"].shape[0]
                 # )
                 # assert (
                 #     h5py_item_data["input_feature"].shape[-1] * 4

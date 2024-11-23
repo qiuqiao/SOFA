@@ -114,7 +114,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             channels_scaleup_factor=model_config["channels_scaleup_factor"],  # 1.5
         )
         self.head = nn.Linear(
-            model_config["hidden_dims"], self.vocab["<vocab_size>"] + 2
+            model_config["hidden_dims"], self.vocab["<vocab_size>"] + 1
         )
         self.melspec_config = melspec_config  # Required for inference
         self.optimizer_config = optimizer_config
@@ -164,7 +164,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.head = pretrained_model.head
         else:
             self.head = nn.Linear(
-                self.backbone.output_dims, self.vocab["<vocab_size>"] + 2
+                self.backbone.output_dims, self.vocab["<vocab_size>"] + 1
             )
 
     def on_validation_start(self):
@@ -284,7 +284,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         with torch.no_grad():
             (
                 ph_frame_logits,  # (B, T, vocab_size)
-                ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
             ) = self.forward(melspec.transpose(1, 2))
         if wav_length is not None:
@@ -300,7 +299,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 / self.melspec_config["hop_length"]
             )
             ph_frame_logits = ph_frame_logits[:, :num_frames, :]
-            ph_edge_logits = ph_edge_logits[:, :num_frames]
             ctc_logits = ctc_logits[:, :num_frames, :]
 
         ph_mask = (
@@ -323,10 +321,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             .numpy()
             .astype("float32")
         )
-        ph_edge_pred = (
-            (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8
-        ).clamp(0.0, 1.0)
-        ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
+
         ctc_logits = (
             ctc_logits.float().squeeze(0).cpu().numpy().astype("float32")
         )  # (ctc_logits.squeeze(0) - ph_mask)
@@ -334,7 +329,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         T, vocab_size = ph_frame_pred.shape
 
         # decode
-        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
         (
             ph_idx_seq,
             ph_time_int_pred,
@@ -349,14 +343,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         frame_length = self.melspec_config["hop_length"] / (
             self.melspec_config["sample_rate"] * self.melspec_config["scale_factor"]
         )
-        ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
         ph_time_pred = frame_length * (
-            np.concatenate(
-                [
-                    ph_time_int_pred.astype("float32") + ph_time_fractional,
-                    [T],
-                ]
-            )
+            np.concatenate([ph_time_int_pred.astype("float32"), [T]])
         )
         ph_intervals = np.stack([ph_time_pred[:-1], ph_time_pred[1:]], axis=1)
 
@@ -473,9 +461,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
     def _get_full_label_loss(
         self,
         ph_frame_logits,
-        ph_edge_logits,
         ph_frame_gt,
-        ph_edge_gt,
         input_feature_lengths,
         ph_mask,
         valid,
@@ -493,7 +479,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         mask = (mask < input_feature_lengths.unsqueeze(1)).to(ph_frame_logits.dtype)
 
         # ph_frame_loss
-        # print((mask.unsqueeze(-1) * ph_mask.unsqueeze(1)).shape, ph_frame_pred.shape)
+        # print(mask.unsqueeze(-1).shape, ph_mask.unsqueeze(1).shape)
+
         ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
             ph_frame_logits,
             ph_frame_gt,
@@ -526,13 +513,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return ctc_GHM_loss
 
-    def _get_consistency_loss(
-        self, ph_frame_logits, ph_edge_logits, input_feature_lengths
-    ):
-        output_tensors = torch.cat(
-            [ph_frame_logits, ph_edge_logits.unsqueeze(-1)], dim=-1
-        )
-        output_tensors = torch.nn.functional.sigmoid(output_tensors.float())
+    def _get_consistency_loss(self, ph_frame_logits, input_feature_lengths):
+
+        output_tensors = torch.nn.functional.sigmoid(ph_frame_logits.float())
         B = output_tensors.shape[0]
         T = output_tensors.shape[1]
 
@@ -557,10 +540,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
     def _get_loss(
         self,
         ph_frame_logits,  # (B, T, vocab_size)
-        ph_edge_logits,  # (B, T)
         ctc_logits,  # (B, T, vocab_size)
         ph_frame_gt,  # (B, T)
-        ph_edge_gt,  # (B, T)
         ph_seq_gt,  # (B S)
         ph_seq_lengths_gt,  # (B)
         ph_mask,  # (B vocab_size)
@@ -576,9 +557,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         if (full_label_idx).any():
             ph_frame_GHM_loss = self._get_full_label_loss(
                 ph_frame_logits[full_label_idx, :, :],
-                ph_edge_logits[full_label_idx, :],
                 ph_frame_gt[full_label_idx, :],
-                ph_edge_gt[full_label_idx, :],
                 input_feature_lengths[full_label_idx],
                 ph_mask[full_label_idx, :],
                 valid,
@@ -602,7 +581,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         if not valid and self.data_augmentation_enabled:
             consistency_loss = self._get_consistency_loss(
-                ph_frame_logits, ph_edge_logits, input_feature_lengths
+                ph_frame_logits, input_feature_lengths
             )
         else:
             consistency_loss = ZERO
@@ -618,12 +597,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         h = self.backbone(*args, **kwargs)
         logits = self.head(h)
-        ph_frame_logits = logits[:, :, 2:]
+        ph_frame_logits = logits[:, :, 1:]
         ph_frame_logits = 6 * ph_frame_logits / sqrt(ph_frame_logits.shape[-1])
-        ph_edge_logits = logits[:, :, 0]
-        ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
+        ctc_logits = torch.cat([logits[:, :, [0]], logits[:, :, 2:]], dim=-1)
         ctc_logits = 6 * ctc_logits / sqrt(ctc_logits.shape[-1])
-        return ph_frame_logits, ph_edge_logits, ctc_logits
+        return ph_frame_logits, ctc_logits
 
     def training_step(self, batch, batch_idx):
         try:
@@ -632,7 +610,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 input_feature_lengths,  # (B)
                 ph_seq,  # (B S)
                 ph_seq_lengths,  # (B)
-                ph_edge,  # (B, T)
                 ph_frame,  # (B, T)
                 ph_mask,  # (B vocab_size)
                 label_type,  # (B)
@@ -640,16 +617,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
             (
                 ph_frame_logits,  # (B, T, vocab_size)
-                ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
             ) = self.forward(input_feature.transpose(1, 2))
 
             losses = self._get_loss(
                 ph_frame_logits,
-                ph_edge_logits,
                 ctc_logits,
                 ph_frame,
-                ph_edge,
                 ph_seq,
                 ph_seq_lengths,
                 ph_mask,
@@ -682,7 +656,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             return total_loss
         except Exception as e:
             print(f'Error: "{e}." skip this batch.')
-            # raise e
+            raise e
             return torch.tensor(torch.nan, requires_grad=True).to(self.device)
 
     def validation_step(self, batch, batch_idx):
@@ -691,7 +665,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
-            ph_edge,  # (B, T)
             ph_frame,  # (B, T)
             ph_mask,  # (B vocab_size)
             label_type,  # (B)
@@ -721,16 +694,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         (
             ph_frame_logits,  # (B, T, vocab_size)
-            ph_edge_logits,  # (B, T)
             ctc_logits,  # (B, T, vocab_size)
         ) = self.forward(input_feature.transpose(1, 2))
 
         losses = self._get_loss(
             ph_frame_logits,
-            ph_edge_logits,
             ctc_logits,
             ph_frame,
-            ph_edge,
             ph_seq,
             ph_seq_lengths,
             ph_mask,
