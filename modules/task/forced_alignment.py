@@ -14,7 +14,7 @@ import modules.scheduler as scheduler_module
 from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
-from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
+from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
@@ -119,14 +119,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.melspec_config = melspec_config  # Required for inference
         self.optimizer_config = optimizer_config
 
-        self.pseudo_label_ratio = loss_config["function"]["pseudo_label_ratio"]
-        self.pseudo_label_auto_theshold = 0.5
-
         self.losses_names = [
             "ph_frame_GHM_loss",
             "ctc_GHM_loss",
             "consistency_loss",
-            "pseudo_label_loss",
             "total_loss",
         ]
         self.losses_weights = torch.tensor(loss_config["losses"]["weights"])
@@ -145,12 +141,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         # loss function
         self.ph_frame_GHM_loss_fn = GHMLoss(
-            self.vocab["<vocab_size>"],
-            loss_config["function"]["num_bins"],
-            loss_config["function"]["alpha"],
-            loss_config["function"]["label_smoothing"],
-        )
-        self.pseudo_label_GHM_loss_fn = MultiLabelGHMLoss(
             self.vocab["<vocab_size>"],
             loss_config["function"]["num_bins"],
             loss_config["function"]["alpha"],
@@ -564,52 +554,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return consistency_loss
 
-    def _get_pseudo_label_loss(self, ph_frame_logits, input_feature_lengths, valid):
-        B = ph_frame_logits.shape[0]
-        T = ph_frame_logits.shape[1]
-
-        ph_edge_prob = torch.nn.functional.sigmoid(ph_frame_logits.float())
-
-        pred1 = ph_edge_prob[: B // 2, :]
-        pred2 = ph_edge_prob[B // 2 :, :]
-        pseudo_label1 = (pred1 >= 0.5).float()
-        pseudo_label2 = (pred2 >= 0.5).float()
-        gradient_magnitude1 = torch.abs(pred1 - pseudo_label1)
-        gradient_magnitude2 = torch.abs(pred2 - pseudo_label2)
-        gradient_magnitude = (gradient_magnitude1 + gradient_magnitude2) / 2
-
-        # calculate mask matrix
-        # (B//2, T, 1)
-        mask = torch.arange(T).to(self.device)
-        mask = repeat(mask, "T -> B T", B=B // 2)
-        mask = (
-            (mask < input_feature_lengths[: B // 2].unsqueeze(1))
-            .to(torch.bool)
-            .unsqueeze(-1)
-        )
-        pseudo_label_mask = (  # (B//2, T)
-            mask
-            & (pseudo_label1 == pseudo_label2)
-            & (gradient_magnitude < self.pseudo_label_auto_theshold)
-        )
-
-        if pseudo_label_mask.sum() / mask.sum() < self.pseudo_label_ratio:
-            self.pseudo_label_auto_theshold += 0.005
-        else:
-            self.pseudo_label_auto_theshold -= 0.005
-
-        if pseudo_label_mask.any():
-            pseudo_label_loss = self.pseudo_label_GHM_loss_fn(
-                ph_frame_logits,
-                torch.cat([pseudo_label1, pseudo_label2], dim=0),
-                torch.cat([pseudo_label_mask, pseudo_label_mask], dim=0),
-                valid,
-            )
-        else:
-            pseudo_label_loss = torch.tensor(0).to(self.device)
-
-        return pseudo_label_loss
-
     def _get_loss(
         self,
         ph_frame_logits,  # (B, T, vocab_size)
@@ -660,21 +604,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
             consistency_loss = self._get_consistency_loss(
                 ph_frame_logits, ph_edge_logits, input_feature_lengths
             )
-            pseudo_label_loss = ZERO
-            # pseudo_label_loss = self._get_pseudo_label_loss(
-            #     ph_frame_logits[not_full_label_idx, :, :],
-            #     input_feature_lengths[not_full_label_idx],
-            #     valid,
-            # )
         else:
             consistency_loss = ZERO
-            pseudo_label_loss = ZERO
 
         losses = [
             ph_frame_GHM_loss,
             ctc_GHM_loss,
             consistency_loss,
-            pseudo_label_loss,
         ]
 
         return losses
@@ -683,10 +619,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
         h = self.backbone(*args, **kwargs)
         logits = self.head(h)
         ph_frame_logits = logits[:, :, 2:]
-        ph_frame_logits = 7 * ph_frame_logits / sqrt(ph_frame_logits.shape[-1])
+        ph_frame_logits = 6 * ph_frame_logits / sqrt(ph_frame_logits.shape[-1])
         ph_edge_logits = logits[:, :, 0]
         ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
-        ctc_logits = 7 * ctc_logits / sqrt(ctc_logits.shape[-1])
+        ctc_logits = 6 * ctc_logits / sqrt(ctc_logits.shape[-1])
         return ph_frame_logits, ph_edge_logits, ctc_logits
 
     def training_step(self, batch, batch_idx):

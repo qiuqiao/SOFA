@@ -31,13 +31,12 @@ optimizer_config:
 
 loss_config:
   losses:
-    weights: [10.0, 1.0, 1.0, 5.0]
-    enable_RampUpScheduler: [False,True,True,True]
+    weights: [10.0, 1.0, 1.0]
+    enable_RampUpScheduler: [False,True,True]
   function:
     num_bins: 10
     alpha: 0.999
     label_smoothing: 0.08
-    pseudo_label_ratio: 0.3
 
 # trainer
 accelerator: auto
