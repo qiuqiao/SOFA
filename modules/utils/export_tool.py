@@ -12,13 +12,13 @@ class Exporter:
         print("Saving TextGrids...")
 
         for (
-                wav_path,
-                wav_length,
-                confidence,
-                ph_seq,
-                ph_intervals,
-                word_seq,
-                word_intervals,
+            wav_path,
+            wav_length,
+            confidence,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
         ) in self.predictions:
             tg = textgrid.TextGrid()
             word_tier = textgrid.IntervalTier(name="words")
@@ -34,7 +34,7 @@ class Exporter:
             tg.append(ph_tier)
 
             label_path = (
-                    wav_path.parent / "TextGrid" / wav_path.with_suffix(".TextGrid").name
+                wav_path.parent / "TextGrid" / wav_path.with_suffix(".TextGrid").name
             )
             label_path.parent.mkdir(parents=True, exist_ok=True)
             tg.write(label_path)
@@ -43,13 +43,13 @@ class Exporter:
         print("Saving htk labels...")
 
         for (
-                wav_path,
-                wav_length,
-                confidence,
-                ph_seq,
-                ph_intervals,
-                word_seq,
-                word_intervals,
+            wav_path,
+            wav_length,
+            confidence,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
         ) in self.predictions:
             label = ""
             for ph, (start, end) in zip(ph_seq, ph_intervals):
@@ -57,7 +57,7 @@ class Exporter:
                 end_time = int(float(end) * 10000000)
                 label += f"{start_time} {end_time} {ph}\n"
             label_path = (
-                    wav_path.parent / "htk" / "phones" / wav_path.with_suffix(".lab").name
+                wav_path.parent / "htk" / "phones" / wav_path.with_suffix(".lab").name
             )
             label_path.parent.mkdir(parents=True, exist_ok=True)
             with open(label_path, "w", encoding="utf-8") as f:
@@ -70,7 +70,7 @@ class Exporter:
                 end_time = int(float(end) * 10000000)
                 label += f"{start_time} {end_time} {word}\n"
             label_path = (
-                    wav_path.parent / "htk" / "words" / wav_path.with_suffix(".lab").name
+                wav_path.parent / "htk" / "words" / wav_path.with_suffix(".lab").name
             )
             label_path.parent.mkdir(parents=True, exist_ok=True)
             with open(label_path, "w", encoding="utf-8") as f:
@@ -83,13 +83,13 @@ class Exporter:
         folder_to_data = {}
 
         for (
-                wav_path,
-                wav_length,
-                confidence,
-                ph_seq,
-                ph_intervals,
-                word_seq,
-                word_intervals,
+            wav_path,
+            wav_length,
+            confidence,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
         ) in self.predictions:
             folder = wav_path.parent
             if folder in folder_to_data:
@@ -145,13 +145,13 @@ class Exporter:
         folder_to_data = {}
 
         for (
-                wav_path,
-                wav_length,
-                confidence,
-                ph_seq,
-                ph_intervals,
-                word_seq,
-                word_intervals,
+            wav_path,
+            wav_length,
+            confidence,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
         ) in self.predictions:
             folder = wav_path.parent
             if folder in folder_to_data:
@@ -179,18 +179,18 @@ class Exporter:
         if "textgrid" in out_formats or "praat" in out_formats:
             self.save_textgrids()
         if (
-                "htk" in out_formats
-                or "lab" in out_formats
-                or "nnsvs" in out_formats
-                or "sinsy" in out_formats
+            "htk" in out_formats
+            or "lab" in out_formats
+            or "nnsvs" in out_formats
+            or "sinsy" in out_formats
         ):
             self.save_htk()
         if (
-                "trans" in out_formats
-                or "transcription" in out_formats
-                or "transcriptions" in out_formats
-                or "transcriptions.csv" in out_formats
-                or "diffsinger" in out_formats
+            "trans" in out_formats
+            or "transcription" in out_formats
+            or "transcriptions" in out_formats
+            or "transcriptions.csv" in out_formats
+            or "diffsinger" in out_formats
         ):
             self.save_transcriptions()
 
