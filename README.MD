@@ -20,9 +20,9 @@ On singing data, SOFA has the following advantages over MFA (Montreal Forced Ali
 
 1. Use `git clone` to download the code from this repository
 2. Install conda
-3. Create a conda environment, requiring Python version `3.8`
+3. Create a conda environment, requiring Python version `3.12`
     ```bash
-    conda create -n SOFA python=3.8 -y
+    conda create -n SOFA python=3.12 -y
     conda activate SOFA
     ```
 4. Go to the [pytorch official website](https://pytorch.org/get-started/locally/) to install torch

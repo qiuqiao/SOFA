@@ -329,7 +329,7 @@ class ForcedAlignmentBinarizer:
             {"wav_path": [i for i in (path / "no_label").rglob("*.wav")]}
         )
         meta_data_df = pd.concat([meta_data_df, no_label_df])
-        meta_data_df["label_type"].fillna("no_label", inplace=True)
+        meta_data_df["label_type"] = meta_data_df["label_type"].fillna("no_label")
 
         meta_data_df.reset_index(drop=True, inplace=True)
 

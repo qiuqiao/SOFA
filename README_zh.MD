@@ -20,9 +20,9 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
 
 1. 使用`git clone`​​下载本仓库的代码
 2. 安装conda
-3. 创建conda环境，python版本的要求为`3.8`
+3. 创建conda环境，python版本的要求为`3.12`
     ```bash
-    conda create -n SOFA python=3.8 -y
+    conda create -n SOFA python=3.12 -y
     conda activate SOFA
     ```
 4. 去[pytorch官网](https://pytorch.org/get-started/locally/)安装torch
