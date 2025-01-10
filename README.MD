@@ -122,9 +122,19 @@ On singing data, SOFA has the following advantages over MFA (Montreal Forced Ali
     `transcriptions.csv` only needs to have the correct relative path to the `wavs` folder;
 
     The `transcriptions.csv` in `weak_label` does not need to have a `ph_dur` column;
-3. Modify `binarize_config.yaml` as needed, then execute `python binarize.py`;
-4. Download the pre-trained model you need from releases, modify `train_config.yaml` as needed, then execute `python train.py -p path_to_your_pretrained_model`;
-5. For training visualization: `tensorboard --logdir=ckpt/`.
+3. Modify `binarize_config.yaml` as needed, then run
+
+   ```python binarize.py```;
+   
+4. Modify `train_config.yaml` as needed, then run
+
+   ```python train.py```
+
+    If you have a pretrained model, you can use the `-p` flag to specify it:
+    
+    ```python train.py -p path_to_your_pretrained_model```
+
+5. Training visualization: ```tensorboard --logdir=ckpt/```.
 
 ## Evaluation (for model developers)
 

@@ -121,8 +121,18 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
     `transcriptions.csv`只需要和`wavs`文件夹的相对位置正确即可；
 
     `weak_label`中的`transcriptions.csv`无需拥有`ph_dur`这一个`column`；
-3. 按需修改`binarize_config.yaml`，然后执行`python binarize.py`；
-4. 在release中下载你需要的预训练模型，并按需修改`train_config.yaml`，然后执行`python train.py -p path_to_your_pretrained_model`；
+3. 按需修改`binarize_config.yaml`，然后执行
+
+   ```python binarize.py```
+
+4. 按需修改`train_config.yaml`，然后执行
+
+   ```python train.py```
+   
+    如果你有一个预训练模型，你可以使用`-p`来指定它：
+    
+    ```python train.py -p path_to_your_pretrained_model```
+
 5. 训练可视化：`tensorboard --logdir=ckpt/`。
 
 ## 评估（适用于模型开发者）
