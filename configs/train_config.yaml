@@ -5,11 +5,11 @@ float32_matmul_precision: high
 random_seed: 114514
 
 # dataloader
-dataloader_workers: 0
+dataloader_workers: 12
 dataloader_prefetch_factor: 2
 oversampling_weights: [ 1, 1, 1 ] # full_label, weak_label, no_label
-batch_max_length: 100 # unit: seconds
-binning_length: 1000 # unit: seconds
+batch_max_length: 500 # unit: seconds
+binning_length: 5000 # unit: seconds
 drop_last: False
 
 # model
@@ -20,19 +20,18 @@ model:
   channels_scaleup_factor: 1.5
 
 optimizer_config:
-  total_steps: 10000
+  total_steps: 5000
   weight_decay: 0.1
   lr:
-    backbone: 0.0005
-    head: 0.0005
+    backbone: 0.001
+    head: 0.001
   freeze:
     backbone: False
     head: False
 
 loss_config:
   losses:
-    weights: [10.0, 1.0, 1.0]
-    enable_RampUpScheduler: [False,True,True]
+    weights: [50.0, 1.0, 0.1]
   function:
     num_bins: 10
     alpha: 0.999
@@ -44,4 +43,4 @@ devices: auto # num_devices
 precision: bf16-mixed # bf16-mixed , 32-true
 gradient_clip_val: 1.0
 gradient_clip_algorithm: norm #value
-val_check_interval: 500 # 0.25
+val_check_interval: 235

@@ -131,20 +131,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
             "ph_frame_GHM_loss",
             "ctc_GHM_loss",
             "consistency_loss",
-            "total_loss",
         ]
         self.losses_weights = torch.tensor(loss_config["losses"]["weights"])
 
-        self.losses_schedulers = []
-        for enabled in loss_config["losses"]["enable_RampUpScheduler"]:
-            if enabled:
-                self.losses_schedulers.append(
-                    scheduler_module.GaussianRampUpScheduler(
-                        max_steps=optimizer_config["total_steps"]
-                    )
-                )
-            else:
-                self.losses_schedulers.append(scheduler_module.NoneScheduler())
         self.data_augmentation_enabled = data_augmentation_enabled
 
         # loss function
@@ -185,19 +174,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.on_train_start()
 
     def on_train_start(self):
-        # resume loss schedulers
-        for scheduler in self.losses_schedulers:
-            scheduler.resume(self.global_step)
         self.losses_weights = self.losses_weights.to(self.device)
-
-    def _losses_schedulers_step(self):
-        for scheduler in self.losses_schedulers:
-            scheduler.step()
-
-    def _losses_schedulers_call(self):
-        return torch.tensor([scheduler() for scheduler in self.losses_schedulers]).to(
-            self.device
-        )
 
     def _decode(self, ph_seq_id, ph_prob_log):
         # ph_seq_id: (S)
@@ -647,27 +624,21 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 valid=False,
             )
 
-            schedule_weight = self._losses_schedulers_call()
-            self._losses_schedulers_step()
-            total_loss = (
-                torch.stack(losses) * self.losses_weights * schedule_weight
-            ).sum()
-            losses.append(total_loss)
-
             log_dict = {
                 f"train_loss/{k}": v
                 for k, v in zip(self.losses_names, losses)
                 if v != 0
             }
             log_dict["scheduler/lr"] = self.trainer.optimizers[0].param_groups[0]["lr"]
-            log_dict.update(
-                {
-                    f"scheduler/{k}": v
-                    for k, v in zip(self.losses_names, schedule_weight)
-                    if v != 1
-                }
-            )
             self.log_dict(log_dict)
+
+            losses = (
+                torch.stack(losses)
+                / (1e-3 + torch.stack(losses).detach())
+                * self.losses_weights
+            )
+            total_loss = (losses).sum()
+
             return total_loss
         except Exception as e:
             print(f'Error: "{e}." skip this batch.')
@@ -735,13 +706,15 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
             tg_pred = interval_tier_to_point_tier(tg_pred[1])
             tg_gt = interval_tier_to_point_tier(tg_gt[1])
-
-            tg_pred = remove_ignored_phonemes([None, " ", "", "SP", "AP"], tg_pred)
-            tg_gt = remove_ignored_phonemes([None, " ", "", "SP", "AP"], tg_gt)
+            # print("gt")
+            # for i in tg_gt:
+            #     print(i.time, i.mark)
             # print("-----")
             # print("pred")
             # for i in tg_pred:
             #     print(i.time, i.mark)
+            tg_pred = remove_ignored_phonemes([None, " ", "", "SP", "AP"], tg_pred)
+            tg_gt = remove_ignored_phonemes([None, " ", "", "SP", "AP"], tg_gt)
 
             for key in self.metrics:
                 self.metrics[key].update(tg_pred, tg_gt)
