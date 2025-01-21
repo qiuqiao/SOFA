@@ -10,7 +10,6 @@ import torch.optim.lr_scheduler as lr_scheduler_module
 import yaml
 from einops import rearrange, repeat
 
-import modules.scheduler as scheduler_module
 from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
@@ -459,10 +458,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
     ):
         T = ph_frame_logits.shape[1]
 
-        # ph_frame_prob_gt = nn.functional.one_hot(
-        #     ph_frame_gt.long(), num_classes=self.vocab["<vocab_size>"]
-        # ).float()
-
         # calculate mask matrix
         # (B, T)
         mask = torch.arange(T).to(self.device)
@@ -685,12 +680,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         if label_type.item() == 2:
             # conver to textgird for evaluation
 
-            # print(ph_seq_pred)
-            # print(
-            #     [self.vocab[id.item()] for id in ph_seq.squeeze()],
-            # )
-            # print(ph_intervals_pred)
-            # print(ph_intervals.squeeze().T.cpu().numpy())
             tg_pred = get_textgrid(
                 ph_seq_pred,
                 ph_intervals_pred,
@@ -706,9 +695,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
             tg_pred = interval_tier_to_point_tier(tg_pred[1])
             tg_gt = interval_tier_to_point_tier(tg_gt[1])
-            # print("gt")
-            # for i in tg_gt:
-            #     print(i.time, i.mark)
             # print("-----")
             # print("pred")
             # for i in tg_pred:
@@ -730,39 +716,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
             f"valid/plot_{batch_idx}", fig, self.global_step
         )
 
-        # (
-        #     ph_frame_logits,  # (B, T, vocab_size)
-        #     ctc_logits,  # (B, T, vocab_size)
-        # ) = self.forward(input_feature.transpose(1, 2))
-
-        # losses = self._get_loss(
-        #     ph_frame_logits,
-        #     ctc_logits,
-        #     ph_frame,
-        #     ph_seq,
-        #     ph_seq_lengths,
-        #     ph_mask,
-        #     input_feature_lengths,
-        #     label_type,
-        #     valid=True,
-        # )
-
-        # weights = self._losses_schedulers_call() * self.losses_weights
-        # total_loss = (torch.stack(losses) * weights).sum()
-        # losses.append(total_loss)
-        # losses = torch.stack(losses)
-
-        # self.validation_step_outputs["losses"].append(losses)
-
     def on_validation_epoch_end(self):
         d = {f"valid/{k}": v.compute() for k, v in self.metrics.items()}
-        # print(d)
         self.log_dict(d)
-        # losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
-        # losses = (losses / ((losses > 0).sum(dim=0, keepdim=True) + 1e-6)).sum(dim=0)
-        # self.log_dict(
-        #     {f"valid/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
-        # )
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
