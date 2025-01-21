@@ -3,6 +3,29 @@ import pandas as pd
 import textgrid
 
 
+def get_textgrid(
+    ph_seq,
+    ph_intervals,
+    word_seq,
+    word_intervals,
+):
+
+    tg = textgrid.TextGrid()
+    word_tier = textgrid.IntervalTier(name="words")
+    ph_tier = textgrid.IntervalTier(name="phones")
+
+    for word, (start, end) in zip(word_seq, word_intervals):
+        word_tier.add(start, end, word)
+
+    for ph, (start, end) in zip(ph_seq, ph_intervals):
+        ph_tier.add(minTime=float(start), maxTime=end, mark=ph)
+
+    tg.append(word_tier)
+    tg.append(ph_tier)
+
+    return tg
+
+
 class Exporter:
     def __init__(self, predictions, log):
         self.predictions = predictions
@@ -20,18 +43,13 @@ class Exporter:
             word_seq,
             word_intervals,
         ) in self.predictions:
-            tg = textgrid.TextGrid()
-            word_tier = textgrid.IntervalTier(name="words")
-            ph_tier = textgrid.IntervalTier(name="phones")
 
-            for word, (start, end) in zip(word_seq, word_intervals):
-                word_tier.add(start, end, word)
-
-            for ph, (start, end) in zip(ph_seq, ph_intervals):
-                ph_tier.add(minTime=float(start), maxTime=end, mark=ph)
-
-            tg.append(word_tier)
-            tg.append(ph_tier)
+            tg = self.get_textgrid(
+                ph_seq,
+                ph_intervals,
+                word_seq,
+                word_intervals,
+            )
 
             label_path = (
                 wav_path.parent / "TextGrid" / wav_path.with_suffix(".TextGrid").name

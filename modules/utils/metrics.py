@@ -1,6 +1,26 @@
 from functools import lru_cache
 
 import textgrid as tg
+from textgrid import PointTier
+
+
+def remove_ignored_phonemes(ignored_phonemes_list: str, point_tier: PointTier):
+    res_tier = PointTier(name=point_tier.name)
+    res_tier.add(0.0, "")
+    if point_tier[0].mark not in ignored_phonemes_list:
+        if point_tier[0].time == 0.0:
+            res_tier.remove(0.0, "")
+        res_tier.addPoint(point_tier[0])
+    for i in range(len(point_tier) - 1):
+        if (
+            point_tier[i].mark in ignored_phonemes_list
+            and point_tier[i + 1].mark in ignored_phonemes_list
+        ):
+            continue
+
+        res_tier.addPoint(point_tier[i + 1])
+
+    return res_tier
 
 
 class Metric:
@@ -230,3 +250,12 @@ class BoundaryEditRatio(Metric):
         if self.duration == 0.0:
             return None
         return round(self.distance_metric.compute() / self.duration, 6)
+
+
+if __name__ == "__main__":
+    input = PointTier()
+    input.add(0.0, "")
+    input.add(0.04934240362811791, "aaa")
+    output = remove_ignored_phonemes([""], point_tier=input)
+    for i in output:
+        print(i.time, i.mark)

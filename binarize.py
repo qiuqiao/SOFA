@@ -186,6 +186,9 @@ class ForcedAlignmentBinarizer:
                     # ph_seq: [S]
                     ph_seq = np.array([]).astype("int32")
 
+                    # ph_interval: [2, 0]
+                    ph_interval = np.zeros((2, 0), dtype="float32")
+
                     # ph_frame: [scale_factor * T]
                     ph_frame = np.zeros(T, dtype="int32")
 
@@ -195,6 +198,9 @@ class ForcedAlignmentBinarizer:
                     # ph_seq: [S]
                     ph_seq = np.array(item.ph_seq).astype("int32")
                     ph_seq = ph_seq[ph_seq != 0]
+
+                    # ph_interval: [2, 0]
+                    ph_interval = np.zeros((2, 0), dtype="float32")
 
                     # ph_frame: [scale_factor * T]
                     ph_frame = np.zeros(T, dtype="int32")
@@ -209,20 +215,22 @@ class ForcedAlignmentBinarizer:
                     not_sp_idx = ph_seq != 0
                     ph_seq = ph_seq[not_sp_idx]
 
-                    # ph_frame: [scale_factor * T]
+                    # ph_interval: [2, S]
                     ph_dur = np.array(item.ph_dur).astype("float32")
-                    ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / (
+                    ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum()
+                    ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
+                    ph_interval = ph_interval[:, not_sp_idx]
+
+                    # ph_frame: [scale_factor * T]
+                    ph_interval_frame = ph_interval / (
                         self.frame_length / self.scale_factor
                     )
-                    ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
-
-                    ph_interval = ph_interval[:, not_sp_idx]
                     ph_seq = ph_seq
 
                     ph_frame = np.zeros(T, dtype="int32")
                     if len(ph_seq) > 0:
                         for ph_id, st, ed in zip(
-                            ph_seq, ph_interval[0], ph_interval[1]
+                            ph_seq, ph_interval_frame[0], ph_interval_frame[1]
                         ):
                             if st < 0:
                                 st = 0
@@ -239,6 +247,7 @@ class ForcedAlignmentBinarizer:
                     raise ValueError("Unknown label type.")
 
                 h5py_item_data["ph_seq"] = ph_seq.astype("int32")
+                h5py_item_data["ph_interval"] = ph_interval.astype("float32")
                 h5py_item_data["ph_frame"] = ph_frame.astype("int32")
                 h5py_item_data["ph_mask"] = ph_mask.astype("int32")
 

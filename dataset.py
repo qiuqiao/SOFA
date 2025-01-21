@@ -83,6 +83,9 @@ class MixedDataset(torch.utils.data.Dataset):
         # ph_seq
         ph_seq = np.array(item["ph_seq"])
 
+        # ph_interval
+        ph_interval = np.array(item["ph_interval"])
+
         # ph_frame
         ph_frame = np.array(item["ph_frame"])
 
@@ -93,7 +96,7 @@ class MixedDataset(torch.utils.data.Dataset):
             input_feature, len(ph_frame) // input_feature.shape[-1], axis=-1
         )
 
-        return input_feature, ph_seq, ph_frame, ph_mask, label_type
+        return input_feature, ph_seq, ph_interval, ph_frame, ph_mask, label_type
 
 
 class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
@@ -234,13 +237,14 @@ def collate_fn(batch):
     """_summary_
 
     Args:
-        batch (tuple): input_feature, ph_seq, ph_frame, ph_mask, label_type from MixedDataset
+        batch (tuple): input_feature, ph_seq, ph_interval, ph_frame, ph_mask, label_type from MixedDataset
 
     Returns:
         input_feature: (B C T)
         input_feature_lengths: (B)
         ph_seq: (B S)
         ph_seq_lengths: (B)
+        ph_interval: (B 2 S)
         ph_frame: (B T)
         ph_mask: (B vocab_size)
         label_type: (B)
@@ -257,29 +261,31 @@ def collate_fn(batch):
     # padding
     for i, item in enumerate(batch):
         item = list(item)
-        for param in [0, 2]:
+        for param in [0, 3]:
             item[param] = torch.nn.functional.pad(
                 torch.tensor(item[param]),
                 (0, max_len - item[param].shape[-1]),
                 "constant",
                 0,
             )
-        item[1] = torch.nn.functional.pad(
-            torch.tensor(item[1]),
-            (0, max_ph_seq_len - item[1].shape[-1]),
-            "constant",
-            0,
-        )
-        item[4] = torch.from_numpy(item[4])
+        for param in [1, 2]:
+            item[param] = torch.nn.functional.pad(
+                torch.tensor(item[param]),
+                (0, max_ph_seq_len - item[param].shape[-1]),
+                "constant",
+                0,
+            )
+        item[5] = torch.from_numpy(item[5])
         batch[i] = tuple(item)
 
     input_feature = torch.stack([item[0] for item in batch], dim=1)
     input_feature = rearrange(input_feature, "n b c t -> (n b) c t")
     ph_seq = torch.stack([item[1] for item in batch])
-    ph_frame = torch.stack([item[2] for item in batch])
+    ph_interval = torch.stack([item[2] for item in batch])
+    ph_frame = torch.stack([item[3] for item in batch])
 
-    ph_mask = torch.stack([torch.from_numpy(item[3]) for item in batch])
-    label_type = torch.tensor(np.array([item[4] for item in batch]))
+    ph_mask = torch.stack([torch.from_numpy(item[4]) for item in batch])
+    label_type = torch.tensor(np.array([item[5] for item in batch]))
 
     if augmentation_enabled:
         input_feature_lengths = torch.concat(
@@ -287,6 +293,7 @@ def collate_fn(batch):
         )
         ph_seq = torch.concat([ph_seq, ph_seq], dim=0)
         ph_seq_lengths = torch.concat([ph_seq_lengths, ph_seq_lengths], dim=0)
+        ph_interval = torch.concat([ph_interval, ph_interval], dim=0)
         ph_frame = torch.concat([ph_frame, ph_frame], dim=0)
         ph_mask = torch.concat([ph_mask, ph_mask], dim=0)
         label_type = torch.concat([label_type, label_type], dim=0)
@@ -296,6 +303,7 @@ def collate_fn(batch):
         input_feature_lengths,
         ph_seq,
         ph_seq_lengths,
+        ph_interval,
         ph_frame,
         ph_mask,
         label_type,

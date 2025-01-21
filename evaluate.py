@@ -5,7 +5,6 @@ from typing import Dict
 
 import click
 import tqdm
-from textgrid import PointTier
 
 from modules.utils import label
 from modules.utils.metrics import (
@@ -13,23 +12,8 @@ from modules.utils.metrics import (
     IntersectionOverUnion,
     Metric,
     VlabelerEditRatio,
+    remove_ignored_phonemes,
 )
-
-
-def remove_ignored_phonemes(ignored_phonemes_list: str, point_tier: PointTier):
-    res_tier = PointTier(name=point_tier.name)
-    if point_tier[0].mark not in ignored_phonemes_list:
-        res_tier.addPoint(point_tier[0])
-    for i in range(len(point_tier) - 1):
-        if (
-            point_tier[i].mark in ignored_phonemes_list
-            and point_tier[i + 1].mark in ignored_phonemes_list
-        ):
-            continue
-
-        res_tier.addPoint(point_tier[i + 1])
-
-    return res_tier
 
 
 @click.command(

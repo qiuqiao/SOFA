@@ -1,5 +1,5 @@
 from math import sqrt
-from typing import Any
+from typing import Any, Dict
 
 import lightning as pl
 import numba
@@ -18,6 +18,14 @@ from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
 from modules.utils.plot import plot_for_valid
+
+from modules.utils.metrics import (
+    Metric,
+    VlabelerEditRatio,
+    remove_ignored_phonemes,
+)
+from modules.utils.export_tool import get_textgrid
+from modules.utils.label import interval_tier_to_point_tier
 
 
 @numba.jit
@@ -157,6 +165,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.validation_step_outputs = {"losses": []}
 
         self.inference_mode = "force"
+
+        self.metrics: Dict[str, Metric] = {
+            "VlabelerEditRatio10ms": VlabelerEditRatio(move_tolerance=0.01),
+            "VlabelerEditRatio20ms": VlabelerEditRatio(move_tolerance=0.02),
+            "VlabelerEditRatio50ms": VlabelerEditRatio(move_tolerance=0.05),
+        }
 
     def load_pretrained(self, pretrained_model):
         self.backbone = pretrained_model.backbone
@@ -610,6 +624,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 input_feature_lengths,  # (B)
                 ph_seq,  # (B S)
                 ph_seq_lengths,  # (B)
+                ph_intervals,  # (B, L, 2)
                 ph_frame,  # (B, T)
                 ph_mask,  # (B vocab_size)
                 label_type,  # (B)
@@ -665,6 +680,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
             ph_seq_lengths,  # (B)
+            ph_intervals,  # (B, L, 2)
             ph_frame,  # (B, T)
             ph_mask,  # (B vocab_size)
             label_type,  # (B)
@@ -676,7 +692,15 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 continue
             ph_seq_g2p.append(self.vocab[ph])
             ph_seq_g2p.append("SP")
-        _, _, _, _, _, ctc, fig = self._infer_once(
+        (
+            ph_seq_pred,
+            ph_intervals_pred,
+            word_seq_pred,
+            word_intervals_pred,
+            total_confidence,
+            ctc,
+            fig,
+        ) = self._infer_once(
             input_feature,
             None,
             ph_seq_g2p,
@@ -685,6 +709,47 @@ class LitForcedAlignmentTask(pl.LightningModule):
             True,
             True,
         )
+
+        # full label metrics
+        if label_type.item() == 2:
+            # conver to textgird for evaluation
+
+            # print(ph_seq_pred)
+            # print(
+            #     [self.vocab[id.item()] for id in ph_seq.squeeze()],
+            # )
+            # print(ph_intervals_pred)
+            # print(ph_intervals.squeeze().T.cpu().numpy())
+            tg_pred = get_textgrid(
+                ph_seq_pred,
+                ph_intervals_pred,
+                word_seq_pred,
+                word_intervals_pred,
+            )
+            tg_gt = get_textgrid(
+                [self.vocab[id.item()] for id in ph_seq.squeeze()],
+                ph_intervals.squeeze().T.cpu().numpy(),
+                [],
+                [],
+            )
+
+            tg_pred = interval_tier_to_point_tier(tg_pred[1])
+            tg_gt = interval_tier_to_point_tier(tg_gt[1])
+
+            tg_pred = remove_ignored_phonemes([None, " ", "", "SP", "AP"], tg_pred)
+            tg_gt = remove_ignored_phonemes([None, " ", "", "SP", "AP"], tg_gt)
+            # print("-----")
+            # print("pred")
+            # for i in tg_pred:
+            #     print(i.time, i.mark)
+
+            for key in self.metrics:
+                self.metrics[key].update(tg_pred, tg_gt)
+
+        # TODO: weak label metrics
+        ## total_confidence
+        ## ctc loss
+
         self.logger.experiment.add_text(
             f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
         )
@@ -692,36 +757,39 @@ class LitForcedAlignmentTask(pl.LightningModule):
             f"valid/plot_{batch_idx}", fig, self.global_step
         )
 
-        (
-            ph_frame_logits,  # (B, T, vocab_size)
-            ctc_logits,  # (B, T, vocab_size)
-        ) = self.forward(input_feature.transpose(1, 2))
+        # (
+        #     ph_frame_logits,  # (B, T, vocab_size)
+        #     ctc_logits,  # (B, T, vocab_size)
+        # ) = self.forward(input_feature.transpose(1, 2))
 
-        losses = self._get_loss(
-            ph_frame_logits,
-            ctc_logits,
-            ph_frame,
-            ph_seq,
-            ph_seq_lengths,
-            ph_mask,
-            input_feature_lengths,
-            label_type,
-            valid=True,
-        )
+        # losses = self._get_loss(
+        #     ph_frame_logits,
+        #     ctc_logits,
+        #     ph_frame,
+        #     ph_seq,
+        #     ph_seq_lengths,
+        #     ph_mask,
+        #     input_feature_lengths,
+        #     label_type,
+        #     valid=True,
+        # )
 
-        weights = self._losses_schedulers_call() * self.losses_weights
-        total_loss = (torch.stack(losses) * weights).sum()
-        losses.append(total_loss)
-        losses = torch.stack(losses)
+        # weights = self._losses_schedulers_call() * self.losses_weights
+        # total_loss = (torch.stack(losses) * weights).sum()
+        # losses.append(total_loss)
+        # losses = torch.stack(losses)
 
-        self.validation_step_outputs["losses"].append(losses)
+        # self.validation_step_outputs["losses"].append(losses)
 
     def on_validation_epoch_end(self):
-        losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
-        losses = (losses / ((losses > 0).sum(dim=0, keepdim=True) + 1e-6)).sum(dim=0)
-        self.log_dict(
-            {f"valid/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
-        )
+        d = {f"valid/{k}": v.compute() for k, v in self.metrics.items()}
+        # print(d)
+        self.log_dict(d)
+        # losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
+        # losses = (losses / ((losses > 0).sum(dim=0, keepdim=True) + 1e-6)).sum(dim=0)
+        # self.log_dict(
+        #     {f"valid/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
+        # )
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
