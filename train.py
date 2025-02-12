@@ -13,6 +13,7 @@ from modules.layer.backbone.unet import UNetBackbone
 from modules.layer.block.resnet_block import ResidualBasicBlock
 from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 import torch.nn as nn
+from datetime import datetime
 
 
 @click.command()
@@ -48,7 +49,23 @@ import torch.nn as nn
     show_default=True,
     help="resume training from checkpoint",
 )
-def main(config_path: str, data_folder: str, pretrained_model_path, resume):
+@click.option(
+    "--model_name",
+    "-n",
+    type=str,
+    default="",
+    show_default=True,
+    help="name of the model",
+)
+def main(config_path: str, data_folder: str, pretrained_model_path, resume, model_name):
+    if model_name == "":
+        # 获取当前时间
+        now = datetime.now()
+        # 以当前时间作为模型名称
+        model_name = now.strftime("%Y-%m-%d_%H:%M:%S")
+    else:
+        print("Model name: ", model_name)
+
     data_folder = pathlib.Path(data_folder)
     os.environ["TORCH_CUDNN_V8_API_ENABLED"] = (
         "1"  # Prevent unacceptable slowdowns when using 16 precision
@@ -133,7 +150,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         precision=config["precision"],
         gradient_clip_val=config["gradient_clip_val"],
         gradient_clip_algorithm=config["gradient_clip_algorithm"],
-        default_root_dir=str(pathlib.Path("ckpt") / config["model_name"]),
+        default_root_dir=str(pathlib.Path("ckpt") / model_name),
         val_check_interval=config["val_check_interval"],
         check_val_every_n_epoch=None,
         max_epochs=-1,
@@ -147,7 +164,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         lightning_alignment_model.load_pretrained(pretrained)
     elif resume:
         # resume training state
-        ckpt_path_list = (pathlib.Path("ckpt") / config["model_name"]).rglob("*.ckpt")
+        ckpt_path_list = (pathlib.Path("ckpt") / model_name).rglob("*.ckpt")
         ckpt_path_list = sorted(
             ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True
         )
@@ -163,7 +180,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
 
     # Discard the optimizer and save
     trainer.save_checkpoint(
-        str(pathlib.Path("ckpt") / config["model_name"]) + ".ckpt", weights_only=True
+        str(pathlib.Path("ckpt") / model_name) + ".ckpt", weights_only=True
     )
 
 

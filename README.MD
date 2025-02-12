@@ -134,6 +134,8 @@ On singing data, SOFA has the following advantages over MFA (Montreal Forced Ali
     
     ```python train.py -p path_to_your_pretrained_model```
 
+    See train.py for more optional parameters.
+
 5. Training visualization: ```tensorboard --logdir=ckpt/```.
 
 ## Evaluation (for model developers)

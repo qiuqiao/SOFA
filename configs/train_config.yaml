@@ -1,5 +1,3 @@
-model_name: mandarin_opencpop-extension
-
 # settings
 float32_matmul_precision: high
 random_seed: 114514

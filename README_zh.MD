@@ -133,6 +133,8 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
     
     ```python train.py -p path_to_your_pretrained_model```
 
+    更多可选参数参见train.py。
+
 5. 训练可视化：`tensorboard --logdir=ckpt/`。
 
 ## 评估（适用于模型开发者）
