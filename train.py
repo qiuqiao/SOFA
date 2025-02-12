@@ -9,6 +9,10 @@ from torch.utils.data import DataLoader
 
 from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
 from modules.task.lightning import LitForcedAlignmentTask
+from modules.layer.backbone.unet import UNetBackbone
+from modules.layer.block.resnet_block import ResidualBasicBlock
+from modules.layer.scaling.stride_conv import DownSampling, UpSampling
+import torch.nn as nn
 
 
 @click.command()
@@ -97,10 +101,25 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
         persistent_workers=num_workers > 0,
     )
 
+    # network
+    network_backbone = UNetBackbone(
+        config["melspec_config"]["n_mels"],
+        config["model"]["hidden_dims"],
+        config["model"]["hidden_dims"],
+        ResidualBasicBlock,
+        DownSampling,
+        UpSampling,
+        down_sampling_factor=config["model"]["down_sampling_factor"],  # 3
+        down_sampling_times=config["model"]["down_sampling_times"],  # 7
+        channels_scaleup_factor=config["model"]["channels_scaleup_factor"],  # 1.5
+    )
+    network_head = nn.Linear(config["model"]["hidden_dims"], vocab["<vocab_size>"] + 1)
+
     # model
     lightning_alignment_model = LitForcedAlignmentTask(
         vocab_text,
-        config["model"],
+        network_backbone,
+        network_head,
         config["melspec_config"],
         config["optimizer_config"],
         config["loss_config"],

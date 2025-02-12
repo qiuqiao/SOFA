@@ -10,9 +10,6 @@ import torch.optim.lr_scheduler as lr_scheduler_module
 import yaml
 from einops import rearrange, repeat
 
-from modules.layer.backbone.unet import UNetBackbone
-from modules.layer.block.resnet_block import ResidualBasicBlock
-from modules.layer.scaling.stride_conv import DownSampling, UpSampling
 from modules.loss.GHMLoss import CTCGHMLoss, GHMLoss
 from modules.utils.get_melspec import MelSpecExtractor
 from modules.utils.load_wav import load_wav
@@ -98,31 +95,18 @@ class LitForcedAlignmentTask(pl.LightningModule):
     def __init__(
         self,
         vocab_text,
-        model_config,
+        network_backbone,
+        network_head,
         melspec_config,
         optimizer_config,
         loss_config,
         data_augmentation_enabled,
     ):
         super().__init__()
-        self.save_hyperparameters()
 
         self.vocab = yaml.safe_load(vocab_text)
-
-        self.backbone = UNetBackbone(
-            melspec_config["n_mels"],
-            model_config["hidden_dims"],
-            model_config["hidden_dims"],
-            ResidualBasicBlock,
-            DownSampling,
-            UpSampling,
-            down_sampling_factor=model_config["down_sampling_factor"],  # 3
-            down_sampling_times=model_config["down_sampling_times"],  # 7
-            channels_scaleup_factor=model_config["channels_scaleup_factor"],  # 1.5
-        )
-        self.head = nn.Linear(
-            model_config["hidden_dims"], self.vocab["<vocab_size>"] + 1
-        )
+        self.backbone = network_backbone
+        self.head = network_head
         self.melspec_config = melspec_config  # Required for inference
         self.optimizer_config = optimizer_config
 
