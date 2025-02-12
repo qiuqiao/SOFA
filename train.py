@@ -8,7 +8,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
-from modules.task.forced_alignment import LitForcedAlignmentTask
+from modules.task.lightning import LitForcedAlignmentTask
 
 
 @click.command()
@@ -46,9 +46,9 @@ from modules.task.forced_alignment import LitForcedAlignmentTask
 )
 def main(config_path: str, data_folder: str, pretrained_model_path, resume):
     data_folder = pathlib.Path(data_folder)
-    os.environ[
-        "TORCH_CUDNN_V8_API_ENABLED"
-    ] = "1"  # Prevent unacceptable slowdowns when using 16 precision
+    os.environ["TORCH_CUDNN_V8_API_ENABLED"] = (
+        "1"  # Prevent unacceptable slowdowns when using 16 precision
+    )
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
@@ -65,7 +65,7 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume):
     pl.seed_everything(config["random_seed"], workers=True)
 
     # define dataset
-    num_workers = config['dataloader_workers']
+    num_workers = config["dataloader_workers"]
     train_dataset = MixedDataset(
         config["data_augmentation_size"], data_folder / "binary", prefix="train"
     )
