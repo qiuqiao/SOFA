@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
 from torch import nn
+import matplotlib.pyplot as plt
 
 from ..jit.forced_alignment import decode_matrix, generate_matrix, generate_prior
 
@@ -151,6 +152,7 @@ class ForcedAlignmentTask(nn.Module):
         phone_ids,
         phone_lengths,
         phone_intervals,
+        **kwargs
     ):
         weak_label = label_types == 1
         full_label = label_types == 0
@@ -162,7 +164,7 @@ class ForcedAlignmentTask(nn.Module):
         # 兼容 no_label 的loss不在这个task里
 
         loss_dict = {
-            "alignment/forward_sum_loss": self._forward_sum_loss(
+            "forced_alignment/forward_sum_loss": self._forward_sum_loss(
                 align_matrix[weak_label],
                 audio_lengths[weak_label],
                 phone_lengths[weak_label],
@@ -171,7 +173,7 @@ class ForcedAlignmentTask(nn.Module):
         if weak_label.any():
             loss_dict.update(
                 {
-                    "alignment/pseudo_label_loss": self._pseudo_label_loss(
+                    "forced_alignment/pseudo_label_loss": self._pseudo_label_loss(
                         align_matrix[weak_label],
                         audio_lengths[weak_label],
                         phone_lengths[weak_label],
@@ -181,7 +183,7 @@ class ForcedAlignmentTask(nn.Module):
         if full_label.any():
             loss_dict.update(
                 {
-                    "alignment/classification_loss": self._classification_loss(
+                    "forced_alignment/classification_loss": self._classification_loss(
                         align_matrix[full_label], phone_intervals[full_label]
                     )
                 }
@@ -189,21 +191,25 @@ class ForcedAlignmentTask(nn.Module):
 
         return loss_dict
 
-    def train(self):
+    def train(self, *args, **kwargs):
         """
         获得loss_dict
         """
-        pass
+        return self._get_losses(*args, **kwargs)
 
-    def valid(self):
+    def valid(self, **kwargs):
         """
         获得metric_dict和figure
         """
+        # metric_dict = {}
+        # taichi解码
+        # 绘图
+        # figure = plt.
         pass
 
     def predict(self):
         """
-        获得推理结果，不限制返回内容
+        获得result_dict
         """
         pass
 
@@ -279,7 +285,7 @@ if __name__ == "__main__":
         print("classification_loss", loss)
 
         # loss dict
-        loss = alignment._get_losses(
+        loss = alignment.train(
             label_types,
             audio_embed,
             audio_lengths,
@@ -288,5 +294,7 @@ if __name__ == "__main__":
             phone_intervals,
         )
         print(loss)
+
+        sum(loss.values()).backward()
 
     test_alignment_head()
