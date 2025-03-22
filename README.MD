@@ -83,6 +83,30 @@ On singing data, SOFA has the following advantages over MFA (Montreal Forced Ali
      - See [g2p module instructions](modules/g2p/readme_g2p.md)
    - In the matching mode, you can activate it by specifying `-m` during inference. It finds the most probable contiguous sequence segment within the given phoneme sequence, rather than having to use all the phonemes.
 
+## ONNX Inference
+
+1. Install onnxruntime  
+    ```bash
+    pip install onnxruntime-gpu
+    ```
+2. Execute inference  
+    ```bash
+    python onnx_infer.py \
+    --onnx /path/to/model.onnx \
+    --folder /input/audio/folder \
+    --g2p Dictionary \
+    --ap_detector LoudnessSpectralcentroidAPDetector \
+    --out_formats textgrid,htk
+    ```
+
+Parameter descriptions:  
+
+- `--onnx`	Path to the ONNX model file  
+- `--folder`	Input directory containing .wav audio and .lab annotations  
+- `--g2p`	Grapheme-to-phoneme converter (default: Dictionary)  
+- `--ap_detector`	Silence segment detection algorithm (default: LoudnessSpectralcentroidAPDetector)  
+- `--out_formats`	List of output formats (comma-separated)
+
 ## Training
 
 1. Follow the steps above for setting up the environment. It is recommended to install torchaudio for faster binarization speed;
@@ -125,6 +149,17 @@ On singing data, SOFA has the following advantages over MFA (Montreal Forced Ali
 3. Modify `binarize_config.yaml` as needed, then execute `python binarize.py`;
 4. Download the pre-trained model you need from releases, modify `train_config.yaml` as needed, then execute `python train.py -p path_to_your_pretrained_model`;
 5. For training visualization: `tensorboard --logdir=ckpt/`.
+
+## Export ONNX Model
+
+1. Install onnxruntime
+    ```bash
+    pip install onnxruntime-gpu
+    ```
+2. Export ONNX model
+    ```bash
+    python export_onnx.py --ckpt_path /path/to/checkpoint.ckpt --onnx_path /output/model.onnx
+    ```
 
 ## Evaluation (for model developers)
 

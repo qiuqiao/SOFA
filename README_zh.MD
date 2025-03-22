@@ -82,6 +82,31 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
    - 使用自定义的g2p，而不是使用词典
      - 参见[g2p模块使用说明](modules/g2p/readme_g2p_zh.md)
    - matching模式，推理时指定`-m`即可开启，会在给定的音素序列中找到一个使得概率最大的连续序列片段，而非必须用上所有音素。
+
+## onnx推理
+
+1. 安装onnxruntime
+    ```bash
+    pip install onnxruntime-gpu
+    ```
+2. 执行推理
+    ```bash
+    python onnx_infer.py \
+    --onnx /path/to/model.onnx \
+    --folder /input/audio/folder \
+    --g2p Dictionary \
+    --ap_detector LoudnessSpectralcentroidAPDetector \
+    --out_formats textgrid,htk
+    ```
+
+参数说明：
+
+- `--onnx`	ONNX模型文件路径
+- `--folder`	包含.wav音频和.lab标注的输入目录
+- `--g2p`	字素到音素转换器（默认：Dictionary）
+- `--ap_detector`	静音段检测算法（默认：LoudnessSpectralcentroidAPDetector）
+- `--out_formats`	输出格式列表（逗号分隔）
+
 ## 训练
 
 1. 参照上文进行环境配置。建议安装torchaudio以获得更快的binarize速度；
@@ -124,6 +149,17 @@ SOFA(Singing-Oriented Forced Aligner)是一个专为歌声设计的强制对齐�
 3. 按需修改`binarize_config.yaml`，然后执行`python binarize.py`；
 4. 在release中下载你需要的预训练模型，并按需修改`train_config.yaml`，然后执行`python train.py -p path_to_your_pretrained_model`；
 5. 训练可视化：`tensorboard --logdir=ckpt/`。
+
+## 导出onnx模型
+
+1. 安装onnxruntime
+    ```bash
+    pip install onnxruntime-gpu
+    ```
+2. 导出onnx模型
+    ```bash
+    python export_onnx.py --ckpt_path /path/to/checkpoint.ckpt --onnx_path /output/model.onnx
+    ```
 
 ## 评估（适用于模型开发者）
 
