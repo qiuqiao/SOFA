@@ -21,8 +21,18 @@ from modules.utils.plot import plot_for_valid
 
 
 @numba.jit
-def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
-                 prob3_pad_len):
+def forward_pass(
+    T,
+    S,
+    prob_log,
+    not_edge_prob_log,
+    edge_prob_log,
+    curr_ph_max_prob_log,
+    dp,
+    backtrack_s,
+    ph_seq_id,
+    prob3_pad_len,
+):
     for t in range(1, T):
         # [t-1,s] -> [t,s]
         prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
@@ -31,10 +41,10 @@ def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_p
         prob2[0] = -np.inf
         for i in range(1, S):
             prob2[i] = (
-                    dp[t - 1, i - 1]
-                    + prob_log[t, i - 1]
-                    + edge_prob_log[t]
-                    + curr_ph_max_prob_log[i - 1] * (T / S)
+                dp[t - 1, i - 1]
+                + prob_log[t, i - 1]
+                + edge_prob_log[t]
+                + curr_ph_max_prob_log[i - 1] * (T / S)
             )
 
         # [t-1,s-2] -> [t,s]
@@ -46,10 +56,10 @@ def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_p
                 prob3[i] = -np.inf
             else:
                 prob3[i] = (
-                        dp[t - 1, i - prob3_pad_len]
-                        + prob_log[t, i - prob3_pad_len]
-                        + edge_prob_log[t]
-                        + curr_ph_max_prob_log[i - prob3_pad_len] * (T / S)
+                    dp[t - 1, i - prob3_pad_len]
+                    + prob_log[t, i - prob3_pad_len]
+                    + edge_prob_log[t]
+                    + curr_ph_max_prob_log[i - prob3_pad_len] * (T / S)
                 )
 
         stacked_probs = np.empty((3, S), dtype=np.float32)
@@ -236,8 +246,16 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # forward
         prob3_pad_len = 2 if S >= 2 else 1
         dp, backtrack_s, curr_ph_max_prob_log = forward_pass(
-            T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
-            prob3_pad_len
+            T,
+            S,
+            prob_log,
+            not_edge_prob_log,
+            edge_prob_log,
+            curr_ph_max_prob_log,
+            dp,
+            backtrack_s,
+            ph_seq_id,
+            prob3_pad_len,
         )
 
         # backward
@@ -321,7 +339,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ctc_logits = ctc_logits[:, :num_frames, :]
 
         ph_mask = (
-            ph_mask.to(ph_frame_logits.device).unsqueeze(0).unsqueeze(0).logical_not()
+            ph_mask.to(torch.float32)
+            .to(ph_frame_logits.device)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .logical_not()
             * 1e9
         )
         ph_frame_pred = (
