@@ -6,7 +6,7 @@ from einops import rearrange, repeat
 from torch import nn
 import matplotlib.pyplot as plt
 
-from ..jit.forced_alignment import decode_matrix, generate_matrix, generate_prior
+from modules.jit.forced_alignment import decode_matrix, generate_matrix, generate_prior
 
 
 class ForcedAlignmentTask(nn.Module):
@@ -16,11 +16,11 @@ class ForcedAlignmentTask(nn.Module):
 
     def __init__(
         self,
-        upsample_rate,  # 上采样音频特征，时间分辨率更高
-        audio_network: nn.Module,  # 让音频特征的维度与音素特征的维度一致
-        num_phones,
-        phone_embedding_dims,  # 音素嵌入维度
-        phone_network: nn.Module,  # 音素特征网络
+        upsample_rate: int,  # 在进入audio_network之前，先上采样音频特征，时间分辨率更高，(B, T, C) -> (B, T * upsample_rate, C)
+        audio_network: nn.Module,  # 用于强制对其的head，要求把音频特征的维度与音素特征的维度一致， (B, T * upsample_rate, C) -> (B, T * upsample_rate, embed_dims)
+        num_phones: int,  # 音素数量
+        phone_embedding_dims: int,  # 音素嵌入维度
+        phone_network: nn.Module,  # 音素特征网络， (B, L, phone_embedding_dims) -> (B, L, embed_dims)
     ):
         super().__init__()
 
@@ -29,7 +29,7 @@ class ForcedAlignmentTask(nn.Module):
         self.audio_network = audio_network
 
         self.phone_embedding = nn.Embedding(num_phones, phone_embedding_dims)
-        self.phone_prior = nn.Embedding(num_phones, 1)
+        self.phone_prior = nn.Embedding(num_phones, 1)  # 音素先验概率
         self.phone_prior.weight.data.zero_()  # TODO: 使用统计出来的数据
         self.phone_network = phone_network
 

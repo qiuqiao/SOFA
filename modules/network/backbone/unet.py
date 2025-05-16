@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 
-from modules.layer.block.resnet_block import ResidualBasicBlock
-from modules.layer.scaling.base import BaseDowmSampling, BaseUpSampling
-from modules.layer.scaling.stride_conv import DownSampling, UpSampling
+from modules.network.block.resnet_block import ResidualBasicBlock
+from modules.network.scaling.base import BaseDowmSampling, BaseUpSampling
+from modules.network.scaling.stride_conv import DownSampling, UpSampling
 
 
 class UNetBackbone(nn.Module):
@@ -102,6 +102,14 @@ class UNetBackbone(nn.Module):
         self.decoders.append(block(hidden_dims, output_dims, **kwargs))
 
     def forward(self, x):
+        """_summary_
+
+        Args:
+            x (torch.Tensor): shape: (B, T, C)
+
+        Returns:
+            torch.Tensor: shape: (B, T, C)
+        """
         T = x.shape[1]
         padding_len = T % self.divisible_factor
         if padding_len != 0:

@@ -9,9 +9,9 @@ from torch.utils.data import DataLoader
 
 from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
 from modules.task.lightning import LitForcedAlignmentTask
-from modules.layer.backbone.unet import UNetBackbone
-from modules.layer.block.resnet_block import ResidualBasicBlock
-from modules.layer.scaling.stride_conv import DownSampling, UpSampling
+from modules.network.backbone.unet import UNetBackbone
+from modules.network.block.resnet_block import ResidualBasicBlock
+from modules.network.scaling.stride_conv import DownSampling, UpSampling
 import torch.nn as nn
 from datetime import datetime
 

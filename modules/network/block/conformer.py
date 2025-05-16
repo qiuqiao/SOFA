@@ -4,20 +4,20 @@ from einops import rearrange
 from .attention import MultiHeadSelfAttention
 from .func_module import FuncModule
 from .residual import Residual
-from modules.layer.activation.GLU import GLU
+from modules.network.activation.GLU import GLU
 
 
 class ConformerBlock(nn.Module):
     def __init__(
-            self,
-            input_dims=128,
-            output_dims=128,
-            hidden_dims=64,
-            kernel_size=3,
-            dropout=0.1,
-            num_heads=8,
-            max_seq_len=3200,
-            mask="none",
+        self,
+        input_dims=128,
+        output_dims=128,
+        hidden_dims=64,
+        kernel_size=3,
+        dropout=0.1,
+        num_heads=8,
+        max_seq_len=3200,
+        mask="none",
     ):
         super(ConformerBlock, self).__init__()
         self.feed_forward_1 = nn.Sequential(
@@ -30,7 +30,9 @@ class ConformerBlock(nn.Module):
         )
         self.multi_head_self_attention = nn.Sequential(
             nn.LayerNorm(hidden_dims),
-            MultiHeadSelfAttention(hidden_dims, num_heads=num_heads, mask=mask, max_seq_len=max_seq_len),
+            MultiHeadSelfAttention(
+                hidden_dims, num_heads=num_heads, mask=mask, max_seq_len=max_seq_len
+            ),
         )
         self.convolution = nn.Sequential(
             nn.LayerNorm(hidden_dims),
@@ -88,34 +90,36 @@ class ConformerBlock(nn.Module):
 
 class ForwardBackwardConformerBlock(nn.Module):
     def __init__(
-            self,
-            input_dims=128,
-            output_dims=128,
-            hidden_dims=128,
-            kernel_size=3,
-            dropout=0.1,
-            num_heads=8,
-            max_seq_len=3200,
+        self,
+        input_dims=128,
+        output_dims=128,
+        hidden_dims=128,
+        kernel_size=3,
+        dropout=0.1,
+        num_heads=8,
+        max_seq_len=3200,
     ):
         super(ForwardBackwardConformerBlock, self).__init__()
-        self.forward_block = ConformerBlock(input_dims,
-                                            hidden_dims,
-                                            hidden_dims,
-                                            kernel_size,
-                                            dropout,
-                                            num_heads,
-                                            max_seq_len,
-                                            mask='upper',
-                                            )
-        self.backward_block = ConformerBlock(hidden_dims,
-                                             output_dims,
-                                             hidden_dims,
-                                             kernel_size,
-                                             dropout,
-                                             num_heads,
-                                             max_seq_len,
-                                             mask='lower',
-                                             )
+        self.forward_block = ConformerBlock(
+            input_dims,
+            hidden_dims,
+            hidden_dims,
+            kernel_size,
+            dropout,
+            num_heads,
+            max_seq_len,
+            mask="upper",
+        )
+        self.backward_block = ConformerBlock(
+            hidden_dims,
+            output_dims,
+            hidden_dims,
+            kernel_size,
+            dropout,
+            num_heads,
+            max_seq_len,
+            mask="lower",
+        )
 
     def forward(self, x):
         x = self.forward_block(x)
