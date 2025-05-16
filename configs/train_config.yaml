@@ -10,9 +10,10 @@ batch_max_length: 500 # unit: seconds
 binning_length: 5000 # unit: seconds
 drop_last: False
 
-# model
-model:
-  hidden_dims: 128
+# network
+backbone_net:
+  network_name: unet
+  n_dims: 128
   down_sampling_factor: 3
   down_sampling_times: 7
   channels_scaleup_factor: 1.5
@@ -41,4 +42,4 @@ devices: auto # num_devices
 precision: bf16-mixed # bf16-mixed , 32-true
 gradient_clip_val: 1.0
 gradient_clip_algorithm: norm #value
-val_check_interval: 235
+val_check_interval: 100

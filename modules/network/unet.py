@@ -6,15 +6,10 @@ from modules.network.scaling.base import BaseDowmSampling, BaseUpSampling
 from modules.network.scaling.stride_conv import DownSampling, UpSampling
 
 
-class UNetBackbone(nn.Module):
+class UNet(nn.Module):
     def __init__(
         self,
-        input_dims,
-        output_dims,
-        hidden_dims,
-        block,
-        down_sampling,
-        up_sampling,
+        n_dims,
         down_sampling_factor=2,
         down_sampling_times=5,
         channels_scaleup_factor=2,
@@ -23,57 +18,49 @@ class UNetBackbone(nn.Module):
         """_summary_
 
         Args:
-            input_dims (int):
-            output_dims (int):
-            hidden_dims (int):
-            block (nn.Module): shape: (B, T, C) -> shape: (B, T, C)
-            down_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T/down_sampling_factor, C*2)
-            up_sampling (nn.Module): shape: (B, T, C) -> shape: (B, T*down_sampling_factor, C/2)
+            n_dims (int): input and output feature dimension
+            down_sampling_factor (int, optional): down sampling factor. Defaults to 2.
+            down_sampling_times (int, optional): down sampling times. Defaults to 5.
+            channels_scaleup_factor (int, optional): channels scale up factor. Defaults to 2.
+            **kwargs: other parameters for ResidualBasicBlock
         """
-        super(UNetBackbone, self).__init__()
-        assert issubclass(block, nn.Module)
-        assert issubclass(down_sampling, BaseDowmSampling)
-        assert issubclass(up_sampling, BaseUpSampling)
+        super(UNet, self).__init__()
 
-        self.input_dims = input_dims
-        self.output_dims = output_dims
-        self.hidden_dims = hidden_dims
-
+        self.n_dims = n_dims
         self.divisible_factor = down_sampling_factor**down_sampling_times
 
         self.encoders = nn.ModuleList()
-        self.encoders.append(block(input_dims, hidden_dims, **kwargs))
         for i in range(down_sampling_times - 1):
             i += 1
             self.encoders.append(
                 nn.Sequential(
-                    down_sampling(
-                        int(channels_scaleup_factor ** (i - 1)) * hidden_dims,
-                        int(channels_scaleup_factor**i) * hidden_dims,
+                    DownSampling(
+                        int(channels_scaleup_factor ** (i - 1)) * n_dims,
+                        int(channels_scaleup_factor**i) * n_dims,
                         down_sampling_factor,
                     ),
-                    block(
-                        int(channels_scaleup_factor**i) * hidden_dims,
-                        int(channels_scaleup_factor**i) * hidden_dims,
+                    ResidualBasicBlock(
+                        int(channels_scaleup_factor**i) * n_dims,
+                        int(channels_scaleup_factor**i) * n_dims,
                         **kwargs
                     ),
                 )
             )
 
         self.bottle_neck = nn.Sequential(
-            down_sampling(
-                int(channels_scaleup_factor ** (down_sampling_times - 1)) * hidden_dims,
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
+            DownSampling(
+                int(channels_scaleup_factor ** (down_sampling_times - 1)) * n_dims,
+                int(channels_scaleup_factor**down_sampling_times) * n_dims,
                 down_sampling_factor,
             ),
-            block(
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
+            ResidualBasicBlock(
+                int(channels_scaleup_factor**down_sampling_times) * n_dims,
+                int(channels_scaleup_factor**down_sampling_times) * n_dims,
                 **kwargs
             ),
-            up_sampling(
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
-                int(channels_scaleup_factor ** (down_sampling_times - 1)) * hidden_dims,
+            UpSampling(
+                int(channels_scaleup_factor**down_sampling_times) * n_dims,
+                int(channels_scaleup_factor ** (down_sampling_times - 1)) * n_dims,
                 down_sampling_factor,
             ),
         )
@@ -83,23 +70,22 @@ class UNetBackbone(nn.Module):
             i += 1
             self.decoders.append(
                 nn.Sequential(
-                    block(
+                    ResidualBasicBlock(
                         int(channels_scaleup_factor ** (down_sampling_times - i))
-                        * hidden_dims,
+                        * n_dims,
                         int(channels_scaleup_factor ** (down_sampling_times - i))
-                        * hidden_dims,
+                        * n_dims,
                         **kwargs
                     ),
-                    up_sampling(
+                    UpSampling(
                         int(channels_scaleup_factor ** (down_sampling_times - i))
-                        * hidden_dims,
+                        * n_dims,
                         int(channels_scaleup_factor ** (down_sampling_times - i - 1))
-                        * hidden_dims,
+                        * n_dims,
                         down_sampling_factor,
                     ),
                 )
             )
-        self.decoders.append(block(hidden_dims, output_dims, **kwargs))
 
     def forward(self, x):
         """_summary_
@@ -131,8 +117,8 @@ class UNetBackbone(nn.Module):
 
 if __name__ == "__main__":
     # pass
-    model = UNetBackbone(1, 2, 64, ResidualBasicBlock, DownSampling, UpSampling)
+    model = UNet(64)
     print(model)
-    x = torch.randn(16, 320, 1)
+    x = torch.randn(16, 320, 64)
     out = model(x)
     print(x.shape, out.shape)

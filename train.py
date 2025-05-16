@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
 from modules.task.lightning import LitForcedAlignmentTask
-from modules.network.backbone.unet import UNetBackbone
+from modules.network import get_network
 from modules.network.block.resnet_block import ResidualBasicBlock
 from modules.network.scaling.stride_conv import DownSampling, UpSampling
 import torch.nn as nn
@@ -119,24 +119,25 @@ def main(config_path: str, data_folder: str, pretrained_model_path, resume, mode
     )
 
     # network
-    network_backbone = UNetBackbone(
+    input_proj = nn.Linear(
         config["melspec_config"]["n_mels"],
-        config["model"]["hidden_dims"],
-        config["model"]["hidden_dims"],
-        ResidualBasicBlock,
-        DownSampling,
-        UpSampling,
-        down_sampling_factor=config["model"]["down_sampling_factor"],  # 3
-        down_sampling_times=config["model"]["down_sampling_times"],  # 7
-        channels_scaleup_factor=config["model"]["channels_scaleup_factor"],  # 1.5
+        config["backbone_net"]["n_dims"],
     )
-    network_head = nn.Linear(config["model"]["hidden_dims"], vocab["<vocab_size>"] + 1)
+    backbone_net = get_network(
+        config["backbone_net"].pop("network_name"),
+        config["backbone_net"],
+    )
+
+    output_proj = nn.Linear(config["backbone_net"]["n_dims"], vocab["<vocab_size>"] + 1)
 
     # model
     lightning_alignment_model = LitForcedAlignmentTask(
         vocab_text,
-        network_backbone,
-        network_head,
+        nn.Sequential(
+            input_proj,
+            backbone_net,
+        ),
+        output_proj,
         config["melspec_config"],
         config["optimizer_config"],
         config["loss_config"],
