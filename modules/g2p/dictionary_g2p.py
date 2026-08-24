@@ -14,12 +14,21 @@ class DictionaryG2P(BaseG2P):
         }
 
     def _g2p(self, input_text):
+        # ph_idx_to_word_idx 约定:
+        #   >=0 : 该音素属于第 word_idx 个 word
+        #   -1  : 自动插入的 silence SP(每词后)
+        #   -2  : 用户在 .lab 显式标注的乐句边界 SP(复用前一个自动 SP, 不新增 token)
         word_seq_raw = input_text.strip().split(" ")
         word_seq = []
         word_seq_idx = 0
         ph_seq = ["SP"]
         ph_idx_to_word_idx = [-1]
         for word in word_seq_raw:
+            if word == "SP":
+                # .lab 显式乐句边界: 复用前一个自动 SP(不新增 token, 避免连续 SP), 标记为 explicit(-2)
+                if len(ph_seq) > 0 and ph_seq[-1] == "SP":
+                    ph_idx_to_word_idx[len(ph_seq) - 1] = -2
+                continue
             if word not in self.dictionary:
                 warnings.warn(f"Word {word} is not in the dictionary. Ignored.")
                 continue
