@@ -410,6 +410,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
         for i, ph_idx in enumerate(ph_idx_seq):
             # ph_idx只能用于两种情况：ph_seq和ph_idx_to_word_idx
             if ph_seq[ph_idx] == "SP":
+                # 显式乐句边界(.lab 标注, ph_idx_to_word_idx==-2): 输出 BND word,
+                # 保留该 SP 的时段(可为 0ms)供下游按结构切句; 普通自动 SP(-1)仍跳过
+                if ph_idx_to_word_idx[ph_idx] == -2:
+                    word_seq_pred.append("BND")
+                    word_intervals_pred.append([ph_intervals[i, 0], ph_intervals[i, 1]])
+                    word_idx_last = -1  # BND 后下个 word 必属新词
                 continue
             ph_seq_pred.append(ph_seq[ph_idx])
             ph_intervals_pred.append(ph_intervals[i, :])
